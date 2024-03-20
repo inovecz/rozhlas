@@ -27,8 +27,8 @@
         </span>
       </SidebarItem>
 
-      <SidebarItem to="Records" class="group relative"
-                   :class="{['router-link-active router-link-exact-active'] : $route.path.match('records') !== null}">
+      <SidebarItem to="Recordings" class="group relative"
+                   :class="{['router-link-active router-link-exact-active'] : $route.path.match('recordings') !== null}">
         <div class="w-10 h-10 text-gray-200 hover:text-gray-50 flex items-center justify-center">
           <span class="mdi mdi-album text-3xl"></span>
         </div>

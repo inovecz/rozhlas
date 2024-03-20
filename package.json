@@ -9,21 +9,18 @@
         "@vitejs/plugin-vue": "^5.0.4",
         "autoprefixer": "^10.4.18",
         "axios": "^1.6.8",
-        "laravel-echo": "^1.16.0",
         "laravel-vite-plugin": "^1.0",
         "postcss": "^8.4.36",
-        "pusher-js": "^8.4.0-rc2",
         "tailwindcss": "^3.4.1",
         "vite": "^5.0",
         "vite-plugin-node-polyfills": "^0.21.0"
     },
     "dependencies": {
         "@mdi/font": "^7.4.47",
+        "jwt-decode": "^4.0.0",
         "pinia": "^2.1.7",
         "pinia-plugin-persistedstate": "^3.2.1",
-        "simple-peer": "^9.11.1",
         "vue": "^3.4.21",
-        "vue-audio-recorder": "^3.0.1",
         "vue-router": "^4.3.0"
     }
 }

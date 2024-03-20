@@ -18,7 +18,7 @@
 
         <div class="flex items-center gap-4">
           <span class="cursor-pointer font-renner_medium text-white" title="Representative">
-            {{ loggedUser?.username }}
+            {{ username }}
           </span>
         </div>
         <div class="dropdown inline-block relative">
@@ -58,9 +58,13 @@ const loggedUser = computed(() => basicStoreInfo.loggedUser);
 const toggleSidebar = () => {
   basicStoreInfo.showSideBar = !basicStoreInfo.showSideBar;
 }
+
+const username = computed(() => localStorage.getItem('username'));
+
 const logout = () => {
   http.post('/auth/logout').then(response => {
-    basicStore.loggedUser = null;
+    localStorage.removeItem('token');
+    localStorage.removeItem('username');
     router.push('/login')
   }).catch(error => {
     console.log(error);

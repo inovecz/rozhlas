@@ -34,11 +34,9 @@
 
 <script setup>
 import imgUrl from '../../../img/background.jpg';
-import {basicStore} from "../../store/basicStore.js";
 import {computed, ref} from "vue";
 import router from "../../routes/index.js";
-
-const basicStoreInfo = basicStore();
+import {jwtDecode} from "jwt-decode";
 
 const username = ref('');
 const password = ref('');
@@ -56,7 +54,9 @@ const login = () => {
     username: username.value,
     password: password.value,
   }).then(response => {
-    basicStoreInfo.loggedUser = response.data.user;
+    localStorage.setItem('token', response.data.access_token);
+    const decodedJwt = jwtDecode(response.data.access_token);
+    localStorage.setItem('username', decodedJwt.username);
     router.push('/live-broadcast')
   }).catch(error => {
     console.log(error);

@@ -7,8 +7,7 @@ import Login from "../views/auth/Login.vue";
 import Register from "../views/auth/Register.vue";
 import LiveBroadcast from "../views/live-broadcast/LiveBroadcast.vue";
 import Viewer from "../views/live-broadcast/Viewer.vue";
-import {basicStore} from "../store/basicStore.js";
-import Records from "../views/records/Records.vue";
+import Recordings from "../views/records/Recordings.vue";
 
 const routes = [
     {
@@ -18,7 +17,7 @@ const routes = [
         children: [
             {path: "/live-broadcast", name: "LiveBroadcast", component: LiveBroadcast, meta: {title: "Živé vysílání"}},
             {path: "/streaming/:stream_id", name: "Streaming", component: Viewer, meta: {title: "Vysílání"}},
-            {path: "/records", name: "Records", component: Records, meta: {title: "Záznamy"}},
+            {path: "/recordings", name: "Recordings", component: Recordings, meta: {title: "Záznamy"}},
             {path: '/about', name: "About", component: About},
         ],
     },
@@ -48,9 +47,7 @@ const router = createRouter({
 
 // Update the document title on each route change
 router.beforeEach((to, from, next) => {
-    const basicStoreInfo = basicStore();
-    const authUser = basicStoreInfo.loggedUser;
-    if (to.name !== 'Login' && to.name !== 'Register' && authUser.id === undefined) {
+    if (to.name !== 'Login' && to.name !== 'Register' && localStorage.getItem('token') === null) {
         next({name: 'Login'});
     }
     document.title = to.meta.title || 'Sarrah IV';
