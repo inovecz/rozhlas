@@ -13,14 +13,8 @@
 
     <nav class="relative">
 
-      <SidebarItem
-          to="LiveBroadcast"
-          class="group relative"
-          :class="{
-                    ['router-link-active router-link-exact-active']:
-                        $route.path.match('live-broadcast') !== null,
-                }"
-      >
+      <SidebarItem to="LiveBroadcast" class="group relative"
+                   :class="{['router-link-active router-link-exact-active']: $route.path.match('live-broadcast') !== null}">
         <div class="w-10 h-10 text-gray-200 hover:text-gray-50 flex items-center justify-center">
           <span class="mdi mdi-microphone text-3xl"></span>
         </div>
@@ -28,26 +22,34 @@
               v-if="!showSideBar">
           Živé vysílání
         </span>
-        <span
-            class="sidebar-item text-white"
-            :class="[showSideBar ? 'block' : 'hidden']"
-        >Živé vysílání</span
-        >
+        <span class="sidebar-item text-white" :class="[showSideBar ? 'block' : 'hidden']">
+          Živé vysílání
+        </span>
+      </SidebarItem>
+
+      <SidebarItem to="Records" class="group relative"
+                   :class="{['router-link-active router-link-exact-active'] : $route.path.match('records') !== null}">
+        <div class="w-10 h-10 text-gray-200 hover:text-gray-50 flex items-center justify-center">
+          <span class="mdi mdi-album text-3xl"></span>
+        </div>
+        <span class="group-hover:opacity-100 transition-opacity bg-gray-800 px-3 text-sm text-gray-100 rounded-md absolute opacity-0 translate-x-14 m-4 mx-auto whitespace-nowrap"
+              v-if="!showSideBar">
+          Záznamy
+        </span>
+        <span class="sidebar-item ml-2 text-white" :class="[showSideBar ? 'block' : 'hidden']">
+          Záznamy
+        </span>
       </SidebarItem>
 
 
-      <SidebarItem
-          to="About"
-          class="group relative"
-          :class="{
-                    ['router-link-active router-link-exact-active']:
-                        $route.path.match('about') !== null,
-                }">
+      <SidebarItem to="About" class="group relative"
+                   :class="{['router-link-active router-link-exact-active']: $route.path.match('about') !== null}">
         <div class="w-10 h-10 text-gray-200 hover:text-gray-50 flex items-center justify-center">
           <span class="mdi  mdi-information text-3xl"></span>
         </div>
         <span class="group-hover:opacity-100 transition-opacity bg-gray-800 px-3 text-sm text-gray-100 rounded-md absolute opacity-0 translate-x-14 m-4 mx-auto whitespace-nowrap"
-              v-if="!showSideBar">O aplikaci
+              v-if="!showSideBar">
+          O aplikaci
         </span>
         <span class="sidebar-item ml-2 text-white" :class="[showSideBar ? 'block' : 'hidden']">
           O aplikaci
