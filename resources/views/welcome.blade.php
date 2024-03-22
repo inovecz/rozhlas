@@ -12,7 +12,7 @@
 
     @vite(['resources/js/app.js', 'resources/css/app.css'])
   </head>
-  <body class="bg-zinc-100">
+  <body class="bg-base-100 text-base-content" data-theme="night">
     @include('helpers.screen-size', ['location' => 'top-center', 'margin' => 'lg'])
     <div id="app">
       <app-component></app-component>

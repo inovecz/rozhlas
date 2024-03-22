@@ -1,3 +1,14 @@
+<script setup>
+
+const props = defineProps({
+  to: {
+    type: String,
+    required: true,
+    default: "LiveBroadcast"
+  }
+});
+</script>
+
 <template>
   <router-link
       :to="{ name: to }"
@@ -6,23 +17,6 @@
     <slot></slot>
   </router-link>
 </template>
-
-<script>
-export default {
-  props: {
-    to: {
-      required: true,
-      type: String,
-      default: "LiveBroadcast",
-    },
-  },
-  computed: {
-    routeName() {
-      return this.$route.name;
-    },
-  },
-};
-</script>
 
 <style scoped>
 .router-link-active,

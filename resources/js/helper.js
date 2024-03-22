@@ -41,3 +41,23 @@ export const getPermissions = () => {
         });
     });
 };
+
+export const getAudioInputDevices = () => {
+    return new Promise((resolve, reject) => {
+        navigator.mediaDevices.enumerateDevices().then(devices => {
+            resolve(devices.filter(device => device.kind === 'audioinput').map(({deviceId, label}) => ({id: deviceId, label})));
+        }).catch(err => {
+            reject(err);
+        });
+    });
+}
+
+export const getAudioOutputDevices = () => {
+    return new Promise((resolve, reject) => {
+        navigator.mediaDevices.enumerateDevices().then(devices => {
+            resolve(devices.filter(device => device.kind === 'audiooutput').map(({deviceId, label}) => ({id: deviceId, label})));
+        }).catch(err => {
+            reject(err);
+        });
+    });
+}

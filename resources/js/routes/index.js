@@ -4,9 +4,7 @@ import DefaultLayout from "../components/layouts/DefaultLayout.vue";
 import Page404 from "../views/PageNotFound.vue";
 import About from "../views/about/About.vue";
 import Login from "../views/auth/Login.vue";
-import Register from "../views/auth/Register.vue";
 import LiveBroadcast from "../views/live-broadcast/LiveBroadcast.vue";
-import Viewer from "../views/live-broadcast/Viewer.vue";
 import Recordings from "../views/records/Recordings.vue";
 
 const routes = [
@@ -16,7 +14,6 @@ const routes = [
         component: DefaultLayout,
         children: [
             {path: "/live-broadcast", name: "LiveBroadcast", component: LiveBroadcast, meta: {title: "Živé vysílání"}},
-            {path: "/streaming/:stream_id", name: "Streaming", component: Viewer, meta: {title: "Vysílání"}},
             {path: "/recordings", name: "Recordings", component: Recordings, meta: {title: "Záznamy"}},
             {path: '/about', name: "About", component: About},
         ],
@@ -28,8 +25,6 @@ const routes = [
         component: AuthLayout,
         children: [
             {path: "/login", name: "Login", component: Login},
-            {path: "/register", name: "Register", component: Register},
-
         ],
     },
     {

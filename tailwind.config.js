@@ -14,6 +14,14 @@ export default {
             },
         },
     },
-    plugins: [],
+    variants: {
+        textOpacity: ['group-disabled'],
+    },
+    plugins: [
+        require("daisyui")
+    ],
+    daisyui: {
+        themes: ["night"],
+    },
 }
 
