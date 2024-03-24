@@ -11,6 +11,14 @@ Route::group(['prefix' => 'auth', 'middleware' => ['api', 'auth:api']], static f
     Route::post('/me', [AuthController::class, 'me']);
 });
 
-Route::group(['middleware' => ['api']], function () {
+Route::group(['middleware' => ['api']], static function () {
     Route::post('/upload', [FileController::class, 'upload']);
+
+    Route::group(['prefix' => 'records'], static function () {
+        Route::post('/list', [FileController::class, 'list']);
+        Route::group(['prefix' => '{file}', 'where' => ['file' => '\d+']], static function () {
+            Route::delete('/', [FileController::class, 'delete']);
+            Route::get('/get-blob', [FileController::class, 'getRecordWithBlob']);
+        });
+    });
 });

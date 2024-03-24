@@ -61,3 +61,30 @@ export const getAudioOutputDevices = () => {
         });
     });
 }
+
+export const dtToTime = (dt) => {
+    const date = new Date(dt);
+    return date.toLocaleDateString('cs-CZ') + ' ' + date.toLocaleTimeString('cs-CZ');
+}
+
+export const durationToTime = (duration) => {
+    const hours = Math.floor(duration / 3600);
+    const minutes = Math.floor((duration % 3600) / 60);
+    const seconds = Math.floor(duration % 60);
+    const formattedMinutes = String(minutes).padStart(2, '0');
+    const formattedSeconds = String(seconds).padStart(2, '0');
+    return `${hours}:${formattedMinutes}:${formattedSeconds}`;
+}
+
+// format bytes as human-readable text
+export const formatBytes = (bytes, decimals = 2) => {
+    if (bytes === 0) return '0 Bytes';
+
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const formattedBytes = (bytes / Math.pow(k, i)).toFixed(decimals);
+
+    return `${formattedBytes} ${sizes[i]}`;
+}

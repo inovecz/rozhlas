@@ -180,9 +180,11 @@ async function saveRecord() {
   const extension = containers.find(c => c.container === container).extension;
 
   const blob = new Blob(recordedBlobs.value, {type: mimeType});
+  console.log(recordedBlobs.value);
 
   const formData = new FormData();
   formData.append('file', blob, 'recording' + extension);
+  formData.append('type', 'RECORD');
   formData.append('name', recordName.value);
   formData.append('metadata[duration]', Math.round((recordingStoppedTime.getTime() - recordingStartedTime.getTime()) / 1000));
   http.post('/upload', formData, {
@@ -190,6 +192,7 @@ async function saveRecord() {
       'Content-Type': 'multipart/form-data'
     }
   }).then(response => {
+    emitter.emit('recordSaved');
     recordedBlobs.value = undefined;
     console.log(response);
   }).catch(error => {
@@ -201,50 +204,55 @@ async function saveRecord() {
 </script>
 
 <template>
-  <div class="flex justify-between">
-    <button ref="recordButton" @click="record()" class="btn btn-sm" :class="recording ? 'btn-error' : 'btn-success'"><span class="mdi mdi-record text-rose-500"></span>Nový záznam</button>
-    <div class="flex space-x-2">
-      <button ref="playButton" @click="playPauseRecorded()" class="btn btn-sm btn-primary" :disabled="(recording || recordedBlobs === undefined)"><span class="mdi mdi-play"></span>Přehrát</button>
-      <button ref="saveButton" @click="showSaveModal()" class="btn btn-sm btn-primary" :disabled="(recording || recordedBlobs === undefined)"><span class="mdi mdi-content-save"></span>Uložit</button>
+  <div class="border border-secondary/50 rounded-md px-5 py-2">
+    <div class="text-xl text-primary mb-4 mt-3 px-1">
+      Nahrání záznamu
     </div>
-    <dialog ref="saveModal" class="modal">
-      <div class="modal-box">
-        <form method="dialog">
-          <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
-        </form>
-        <h3 class="font-bold text-lg">Zadejte název pod kterým bude nahrávka uložena</h3>
-        <div class="my-3">
-          <input ref="recordNameInput" v-model="recordName" type="text" placeholder="Zadejte název nahrávky" class="input input-bordered w-full"/>
-        </div>
-        <div class="modal-action">
-          <button @click="saveRecord()" type="button" class="btn btn-primary" :disabled="canSave"><span class="mdi mdi-content-save"></span>Uložit</button>
-        </div>
+    <div class="flex justify-between">
+      <button ref="recordButton" @click="record()" class="btn btn-sm" :class="recording ? 'btn-error' : 'btn-success'"><span class="mdi mdi-record text-rose-500"></span>Nový záznam</button>
+      <div class="flex space-x-2">
+        <button ref="playButton" @click="playPauseRecorded()" class="btn btn-sm btn-primary" :disabled="(recording || recordedBlobs === undefined)"><span class="mdi mdi-play"></span>Přehrát</button>
+        <button ref="saveButton" @click="showSaveModal()" class="btn btn-sm btn-primary" :disabled="(recording || recordedBlobs === undefined)"><span class="mdi mdi-content-save"></span>Uložit</button>
       </div>
-    </dialog>
-  </div>
-  <div>
-    <span id="error-message"></span>
-  </div>
-  <div>
-    <div class="form-control">
-      <label class="label cursor-pointer">
-        <span class="label-text">Formát záznamu:</span>
-        <select v-model="selectedCodec" class="select select-bordered w-full max-w-xs" :disabled="recording">
-          <option v-if="supportedCodecs.length === 0" disabled value="">Nenalezen žádný kodek</option>
-          <option v-for="codec in supportedCodecs" :value="codec.value">
-            {{ codec.label }}
-          </option>
-        </select>
-      </label>
+      <dialog ref="saveModal" class="modal">
+        <div class="modal-box">
+          <form method="dialog">
+            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
+          </form>
+          <h3 class="font-bold text-lg">Zadejte název pod kterým bude nahrávka uložena</h3>
+          <div class="my-3">
+            <input ref="recordNameInput" v-model="recordName" type="text" placeholder="Zadejte název nahrávky" class="input input-bordered w-full"/>
+          </div>
+          <div class="modal-action">
+            <button @click="saveRecord()" type="button" class="btn btn-primary" :disabled="canSave"><span class="mdi mdi-content-save"></span>Uložit</button>
+          </div>
+        </div>
+      </dialog>
     </div>
-    <div class="form-control">
-      <label class="label cursor-pointer">
-        <span class="label-text">Potlačení ozvěny</span>
-        <input v-model="echoCancellation" type="checkbox" checked="checked" class="checkbox" :disabled="recording"/>
-      </label>
+    <div>
+      <span id="error-message"></span>
     </div>
-  </div>
-  <div>
-    <audio ref="audioPlayer" @ended="playPauseRecorded()" class="bg-white"></audio>
+    <div>
+      <div class="form-control">
+        <label class="label cursor-pointer">
+          <span class="label-text">Formát záznamu:</span>
+          <select v-model="selectedCodec" class="select select-bordered w-full max-w-xs" :disabled="recording">
+            <option v-if="supportedCodecs.length === 0" disabled value="">Nenalezen žádný kodek</option>
+            <option v-for="codec in supportedCodecs" :value="codec.value">
+              {{ codec.label }}
+            </option>
+          </select>
+        </label>
+      </div>
+      <div class="form-control">
+        <label class="label cursor-pointer">
+          <span class="label-text">Potlačení ozvěny</span>
+          <input v-model="echoCancellation" type="checkbox" checked="checked" class="checkbox" :disabled="recording"/>
+        </label>
+      </div>
+    </div>
+    <div>
+      <audio ref="audioPlayer" @ended="playPauseRecorded()"></audio>
+    </div>
   </div>
 </template>
