@@ -1,7 +1,7 @@
 <script setup>
 import imgUrl from '../../../img/background.jpg';
 import {computed, ref} from "vue";
-import router from "../../routes/index.js";
+import router from "../../router.js";
 import {jwtDecode} from "jwt-decode";
 
 const username = ref('');

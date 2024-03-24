@@ -2,7 +2,7 @@
 import {computed, ref} from 'vue';
 import {basicStore} from '../../store/basicStore';
 import Sidebar from "./Sidebar.vue";
-import router from "../../routes/index.js";
+import router from "../../router.js";
 import {getAudioInputDevices, getAudioOutputDevices} from "../../helper.js";
 
 const basicStoreInfo = basicStore();

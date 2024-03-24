@@ -4,7 +4,7 @@ import './bootstrap';
 
 //Component import
 import AppComponent from './App.vue';
-import router from "./routes/index.js";
+import router from "./router.js";
 import '@mdi/font/css/materialdesignicons.css'
 import piniaPluginPersistedState from "pinia-plugin-persistedstate"
 import mitt from 'mitt'
