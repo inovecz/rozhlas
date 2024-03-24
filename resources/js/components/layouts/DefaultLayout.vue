@@ -119,7 +119,7 @@ function persistDefaultOutput() {
     <!--</editor-fold desc="NAVBAR">-->
 
     <!--<editor-fold desc="MAIN SECTION">-->
-    <section class="relative pt-[70px] md:pl-[256px]"
+    <section class="relative pt-[70px] md:pl-[256px] mb-20 sm:mb-10"
              :class="[showSideBar ? '' : 'md:pl-[66px]']">
       <router-view></router-view>
     </section>

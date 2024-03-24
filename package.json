@@ -20,6 +20,7 @@
         "@headlessui/vue": "^1.7.19",
         "@mdi/font": "^7.4.47",
         "jwt-decode": "^4.0.0",
+        "lodash.debounce": "^4.0.8",
         "mitt": "^3.0.1",
         "pinia": "^2.1.7",
         "pinia-plugin-persistedstate": "^3.2.1",

@@ -9,6 +9,7 @@ import '@mdi/font/css/materialdesignicons.css'
 import piniaPluginPersistedState from "pinia-plugin-persistedstate"
 import mitt from 'mitt'
 import * as ConfirmDialog from 'vuejs-confirm-dialog';
+import debounce from 'lodash.debounce';
 
 //define
 const emitter = mitt();
@@ -16,6 +17,8 @@ window.emitter = emitter;
 const app = createApp({});
 const pinia = createPinia()
 pinia.use(piniaPluginPersistedState)
+
+window.debounce = debounce;
 
 //define as component
 app.component("app-component", AppComponent);
