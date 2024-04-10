@@ -1,0 +1,28 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ namespace }};
+
+use {{ namespace }}\Traits\EnumTrait;
+
+enum {{ class }}: string
+{
+    use EnumTrait;
+
+    case VALUE = 'VALUE';
+
+    public function getLabel(): string
+    {
+        return match ($this) {
+            self::VALUE => 'Value\'s label',
+        };
+    }
+
+    public function translate(): string
+    {
+        return match ($this) {
+            self::VALUE => __('enums.VALUE', [], app()->getLocale()),
+        };
+    }
+}
