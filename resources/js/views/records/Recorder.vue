@@ -1,5 +1,7 @@
 <script setup>
 import {computed, ref} from "vue";
+import {createConfirmDialog} from "vuejs-confirm-dialog";
+import RecordSaveDialog from "../../components/modals/RecordSaveDialog.vue";
 
 const selectedCodec = ref([])
 const echoCancellation = ref(false)
@@ -168,37 +170,67 @@ function playPauseRecorded() {
 // </editor-fold desc="Region: PLAY / PAUSE">
 
 // <editor-fold desc="Region: SAVE RECORD">
-function showSaveModal() {
-  recordName.value = 'Nahrávka ' + new Date().toLocaleString('cs-CZ');
-  saveModal.value.showModal();
-}
+function saveRecord(id) {
+  const {reveal, onConfirm, onCancel} = createConfirmDialog(RecordSaveDialog, {});
+  reveal();
+  onConfirm((name) => {
+    console.log(name);
+    const mimeType = selectedCodec.value.split(';', 1)[0];
+    const container = selectedCodec.value.split(';', 1)[0].split('/')[1];
+    const extension = containers.find(c => c.container === container).extension;
 
-async function saveRecord() {
-  saveModal.value.close();
-  const mimeType = selectedCodec.value.split(';', 1)[0];
-  const container = selectedCodec.value.split(';', 1)[0].split('/')[1];
-  const extension = containers.find(c => c.container === container).extension;
-
-  const blob = new Blob(recordedBlobs.value, {type: mimeType});
-  console.log(recordedBlobs.value);
-
-  const formData = new FormData();
-  formData.append('file', blob, 'recording' + extension);
-  formData.append('type', 'RECORD');
-  formData.append('name', recordName.value);
-  formData.append('metadata[duration]', Math.round((recordingStoppedTime.getTime() - recordingStartedTime.getTime()) / 1000));
-  http.post('/upload', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  }).then(response => {
-    emitter.emit('recordSaved');
-    recordedBlobs.value = undefined;
-    console.log(response);
-  }).catch(error => {
-    console.log(error);
+    const blob = new Blob(recordedBlobs.value, {type: mimeType});
+    const formData = new FormData();
+    formData.append('file', blob, 'recording' + extension);
+    formData.append('type', 'RECORD');
+    formData.append('name', name);
+    formData.append('metadata[duration]', Math.round((recordingStoppedTime.getTime() - recordingStartedTime.getTime()) / 1000));
+    http.post('/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    }).then(response => {
+      emitter.emit('recordSaved');
+      recordedBlobs.value = undefined;
+      console.log(response);
+    }).catch(error => {
+      console.log(error);
+    });
   });
 }
+
+
+//function showSaveModal() {
+//  recordName.value = 'Nahrávka ' + new Date().toLocaleString('cs-CZ');
+//  saveModal.value.showModal();
+//}
+//
+//async function saveRecord() {
+//  saveModal.value.close();
+//  const mimeType = selectedCodec.value.split(';', 1)[0];
+//  const container = selectedCodec.value.split(';', 1)[0].split('/')[1];
+//  const extension = containers.find(c => c.container === container).extension;
+//
+//  const blob = new Blob(recordedBlobs.value, {type: mimeType});
+//  console.log(recordedBlobs.value);
+//
+//  const formData = new FormData();
+//  formData.append('file', blob, 'recording' + extension);
+//  formData.append('type', 'RECORD');
+//  formData.append('name', recordName.value);
+//  formData.append('metadata[duration]', Math.round((recordingStoppedTime.getTime() - recordingStartedTime.getTime()) / 1000));
+//  http.post('/upload', formData, {
+//    headers: {
+//      'Content-Type': 'multipart/form-data'
+//    }
+//  }).then(response => {
+//    emitter.emit('recordSaved');
+//    recordedBlobs.value = undefined;
+//    console.log(response);
+//  }).catch(error => {
+//    console.log(error);
+//  });
+//}
 
 // </editor-fold desc="Region: SAVE RECORD">
 </script>
@@ -212,22 +244,8 @@ async function saveRecord() {
       <button ref="recordButton" @click="record()" class="btn btn-sm" :class="recording ? 'btn-error' : 'btn-success'"><span class="mdi mdi-record text-rose-500"></span>Nový záznam</button>
       <div class="flex space-x-2">
         <button ref="playButton" @click="playPauseRecorded()" class="btn btn-sm btn-primary" :disabled="(recording || recordedBlobs === undefined)"><span class="mdi mdi-play"></span>Přehrát</button>
-        <button ref="saveButton" @click="showSaveModal()" class="btn btn-sm btn-primary" :disabled="(recording || recordedBlobs === undefined)"><span class="mdi mdi-content-save"></span>Uložit</button>
+        <button ref="saveButton" @click="saveRecord()" class="btn btn-sm btn-primary" :disabled="(recording || recordedBlobs === undefined)"><span class="mdi mdi-content-save"></span>Uložit</button>
       </div>
-      <dialog ref="saveModal" class="modal">
-        <div class="modal-box">
-          <form method="dialog">
-            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
-          </form>
-          <h3 class="font-bold text-lg">Zadejte název pod kterým bude nahrávka uložena</h3>
-          <div class="my-3">
-            <input ref="recordNameInput" v-model="recordName" type="text" placeholder="Zadejte název nahrávky" class="input input-bordered w-full"/>
-          </div>
-          <div class="modal-action">
-            <button @click="saveRecord()" type="button" class="btn btn-primary" :disabled="canSave"><span class="mdi mdi-content-save"></span>Uložit</button>
-          </div>
-        </div>
-      </dialog>
     </div>
     <div>
       <span id="error-message"></span>
