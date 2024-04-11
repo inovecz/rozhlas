@@ -9,6 +9,7 @@ use App\Http\Requests\ListRequest;
 use App\Http\Resources\FileResource;
 use App\Http\Requests\FileUploadRequest;
 use Illuminate\Support\Facades\Response;
+use App\Http\Requests\RenameFileRequest;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
@@ -44,6 +45,12 @@ class FileController extends Controller
             ->paginate($request->input('length', 10));
 
         return FileResource::collection($files);
+    }
+
+    public function renameFile(RenameFileRequest $request, File $file): JsonResponse
+    {
+        $file->update($request->validated());
+        return $this->success('File renamed successfully.');
     }
 
     public function getRecordWithBlob(File $file): ?BinaryFileResponse

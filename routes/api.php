@@ -18,6 +18,7 @@ Route::group(['middleware' => ['api']], static function () {
         Route::post('/list', [FileController::class, 'list']);
         Route::group(['prefix' => '{file}', 'where' => ['file' => '\d+']], static function () {
             Route::delete('/', [FileController::class, 'delete']);
+            Route::put('/rename', [FileController::class, 'renameFile']);
             Route::get('/get-blob', [FileController::class, 'getRecordWithBlob']);
         });
     });

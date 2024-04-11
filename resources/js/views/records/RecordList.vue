@@ -4,6 +4,7 @@ import {onMounted, reactive, ref, watch} from "vue";
 import {dtToTime, durationToTime, formatBytes} from "../../helper.js";
 import {createConfirmDialog} from "vuejs-confirm-dialog";
 import ModalDialog from "../../components/modals/ModalDialog.vue";
+import {useToast} from "vue-toastification";
 
 const records = ref([]);
 const playingId = ref(null);
@@ -13,6 +14,8 @@ let orderAsc = false;
 const pageLength = ref(5)
 const search = reactive({value: null})
 const typeFilter = reactive({value: 'ALL'})
+
+const toast = useToast();
 
 onMounted(() => {
   fetchRecords();
@@ -114,6 +117,24 @@ function deleteRecord(id) {
     http.delete(`records/${id}`).then(() => {
       fetchRecords();
     }).catch(error => {
+      console.error(error);
+    });
+  });
+}
+
+function renameRecord(id) {
+  const {reveal, onConfirm, onCancel} = createConfirmDialog(ModalDialog, {
+    title: 'Přejmenování nahrávky',
+    message: 'Zadejte nový název nahrávky:',
+    useInput: records.value.data.filter(record => record.id === id)[0].name,
+  });
+  reveal();
+  onConfirm((newName) => {
+    http.put(`records/${id}/rename`, {name: newName}).then(() => {
+      toast.success('Nahrávka byla úspěšně přejmenována.');
+      fetchRecords();
+    }).catch(error => {
+      toast.error('Nahrávku se nepodařilo přejmenovat.');
       console.error(error);
     });
   });
@@ -226,6 +247,7 @@ emitter.on('recordSaved', () => {
               {{ durationToTime(record.metadata.duration) }}
             </td>
             <td class="flex gap-2 justify-end items-center pt-4">
+              <button @click="renameRecord(record.id)"><span class="mdi mdi-rename text-primary text-xl"></span></button>
               <button :id="'playPauseButton-'+record.id" @click="playRecord(record.id)"><span class="mdi mdi-play text-emerald-500 text-xl"></span></button>
               <audio :id="'audioPlayer-'+record.id" @ended="playRecord(record.id)"></audio>
               <button @click="deleteRecord(record.id)"><span class="mdi mdi-trash-can text-red-500 text-xl"></span></button>

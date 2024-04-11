@@ -3,6 +3,7 @@ import {computed, ref} from "vue";
 import {createConfirmDialog} from "vuejs-confirm-dialog";
 import RecordSaveDialog from "../../components/modals/RecordSaveDialog.vue";
 import {isBase64} from "../../helper.js";
+import {useToast} from "vue-toastification";
 
 const selectedCodec = ref([])
 const echoCancellation = ref(false)
@@ -13,6 +14,8 @@ const recordButton = ref();
 const playButton = ref();
 const saveButton = ref();
 const audioPlayer = ref();
+
+const toast = useToast();
 
 const uploadedFile = ref({content: null, name: null, type: null, extension: null, duration: null});
 
@@ -215,9 +218,7 @@ function saveRecord(id) {
     if (uploadedFile.value.content) {
       mimeType = uploadedFile.value.type;
       extension = uploadedFile.value.extension;
-      console.log(extension);
       const base64 = uploadedFile.value.content;
-      // convert base64 to Blob
       const byteCharacters = atob(base64.split(',')[1]);
       const byteNumbers = new Array(byteCharacters.length);
       for (let i = 0; i < byteCharacters.length; i++) {
@@ -252,8 +253,9 @@ function saveRecord(id) {
       emitter.emit('recordSaved');
       uploadedFile.value = {content: null, name: null, type: null, extension: null, duration: null};
       recordedBlobs.value = undefined;
-      console.log(response);
+      toast.success('Záznam byl úspěšně uložen');
     }).catch(error => {
+      toast.error('Nepodařilo se uložit záznam');
       console.log(error);
     });
   });

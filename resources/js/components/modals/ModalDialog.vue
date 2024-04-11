@@ -1,10 +1,16 @@
 <script setup>
 import {ref} from 'vue'
-import {Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot,} from '@headlessui/vue'
+import {Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot} from '@headlessui/vue'
 
 const isOpen = ref(true)
-const props = defineProps(['title', 'message']);
+const props = defineProps({
+  title: {type: String, required: true},
+  message: {type: String, required: true},
+  useInput: {type: String, required: false, default: null},
+});
 const emit = defineEmits(['confirm', 'cancel']);
+const inputValue = ref(props.useInput);
+console.log(inputValue.value)
 
 function closeModal() {
   isOpen.value = false
@@ -13,7 +19,15 @@ function closeModal() {
 const closeModalWith = (value) => {
   isOpen.value = false;
   setTimeout(() => {
-    emit(value);
+    if (value === 'confirm') {
+      if (inputValue.value !== '') {
+        emit('confirm', inputValue.value);
+      } else {
+        emit('confirm');
+      }
+    } else {
+      emit('cancel');
+    }
   }, 300);
 }
 
@@ -24,7 +38,7 @@ function openModal() {
 
 <template>
   <TransitionRoot appear :show="isOpen" as="template">
-    <Dialog as="div" @close="closeModal" class="relative z-10">
+    <Dialog as="div" @close="closeModalWith('cancel')" class="relative z-10">
       <TransitionChild
           as="template"
           enter="duration-300 ease-out"
@@ -57,6 +71,9 @@ function openModal() {
                 <div class="flex flex-col gap-2">
                   <div class="text-sm text-base-content">
                     {{ message }}
+                  </div>
+                  <div v-if="inputValue">
+                    <input ref="modalInput" v-model="inputValue" type="text" placeholder="" class="input input-sm w-full"/>
                   </div>
                 </div>
 
