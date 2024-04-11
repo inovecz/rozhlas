@@ -30,57 +30,57 @@ const showSideBar = computed(() => basicStoreInfo.showSideBar)
     <nav class="relative">
 
       <SidebarItem to="LiveBroadcast" class="group relative"
-                   :class="{['router-link-active router-link-exact-active']: $route.path.match('live-broadcast') !== null}">
-        <div class="w-10 h-10 group-hover:text-primary flex items-center justify-center">
+                   :class="{['router-link-active router-link-exact-active text-primary-content']: $route.path.match('live-broadcast') !== null}">
+        <div class="w-10 h-10 group-hover:text-secondary flex items-center justify-center">
           <span class="mdi mdi-microphone text-3xl"></span>
         </div>
         <span class="group-hover:opacity-100 transition-opacity bg-gray-800 px-3 text-sm text-gray-100 rounded-md absolute opacity-0 translate-x-14 m-4 mx-auto whitespace-nowrap"
               v-if="!showSideBar">
           Živé vysílání
         </span>
-        <span class="sidebar-item group-hover:text-primary" :class="[showSideBar ? 'block' : 'hidden']">
+        <span class="sidebar-item group-hover:text-secondary" :class="[showSideBar ? 'block' : 'hidden']">
           Živé vysílání
         </span>
       </SidebarItem>
 
       <SidebarItem to="Recordings" class="group relative"
-                   :class="{['router-link-active router-link-exact-active'] : $route.path.match('recordings') !== null}">
-        <div class="w-10 h-10 group-hover:text-primary flex items-center justify-center">
+                   :class="{['router-link-active router-link-exact-active text-primary-content'] : $route.path.match('recordings') !== null}">
+        <div class="w-10 h-10 group-hover:text-secondary flex items-center justify-center">
           <span class="mdi mdi-album text-3xl"></span>
         </div>
         <span class="group-hover:opacity-100 transition-opacity bg-gray-800 px-3 text-sm text-gray-100 rounded-md absolute opacity-0 translate-x-14 m-4 mx-auto whitespace-nowrap"
               v-if="!showSideBar">
           Záznamy
         </span>
-        <span class="sidebar-item group-hover:text-primary" :class="[showSideBar ? 'block' : 'hidden']">
+        <span class="sidebar-item group-hover:text-secondary" :class="[showSideBar ? 'block' : 'hidden']">
           Záznamy
         </span>
       </SidebarItem>
 
       <SidebarItem to="Scheduler" class="group relative"
-                   :class="{['router-link-active router-link-exact-active'] : $route.path.match('schedule') !== null}">
-        <div class="w-10 h-10 group-hover:text-primary flex items-center justify-center">
+                   :class="{['router-link-active router-link-exact-active text-primary-content'] : $route.path.match('schedule') !== null}">
+        <div class="w-10 h-10 group-hover:text-secondary flex items-center justify-center">
           <span class="mdi mdi-calendar-clock text-3xl"></span>
         </div>
         <span class="group-hover:opacity-100 transition-opacity bg-gray-800 px-3 text-sm text-gray-100 rounded-md absolute opacity-0 translate-x-14 m-4 mx-auto whitespace-nowrap"
               v-if="!showSideBar">
           Plán vysílání
         </span>
-        <span class="sidebar-item group-hover:text-primary" :class="[showSideBar ? 'block' : 'hidden']">
+        <span class="sidebar-item group-hover:text-secondary" :class="[showSideBar ? 'block' : 'hidden']">
           Plán vysílání
         </span>
       </SidebarItem>
 
       <SidebarItem to="About" class="group relative"
-                   :class="{['router-link-active router-link-exact-active']: $route.path.match('about') !== null}">
-        <div class="w-10 h-10 group-hover:text-primary flex items-center justify-center">
+                   :class="{['router-link-active router-link-exact-active text-primary-content']: $route.path.match('about') !== null}">
+        <div class="w-10 h-10 group-hover:text-secondary flex items-center justify-center">
           <span class="mdi mdi-information text-3xl"></span>
         </div>
         <span class="group-hover:opacity-100 transition-opacity bg-gray-800 px-3 text-sm text-gray-100 rounded-md absolute opacity-0 translate-x-14 m-4 mx-auto whitespace-nowrap"
               v-if="!showSideBar">
           O aplikaci
         </span>
-        <span class="sidebar-item group-hover:text-primary" :class="[showSideBar ? 'block' : 'hidden']">
+        <span class="sidebar-item group-hover:text-secondary" :class="[showSideBar ? 'block' : 'hidden']">
           O aplikaci
         </span>
       </SidebarItem>

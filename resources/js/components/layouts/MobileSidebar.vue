@@ -18,42 +18,52 @@ const showSideBar = computed(() => basicStoreInfo.showSideBar)
   <div class="fixed bg-zinc-800 h-screen w-full z-10 md:hidden  transition-all duration-500 ease-in-out"
        :class="[showSideBar ? '-top-[1px] sm:70px block' : '-top-[900px]']">
     <nav class="mt-[80px]">
-      <SidebarItem
-          to="LiveBroadcast"
-          :class="{
+      <SidebarItem class="group" to="LiveBroadcast"
+                   :class="{
                     ['router-link-active router-link-exact-active']:
                         $route.path.match('live-broadcast') !== null,
                 }"
-          @click="toggleSidebar">
-        <div class="w-10 h-10 text-gray-200 hover:text-gray-50 flex items-center justify-center">
+                   @click="toggleSidebar">
+        <div class="w-10 h-10 text-gray-200 group-hover:text-secondary hover:text-gray-50 flex items-center justify-center">
           <span class="mdi mdi-microphone text-3xl"></span>
         </div>
-        <span class="sidebar-item text-gray-100">Živé vysílání</span>
+        <span class="sidebar-item text-gray-100 group-hover:text-secondary">Živé vysílání</span>
       </SidebarItem>
 
-      <SidebarItem
-          to="Recordings"
-          :class="{
+      <SidebarItem class="group" to="Recordings"
+                   :class="{
                     ['router-link-active router-link-exact-active']:
                         $route.path.match('recordings') !== null,
                 }"
-          @click="toggleSidebar">
-        <div class="w-10 h-10 text-gray-200 hover:text-gray-50 flex items-center justify-center">
+                   @click="toggleSidebar">
+        <div class="w-10 h-10 text-gray-200 group-hover:text-secondary hover:text-gray-50 flex items-center justify-center">
           <span class="mdi mdi-album text-3xl"></span>
         </div>
-        <span class="sidebar-item text-gray-100">Záznamy</span>
+        <span class="sidebar-item text-gray-100 group-hover:text-secondary">Záznamy</span>
       </SidebarItem>
 
-      <SidebarItem to="About"
+      <SidebarItem class="group" to="Scheduler"
+                   :class="{
+                    ['router-link-active router-link-exact-active']:
+                        $route.path.match('schedule') !== null,
+                }"
+                   @click="toggleSidebar">
+        <div class="w-10 h-10 text-gray-200 group-hover:text-secondary hover:text-gray-50 flex items-center justify-center">
+          <span class="mdi mdi-calendar-clock text-3xl"></span>
+        </div>
+        <span class="sidebar-item text-gray-100 group-hover:text-secondary">Plán vysílání</span>
+      </SidebarItem>
+
+      <SidebarItem class="group" to="About"
                    :class="{
                     ['router-link-active router-link-exact-active']:
                         $route.path.match('about') !== null
                     }"
                    @click="toggleSidebar">
-        <div class="w-10 h-10 text-gray-200 hover:text-gray-50 flex items-center justify-center">
+        <div class="w-10 h-10 text-gray-200 group-hover:text-secondary hover:text-gray-50 flex items-center justify-center">
           <span class="mdi  mdi-information text-3xl"></span>
         </div>
-        <span class="sidebar-item text-gray-100">O aplikaci</span>
+        <span class="sidebar-item text-gray-100 group-hover:text-secondary">O aplikaci</span>
       </SidebarItem>
 
     </nav>
