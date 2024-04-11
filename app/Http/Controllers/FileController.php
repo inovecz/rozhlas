@@ -33,6 +33,13 @@ class FileController extends Controller
                     $query->orderBy($item['column'], $item['dir']);
                 }
                 return $query;
+            })->when($request->input('filter'), static function ($query, $filter) {
+                if (!empty($filter)) {
+                    foreach ($filter as $item) {
+                        $query->where($item['column'], $item['value']);
+                    }
+                }
+                return $query;
             })
             ->paginate($request->input('length', 10));
 

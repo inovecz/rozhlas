@@ -88,3 +88,9 @@ export const formatBytes = (bytes, decimals = 2) => {
 
     return `${formattedBytes} ${sizes[i]}`;
 }
+
+export const isBase64 = (str) => {
+    // Regular expression to check if the string is a base64 string
+    const base64Regex = /^(data:)?(.*?);(?:.*?),(.*)$/;
+    return base64Regex.test(str);
+}

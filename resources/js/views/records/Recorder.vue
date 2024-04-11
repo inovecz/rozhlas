@@ -2,6 +2,7 @@
 import {computed, ref} from "vue";
 import {createConfirmDialog} from "vuejs-confirm-dialog";
 import RecordSaveDialog from "../../components/modals/RecordSaveDialog.vue";
+import {isBase64} from "../../helper.js";
 
 const selectedCodec = ref([])
 const echoCancellation = ref(false)
@@ -11,15 +12,12 @@ const recordedBlobs = ref();
 const recordButton = ref();
 const playButton = ref();
 const saveButton = ref();
-const saveModal = ref();
-const recordNameInput = ref();
 const audioPlayer = ref();
+
+const uploadedFile = ref({content: null, name: null, type: null, extension: null, duration: null});
 
 let recordingStartedTime;
 let recordingStoppedTime;
-
-const recordName = ref('');
-const canSave = computed(() => recordName.value === '');
 
 const containers = [
   {'container': 'webm', 'label': 'WebM', 'extension': '.webm'},
@@ -114,6 +112,7 @@ async function startRecording() {
 function handleDataAvailable(event) {
   if (event.data && event.data.size > 0) {
     recordedBlobs.value.push(event.data);
+    console.log(recordedBlobs.value);
   }
 }
 
@@ -143,6 +142,33 @@ async function stopRecording() {
 
 // </editor-fold desc="Region: RECORDING">
 
+// <editor-fold desc="Region: UPLOAD FILE">
+function uploadFile(event) {
+  const file = event.target.files[0];
+  if (file) {
+    // filename = file.name without extension
+    const filename = file.name.split('.').slice(0, -1).join('.');
+    uploadedFile.value = {content: null, name: filename, type: file.type, extension: file.name.split('.').pop(), duration: null};
+    // save content of uploaded file to recordedBlobs
+    const reader = new FileReader();
+    reader.readAsDataURL(file)
+    reader.onload = function (e) {
+      const audioBase64 = e.target.result;
+      recordedBlobs.value = [audioBase64];
+      uploadedFile.value.content = audioBase64;
+      const audio = document.createElement('audio');
+      audio.src = URL.createObjectURL(file);
+      audio.addEventListener('loadedmetadata', function () {
+        uploadedFile.value.duration = audio.duration;
+      });
+    }
+  } else {
+    uploadedFile.value = {content: null, name: null, extension: null};
+  }
+}
+
+// </editor-fold desc="Region: UPLOAD FILE">
+
 // <editor-fold desc="Region: PLAY / PAUSE">
 function playPauseRecorded() {
   if (playing.value) {
@@ -156,11 +182,14 @@ function playPauseRecorded() {
     const audioOutputDevice = JSON.parse(localStorage.getItem('audioOutputDevice')) ?? 'default';
     playing.value = true;
     playButton.value.innerHTML = '<span class="mdi mdi-pause text-gray-500"></span>Zastavit';
-    const mimeType = selectedCodec.value.split(';', 1)[0];
-    const blob = new Blob(recordedBlobs.value, {type: mimeType});
-    audioPlayer.value.src = null;
     audioPlayer.value.srcObject = null;
-    audioPlayer.value.src = window.URL.createObjectURL(blob);
+
+    if (isBase64(recordedBlobs.value[0])) {
+      audioPlayer.value.src = recordedBlobs.value[0];
+    } else {
+      const source = new Blob(recordedBlobs.value, {type: recordedBlobs.value[0].type});
+      audioPlayer.value.src = window.URL.createObjectURL(source);
+    }
     audioPlayer.value.controls = false;
     audioPlayer.value.setSinkId(audioOutputDevice.id);
     audioPlayer.value.play();
@@ -171,26 +200,57 @@ function playPauseRecorded() {
 
 // <editor-fold desc="Region: SAVE RECORD">
 function saveRecord(id) {
-  const {reveal, onConfirm, onCancel} = createConfirmDialog(RecordSaveDialog, {});
+  const {reveal, onConfirm, onCancel} = createConfirmDialog(RecordSaveDialog, {
+    uploadedFile: uploadedFile
+  });
   reveal();
-  onConfirm((name) => {
-    console.log(name);
-    const mimeType = selectedCodec.value.split(';', 1)[0];
-    const container = selectedCodec.value.split(';', 1)[0].split('/')[1];
-    const extension = containers.find(c => c.container === container).extension;
+  onConfirm((data) => {
+    const {name, subtype} = data;
 
-    const blob = new Blob(recordedBlobs.value, {type: mimeType});
+    let mimeType;
+    let extension;
+    let blob;
+    let duration;
+
+    if (uploadedFile.value.content) {
+      mimeType = uploadedFile.value.type;
+      extension = uploadedFile.value.extension;
+      console.log(extension);
+      const base64 = uploadedFile.value.content;
+      // convert base64 to Blob
+      const byteCharacters = atob(base64.split(',')[1]);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      blob = new Blob([byteArray], {type: mimeType});
+
+      duration = Math.round(uploadedFile.value.duration);
+    } else {
+      mimeType = selectedCodec.value.split(';', 1)[0];
+      const container = selectedCodec.value.split(';', 1)[0].split('/')[1];
+      extension = containers.find(c => c.container === container).extension;
+      blob = new Blob(recordedBlobs.value, {type: mimeType});
+      duration = Math.round((recordingStoppedTime.getTime() - recordingStartedTime.getTime()) / 1000);
+    }
+
     const formData = new FormData();
     formData.append('file', blob, 'recording' + extension);
-    formData.append('type', 'RECORD');
+    formData.append('type', 'RECORDING');
+    formData.append('subtype', subtype);
     formData.append('name', name);
-    formData.append('metadata[duration]', Math.round((recordingStoppedTime.getTime() - recordingStartedTime.getTime()) / 1000));
+    formData.append('extension', extension);
+    formData.append('metadata[duration]', duration);
+
+
     http.post('/upload', formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
       }
     }).then(response => {
       emitter.emit('recordSaved');
+      uploadedFile.value = {content: null, name: null, type: null, extension: null, duration: null};
       recordedBlobs.value = undefined;
       console.log(response);
     }).catch(error => {
@@ -199,50 +259,23 @@ function saveRecord(id) {
   });
 }
 
-
-//function showSaveModal() {
-//  recordName.value = 'Nahrávka ' + new Date().toLocaleString('cs-CZ');
-//  saveModal.value.showModal();
-//}
-//
-//async function saveRecord() {
-//  saveModal.value.close();
-//  const mimeType = selectedCodec.value.split(';', 1)[0];
-//  const container = selectedCodec.value.split(';', 1)[0].split('/')[1];
-//  const extension = containers.find(c => c.container === container).extension;
-//
-//  const blob = new Blob(recordedBlobs.value, {type: mimeType});
-//  console.log(recordedBlobs.value);
-//
-//  const formData = new FormData();
-//  formData.append('file', blob, 'recording' + extension);
-//  formData.append('type', 'RECORD');
-//  formData.append('name', recordName.value);
-//  formData.append('metadata[duration]', Math.round((recordingStoppedTime.getTime() - recordingStartedTime.getTime()) / 1000));
-//  http.post('/upload', formData, {
-//    headers: {
-//      'Content-Type': 'multipart/form-data'
-//    }
-//  }).then(response => {
-//    emitter.emit('recordSaved');
-//    recordedBlobs.value = undefined;
-//    console.log(response);
-//  }).catch(error => {
-//    console.log(error);
-//  });
-//}
-
 // </editor-fold desc="Region: SAVE RECORD">
 </script>
 
 <template>
-  <div class="border border-secondary/50 rounded-md px-5 py-2">
+  <div class="component-box">
     <div class="text-xl text-primary mb-4 mt-3 px-1">
       Nahrání záznamu
     </div>
-    <div class="flex justify-between">
-      <button ref="recordButton" @click="record()" class="btn btn-sm" :class="recording ? 'btn-error' : 'btn-success'"><span class="mdi mdi-record text-rose-500"></span>Nový záznam</button>
-      <div class="flex space-x-2">
+    <div class="flex justify-between gap-2">
+      <div class="flex gap-2 flex-shrink">
+        <button ref="recordButton" @click="record()" class="btn btn-sm" :class="recording ? 'btn-error' : 'btn-success'"><span class="mdi mdi-record text-rose-500"></span>Nový záznam</button>
+        <div>
+          <label for="uploadFile" class="btn btn-sm join-item">{{ uploadedFile.name ?? 'Nahrát soubor' }}</label>
+          <input type="file" title="aaaa" name="uploadfile" accept=".mp3,audio/*" id="uploadFile" class="input input-sm hidden input-bordered w-full max-w-xs join-item" @change="uploadFile"/>
+        </div>
+      </div>
+      <div class="flex gap-2">
         <button ref="playButton" @click="playPauseRecorded()" class="btn btn-sm btn-primary" :disabled="(recording || recordedBlobs === undefined)"><span class="mdi mdi-play"></span>Přehrát</button>
         <button ref="saveButton" @click="saveRecord()" class="btn btn-sm btn-primary" :disabled="(recording || recordedBlobs === undefined)"><span class="mdi mdi-content-save"></span>Uložit</button>
       </div>

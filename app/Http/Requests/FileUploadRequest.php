@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Enums\FileTypeEnum;
+use App\Enums\FileSubtypeEnum;
 use Illuminate\Validation\Rules\Enum;
 use Illuminate\Foundation\Http\FormRequest;
 use Elegant\Sanitizer\Laravel\SanitizesInput;
@@ -21,7 +22,9 @@ class FileUploadRequest extends FormRequest
         return [
             'file' => 'required|file',
             'type' => ['sometimes', 'nullable', 'string', new Enum(FileTypeEnum::class)],
+            'subtype' => ['sometimes', 'nullable', 'string', new Enum(FileSubtypeEnum::class)],
             'name' => 'required|string',
+            'extension' => 'nullable|string',
             'metadata' => 'sometimes|nullable|array',
         ];
     }
@@ -30,7 +33,9 @@ class FileUploadRequest extends FormRequest
     {
         return [
             'type' => 'trim|escape',
+            'subtype' => 'trim|escape',
             'name' => 'trim|escape',
+            'extension' => 'trim|escape',
             'metadata' => 'trim|escape',
         ];
     }

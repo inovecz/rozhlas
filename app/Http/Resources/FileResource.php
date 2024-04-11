@@ -8,17 +8,15 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class FileResource extends JsonResource
 {
-    /**
-     * Transform the resource into an array.
-     *
-     * @return array<string, mixed>
-     */
+
     public function toArray(Request $request): array
     {
         /** @var $this File */
         return [
             'id' => $this->getId(),
             'type' => $this->getType(),
+            'subtype' => $this->getSubtype(),
+            'subtype_translated' => $this->getSubtype()->translate(),
             'author' => $this->getAuthorId(),
             'name' => $this->getName(),
             'filename' => $this->getFilename(),

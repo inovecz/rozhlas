@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\FileTypeEnum;
+use App\Enums\FileSubtypeEnum;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -15,6 +16,7 @@ class File extends Model
     protected $guarded = ['id', 'created_at', 'updated_at', 'deleted_at'];
     protected $casts = [
         'type' => FileTypeEnum::class,
+        'subtype' => FileSubtypeEnum::class,
         'metadata' => 'array',
     ];
     // </editor-fold desc="Region: STATE DEFINITION">
@@ -35,6 +37,11 @@ class File extends Model
     public function getType(): FileTypeEnum
     {
         return $this->type;
+    }
+
+    public function getSubtype(): FileSubtypeEnum
+    {
+        return $this->subtype;
     }
 
     public function getName(): string
