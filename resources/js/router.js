@@ -7,6 +7,7 @@ import Login from "./views/auth/Login.vue";
 import LiveBroadcast from "./views/live-broadcast/LiveBroadcast.vue";
 import Recordings from "./views/records/Recordings.vue";
 import Scheduler from "./views/schedule/Scheduler.vue";
+import ScheduleTask from "./views/schedule/ScheduleTask.vue";
 
 const routes = [
     {
@@ -17,6 +18,8 @@ const routes = [
             {path: "/live-broadcast", name: "LiveBroadcast", component: LiveBroadcast, meta: {title: "Živé vysílání"}},
             {path: "/recordings", name: "Recordings", component: Recordings, meta: {title: "Záznamy"}},
             {path: "/schedule", name: "Scheduler", component: Scheduler, meta: {title: "Plán vysílání"}},
+            {path: '/schedule/task', name: "CreateSchedule", component: ScheduleTask, meta: {title: "Nový úkol"}},
+            {path: '/schedule/task/:id', name: "EditSchedule", component: ScheduleTask, meta: {title: "Úprava úkolu"}},
             {path: '/about', name: "About", component: About},
         ],
     },

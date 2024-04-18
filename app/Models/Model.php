@@ -3,9 +3,12 @@
 namespace App\Models;
 
 use Carbon\Carbon;
+use App\Models\Traits\ArrayableTrait;
 
 class Model extends \Illuminate\Database\Eloquent\Model
 {
+    use ArrayableTrait;
+
     public function getId(): int
     {
         $primaryKey = $this->primaryKey;
@@ -26,4 +29,11 @@ class Model extends \Illuminate\Database\Eloquent\Model
     {
         return method_exists($this, 'trashed') ? $this->deleted_at : null;
     }
+
+    /*    public function getAttribute($key)
+        {
+            [$key, $path] = preg_split('/(->|\.)/', $key, 2) + [null, null];
+
+            return data_get(parent::getAttribute($key), $path);
+        }*/
 }

@@ -10,7 +10,6 @@ const props = defineProps({
 });
 const emit = defineEmits(['confirm', 'cancel']);
 const inputValue = ref(props.useInput);
-console.log(inputValue.value)
 
 function closeModal() {
   isOpen.value = false

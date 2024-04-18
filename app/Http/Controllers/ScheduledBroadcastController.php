@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\ScheduledBroadcast;
+use App\Models\Schedule;
 use Illuminate\Http\Request;
 
 class ScheduledBroadcastController extends Controller
@@ -34,7 +34,7 @@ class ScheduledBroadcastController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(ScheduledBroadcast $scheduledBroadcast)
+    public function show(Schedule $scheduledBroadcast)
     {
         //
     }
@@ -42,7 +42,7 @@ class ScheduledBroadcastController extends Controller
     /**
      * Show the form for editing the specified resource.
      */
-    public function edit(ScheduledBroadcast $scheduledBroadcast)
+    public function edit(Schedule $scheduledBroadcast)
     {
         //
     }
@@ -50,7 +50,7 @@ class ScheduledBroadcastController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, ScheduledBroadcast $scheduledBroadcast)
+    public function update(Request $request, Schedule $scheduledBroadcast)
     {
         //
     }
@@ -58,7 +58,7 @@ class ScheduledBroadcastController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(ScheduledBroadcast $scheduledBroadcast)
+    public function destroy(Schedule $scheduledBroadcast)
     {
         //
     }

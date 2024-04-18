@@ -1,7 +1,7 @@
 <script setup>
 
 import {onMounted, reactive, ref, watch} from "vue";
-import {dtToTime, durationToTime, formatBytes} from "../../helper.js";
+import {durationToTime, formatBytes, formatDate} from "../../helper.js";
 import {createConfirmDialog} from "vuejs-confirm-dialog";
 import ModalDialog from "../../components/modals/ModalDialog.vue";
 import {useToast} from "vue-toastification";
@@ -115,8 +115,10 @@ function deleteRecord(id) {
   reveal();
   onConfirm(() => {
     http.delete(`records/${id}`).then(() => {
+      toast.success('Nahrávka byla úspěšně smazána.')
       fetchRecords();
     }).catch(error => {
+      toast.error('Nahrávku se nepodařilo smazat.')
       console.error(error);
     });
   });
@@ -126,7 +128,9 @@ function renameRecord(id) {
   const {reveal, onConfirm, onCancel} = createConfirmDialog(ModalDialog, {
     title: 'Přejmenování nahrávky',
     message: 'Zadejte nový název nahrávky:',
-    useInput: records.value.data.filter(record => record.id === id)[0].name,
+    useInput: [
+      {label: '', default: records.value.data.filter(record => record.id === id)[0].name, placeholder: 'Název nahrávky'},
+    ],
   });
   reveal();
   onConfirm((newName) => {
@@ -238,7 +242,7 @@ emitter.on('recordSaved', () => {
               {{ record.subtype_translated }}
             </td>
             <td>
-              {{ dtToTime(record.created_at) }}
+              {{ formatDate(new Date(record.created_at), 'd.m.Y H:i:s') }}
             </td>
             <td>
               {{ formatBytes(record.size, 1) }}

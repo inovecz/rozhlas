@@ -7,12 +7,12 @@ const props = defineProps(['title', 'message', 'uploadedFile']);
 const emit = defineEmits(['confirm', 'cancel']);
 
 const recordSubtype = ref('COMMON');
-const canSave = computed(() => recordName.value.length < 3);
-const recordName = ref(props.uploadedFile ? props.uploadedFile.name : 'Nahrávka ' + new Date().toLocaleString('cs-CZ'));
-
-function closeModal() {
-  isOpen.value = false
+console.log(props.uploadedFile ? props.uploadedFile.name : 'Nahrávka ' + new Date().toLocaleString('cs-CZ'));
+const recordName = ref('Nahrávka ' + new Date().toLocaleString('cs-CZ'));
+if (props.uploadedFile?.name) {
+  recordName.value = props.uploadedFile.name;
 }
+const canSave = computed(() => recordName.value.length < 3);
 
 const closeModalWith = (value) => {
   isOpen.value = false;
@@ -23,10 +23,6 @@ const closeModalWith = (value) => {
       emit('cancel');
     }
   }, 300);
-}
-
-function openModal() {
-  isOpen.value = true
 }
 </script>
 

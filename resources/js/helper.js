@@ -62,11 +62,6 @@ export const getAudioOutputDevices = () => {
     });
 }
 
-export const dtToTime = (dt) => {
-    const date = new Date(dt);
-    return date.toLocaleDateString('cs-CZ') + ' ' + date.toLocaleTimeString('cs-CZ');
-}
-
 export const durationToTime = (duration) => {
     const hours = Math.floor(duration / 3600);
     const minutes = Math.floor((duration % 3600) / 60);
@@ -93,4 +88,52 @@ export const isBase64 = (str) => {
     // Regular expression to check if the string is a base64 string
     const base64Regex = /^(data:)?(.*?);(?:.*?),(.*)$/;
     return base64Regex.test(str);
+}
+
+export const moveItemUp = (arr, index) => {
+    if (index > 0 && index < arr.length) {
+        const temp = arr[index - 1];
+        arr[index - 1] = arr[index];
+        arr[index] = temp;
+    }
+    return arr;
+}
+
+export const moveItemDown = (arr, index) => {
+    if (index >= 0 && index < arr.length - 1) {
+        const temp = arr[index + 1];
+        arr[index + 1] = arr[index];
+        arr[index] = temp;
+    }
+    return arr;
+}
+
+export const formatDate = (date, format) => {
+    //if (format === 'Y-m-d H:i:s') {
+    //    return date.toISOString().slice(0, 19).replace('T', ' ');
+    //} else if (format === 'Y-m-d H:i') {
+    //    return date.toISOString().slice(0, 16).replace('T', ' ');
+    //} else if (format === 'Y-m-d') {
+    //    return date.toISOString().slice(0, 10);
+    //}
+
+    // Format output string by replacing placeholders with date values. Available placeholders are: Y, m, d, H, i, s
+    return format.replace(/Y|m|d|H|i|s/g, (match) => {
+        switch (match) {
+            case 'Y':
+                return date.getFullYear();
+            case 'm':
+                return String(date.getMonth() + 1).padStart(2, '0');
+            case 'd':
+                return String(date.getDate()).padStart(2, '0');
+            case 'H':
+                return String(date.getHours()).padStart(2, '0');
+            case 'i':
+                return String(date.getMinutes()).padStart(2, '0');
+            case 's':
+                return String(date.getSeconds()).padStart(2, '0');
+            default:
+                return match;
+        }
+    });
 }

@@ -4,6 +4,6 @@
 
 @layer components {
     .component-box {
-        @apply border border-secondary/50 rounded-md px-5 py-2;
+        @apply border border-secondary/50 rounded-md px-5 pt-2 pb-6;
     }
 }

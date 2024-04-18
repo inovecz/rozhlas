@@ -23,18 +23,18 @@ let recordingStartedTime;
 let recordingStoppedTime;
 
 const containers = [
-  {'container': 'webm', 'label': 'WebM', 'extension': '.webm'},
-  {'container': 'ogg', 'label': 'Ogg', 'extension': '.ogg'},
-  {'container': 'mp4', 'label': 'Mp4', 'extension': '.mp4'},
-  {'container': 'x-matroska', 'label': 'X-Matroska', 'extension': '.mkv'},
-  {'container': '3gpp', 'label': '3GPP', 'extension': '.3gp'},
-  {'container': '3gpp2', 'label': '3GPP2', 'extension': '.3g2'},
-  {'container': '3gp2', 'label': '3gp2', 'extension': '.3g2'},
-  {'container': 'quicktime', 'label': 'Quicktime', 'extension': '.mov'},
-  {'container': 'mpeg', 'label': 'MPEG', 'extension': '.mpg'},
-  {'container': 'aac', 'label': 'AAC', 'extension': '.aac'},
-  {'container': 'flac', 'label': 'FLAC', 'extension': '.flac'},
-  {'container': 'wav', 'label': 'WAV', 'extension': '.wav'},
+  {'container': 'webm', 'label': 'WebM', 'extension': 'webm'},
+  {'container': 'ogg', 'label': 'Ogg', 'extension': 'ogg'},
+  {'container': 'mp4', 'label': 'Mp4', 'extension': 'mp4'},
+  {'container': 'x-matroska', 'label': 'X-Matroska', 'extension': 'mkv'},
+  {'container': '3gpp', 'label': '3GPP', 'extension': '3gp'},
+  {'container': '3gpp2', 'label': '3GPP2', 'extension': '3g2'},
+  {'container': '3gp2', 'label': '3gp2', 'extension': '3g2'},
+  {'container': 'quicktime', 'label': 'Quicktime', 'extension': 'mov'},
+  {'container': 'mpeg', 'label': 'MPEG', 'extension': 'mpg'},
+  {'container': 'aac', 'label': 'AAC', 'extension': 'aac'},
+  {'container': 'flac', 'label': 'FLAC', 'extension': 'flac'},
+  {'container': 'wav', 'label': 'WAV', 'extension': 'wav'},
 ];
 
 const codecs = [
@@ -99,6 +99,7 @@ async function startRecordingProcess() {
 async function startRecording() {
   const options = {selectedCodec};
   recordedBlobs.value = [];
+  uploadedFile.value = {content: null, name: null, type: null, extension: null};
   try {
     recordingStartedTime = new Date();
     mediaRecorder = new MediaRecorder(window.stream, options);

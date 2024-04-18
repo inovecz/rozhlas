@@ -1,8 +1,11 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Services;
 
 use App\Models\File;
+use App\Jobs\ConvertToMp3;
 use Illuminate\Support\Str;
 use App\Enums\FileTypeEnum;
 use App\Enums\FileSubtypeEnum;
@@ -23,12 +26,12 @@ class FileService
         return $this->upload($file, $type, $subtype, $name, $extension, $metadata);
     }
 
-    public function upload(UploadedFile $file, FileTypeEnum $type, FileSubtypeEnum $subtype, string $name, string $extension = null, array $metadata = null): File
+    public function upload(UploadedFile $uploadedFile, FileTypeEnum $type, FileSubtypeEnum $subtype, string $name, string $extension = null, array $metadata = null): File
     {
         $filename = Str::uuid()->toString();
-        $extension = $extension ?? $file->getClientOriginalExtension();
+        $extension = $extension ?? $uploadedFile->getClientOriginalExtension();
         $path = 'uploads/';
-        Storage::put($path.$filename.'.'.$extension, file_get_contents($file));
+        Storage::put($path.$filename.'.'.$extension, $uploadedFile->getContent());
         $fileSize = Storage::size($path.$filename.'.'.$extension);
         $data = [
             'author_id' => auth()->id(),
@@ -38,10 +41,14 @@ class FileService
             'filename' => $filename,
             'path' => $path,
             'extension' => $extension,
-            'mime_type' => $file->getClientMimeType(),
+            'mime_type' => $uploadedFile->getClientMimeType(),
             'size' => $fileSize,
             'metadata' => $metadata,
         ];
-        return File::create($data);
+        $file = File::create($data);
+        if ($file->getMimeType() !== 'audio/mpeg' && str($file->getMimeType())->startsWith('audio/')) {
+            ConvertToMp3::dispatch($file);
+        }
+        return $file;
     }
 }

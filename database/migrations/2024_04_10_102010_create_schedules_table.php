@@ -10,14 +10,18 @@ return new class extends Migration {
      */
     public function up(): void
     {
-        Schema::create('scheduled_broadcasts', function (Blueprint $table) {
+        Schema::create('schedules', function (Blueprint $table) {
             $table->id();
             $table->string('title');
             $table->dateTime('scheduled_at');
-            $table->foreignId('intro_id')->nullable()->constrained('files')->onDelete('restrict');
-            $table->foreignId('recording_id')->nullable()->constrained('files')->onDelete('restrict');
-            $table->foreignId('outro_id')->nullable()->constrained('files')->onDelete('restrict');
+            $table->integer('duration')->nullable();
+            $table->dateTime('end_at')->nullable();
             $table->boolean('is_repeating')->default(false);
+            $table->foreignId('intro_id')->nullable()->constrained('files');
+            $table->foreignId('opening_id')->nullable()->constrained('files');
+            $table->json('common_ids');
+            $table->foreignId('closing_id')->nullable()->constrained('files');
+            $table->foreignId('outro_id')->nullable()->constrained('files');
             $table->timestamps();
         });
     }
@@ -27,6 +31,6 @@ return new class extends Migration {
      */
     public function down(): void
     {
-        Schema::dropIfExists('scheduled_broadcasts');
+        Schema::dropIfExists('schedules');
     }
 };
