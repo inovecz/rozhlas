@@ -17,7 +17,7 @@ class ScheduleController extends Controller
 {
     public function list(ListRequest $request): AnonymousResourceCollection
     {
-        $files = Schedule::query()
+        $tasks = Schedule::query()
             ->when($request->input('search'), static function ($query, $search) {
                 return $query->where('title', 'like', '%'.$search.'%');
             })
@@ -33,10 +33,17 @@ class ScheduleController extends Controller
                     }
                 }
                 return $query;
+            })->when($request->input('archived') === true, static function ($query) {
+                return $query->whereNotNull('processed_at');
+            })->when($request->input('archived') === false, static function ($query) {
+                return $query->whereNull('processed_at');
             })
             ->paginate($request->input('length', 10));
 
-        return ScheduleResource::collection($files);
+        $return = ScheduleResource::collection($tasks);
+        $nextEndAt = Schedule::where('end_at', '>', now())->orderBy('end_at')->select('end_at')->pluck('end_at')->first();
+        $return->additional(['next_end_at' => $nextEndAt?->toDateTimeString()]);
+        return $return;
     }
 
     public function get(Schedule $schedule): ScheduleResource

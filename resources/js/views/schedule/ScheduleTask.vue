@@ -149,16 +149,16 @@ function checkTimeConflict() {
 checkTimeConflict();
 
 function saveTask() {
-  http.post('schedules' + (editingScheduleId.value ? '/' + editingScheduleId.value : ''), {
-    title: scheduleTitle.value,
-    scheduled_at: scheduleDate.value,
-    is_repeating: scheduleRepeat.value,
-    intro_id: selectedRecordings.value.INTRO ? selectedRecordings.value.INTRO.id : null,
-    opening_id: selectedRecordings.value.OPENING ? selectedRecordings.value.OPENING.id : null,
-    common_ids: selectedRecordings.value.COMMON.map(recording => recording.id),
-    closing_id: selectedRecordings.value.CLOSING ? selectedRecordings.value.CLOSING.id : null,
-    outro_id: selectedRecordings.value.OUTRO ? selectedRecordings.value.OUTRO.id : null,
-  }).then(() => {
+  const id = editingScheduleId.value;
+  const title = scheduleTitle.value;
+  const scheduledAt = scheduleDate.value;
+  const isRepeating = scheduleRepeat.value;
+  const introId = selectedRecordings.value.INTRO ? selectedRecordings.value.INTRO.id : null;
+  const openingId = selectedRecordings.value.OPENING ? selectedRecordings.value.OPENING.id : null;
+  const commonIds = selectedRecordings.value.COMMON.map(recording => recording.id);
+  const closingId = selectedRecordings.value.CLOSING ? selectedRecordings.value.CLOSING.id : null;
+  const outroId = selectedRecordings.value.OUTRO ? selectedRecordings.value.OUTRO.id : null;
+  ScheduleService.saveTask(id, title, scheduledAt, isRepeating, introId, openingId, commonIds, closingId, outroId).then(() => {
     toast.success('Úkol byl úspěšně uložen');
     router.push({name: 'Scheduler'});
   }).catch(error => {

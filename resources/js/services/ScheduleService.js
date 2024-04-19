@@ -1,5 +1,5 @@
 export default {
-    fetchRecords(paginatorUrl, search, pageLength, orderColumn, orderAsc) {
+    fetchRecords(type, paginatorUrl, search, pageLength, orderColumn, orderAsc) {
         let page = 1;
         if (paginatorUrl) {
             page = paginatorUrl.match(/page=(\d+)/);
@@ -11,6 +11,7 @@ export default {
         return new Promise((resolve, reject) => {
             http.post('schedules/list', {
                 type: 'RECORDING',
+                archived: type === 'archive',
                 page,
                 search: search,
                 length: pageLength,
@@ -36,6 +37,16 @@ export default {
     deleteRecord(id) {
         return new Promise((resolve, reject) => {
             http.delete('schedules/' + id).then(response => {
+                resolve(response.data);
+            }).catch(error => {
+                reject([]);
+            });
+        });
+    },
+
+    saveTask(id, title, scheduled_at, is_repeating, intro_id, opening_id, common_ids, closing_id, outro_id) {
+        return new Promise((resolve, reject) => {
+            http.post('schedules' + (id ? '/' + id : ''), {title, scheduled_at, is_repeating, intro_id, opening_id, common_ids, closing_id, outro_id}).then(response => {
                 resolve(response.data);
             }).catch(error => {
                 reject([]);

@@ -16,6 +16,7 @@ return new class extends Migration {
             $table->dateTime('scheduled_at');
             $table->integer('duration')->nullable();
             $table->dateTime('end_at')->nullable();
+            $table->dateTime('processed_at')->nullable();
             $table->boolean('is_repeating')->default(false);
             $table->foreignId('intro_id')->nullable()->constrained('files');
             $table->foreignId('opening_id')->nullable()->constrained('files');

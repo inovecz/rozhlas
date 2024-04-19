@@ -6,10 +6,12 @@ namespace App\Models;
 
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Relations\HasOne;
-use Illuminate\Database\Eloquent\Relations\HasMany;
+use Staudenmeir\EloquentJsonRelations\Relations\BelongsToJson;
 
 class Schedule extends Model
 {
+    use \Staudenmeir\EloquentJsonRelations\HasJsonRelationships;
+
     // <editor-fold desc="Region: STATE DEFINITION">
     protected $guarded = ['id', 'created_at', 'updated_at'];
 
@@ -18,6 +20,7 @@ class Schedule extends Model
         return [
             'scheduled_at' => 'datetime',
             'end_at' => 'datetime',
+            'processed_at' => 'datetime',
             'is_repeating' => 'boolean',
             'common_ids' => 'json',
         ];
@@ -47,9 +50,9 @@ class Schedule extends Model
         return $this->hasOne(File::class, 'id', 'opening_id');
     }
 
-    public function commons(): HasMany
+    public function commons(): BelongsToJson
     {
-        return $this->hasMany(File::class, 'id', 'common_ids');
+        return $this->belongsToJson(File::class, 'common_ids');
     }
 
     public function closing(): HasOne
@@ -84,6 +87,11 @@ class Schedule extends Model
         return $this->end_at;
     }
 
+    public function getProcessedAt(): ?Carbon
+    {
+        return $this->processed_at;
+    }
+
     public function isRepeating(): bool
     {
         return $this->is_repeating;
@@ -102,6 +110,7 @@ class Schedule extends Model
             'scheduled_at' => $this->getScheduledAt(),
             'duration' => $this->getDuration(),
             'end_at' => $this->getEndAt(),
+            'processed_at' => $this->getProcessedAt(),
             'is_repeating' => $this->isRepeating(),
             'intro' => $this->intro?->getToArrayDefault(),
             'opening' => $this->opening?->getToArrayDefault(),
