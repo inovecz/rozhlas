@@ -7,6 +7,8 @@ import {jwtDecode} from "jwt-decode";
 const username = ref('');
 const password = ref('');
 
+const toast = useToast();
+
 const bgStyle = computed(() => {
   return {
     'background-image': `url(${imgUrl})`,
@@ -24,8 +26,8 @@ const login = () => {
     const decodedJwt = jwtDecode(response.data.access_token);
     localStorage.setItem('username', decodedJwt.username);
     router.push('/live-broadcast')
-  }).catch(error => {
-    console.log(error);
+  }).catch(() => {
+    toast.error('Přihlášení se nezdařilo');
   });
 }
 

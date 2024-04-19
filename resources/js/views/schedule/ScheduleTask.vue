@@ -134,7 +134,6 @@ const canSave = computed(() => {
 
 function checkTimeConflict() {
   ScheduleService.checkTimeConflict(formatDate(new Date(scheduleDate.value), 'Y-m-d H:i'), totalDuration.value, editingScheduleId.value).then(response => {
-    console.log(response);
     if (response.message === 'response.time_conflict') {
       errorBag.value.scheduleDate = 'Vybraný termín se překrývá s termínem jiného úkolu';
       toast.error('Vybraný termín se překrývá s termínem jiného úkolu', {});
@@ -142,7 +141,7 @@ function checkTimeConflict() {
       errorBag.value.scheduleDate = null;
     }
   }).catch(error => {
-    console.error(error);
+    console.error('Nelze ověřit časový konflikt');
   });
 }
 

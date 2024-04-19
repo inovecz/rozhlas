@@ -16,7 +16,6 @@ const search = reactive({value: null});
 const toast = useToast();
 
 const props = defineProps({
-  title: String,
   type: String
 });
 
@@ -34,12 +33,11 @@ function fetchRecords(paginatorUrl) {
     if (response.next_end_at !== null) {
       const targetDateTime = new Date(response.next_end_at);
       const timeDiff = targetDateTime.getTime() - Date.now();
-      console.log(timeDiff);
       if (timeDiff > 0) {
         // + 10s due to the delay of the server
         setTimeout(() => {emitter.emit('refetchScheduleLists')}, timeDiff + 10000);
       } else {
-        console.error("The target time has already passed.");
+        console.error("Čas pro refetch je v minulosti");
       }
     }
   }).catch(error => {
@@ -84,7 +82,7 @@ function deleteSchedule(id) {
   <div class="component-box">
     <div class="flex flex-col sm:flex-row sm:items-center justify-between">
       <div class="text-xl text-primary mb-4 mt-3 px-1">
-        {{ props.title }}
+        {{ props.type === 'planned' ? 'Naplánované úkoly' : 'Archivované úkoly' }}
       </div>
       <router-link v-if="props.type==='planned'"
                    :to="{ name: 'CreateSchedule' }"

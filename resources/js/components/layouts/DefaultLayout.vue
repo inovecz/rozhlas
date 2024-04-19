@@ -4,13 +4,14 @@ import {basicStore} from '../../store/basicStore';
 import Sidebar from "./Sidebar.vue";
 import router from "../../router.js";
 import {getAudioInputDevices, getAudioOutputDevices} from "../../helper.js";
+import {useToast} from "vue-toastification";
 
 const basicStoreInfo = basicStore();
-
 const selectedAudioInputDevice = computed(() => JSON.parse(localStorage.getItem('audioInputDevice')) ?? 'default');
 const selectedAudioOutputDevice = computed(() => JSON.parse(localStorage.getItem('audioOutputDevice')) ?? 'default');
-
 const isDark = ref(localStorage.getItem('theme') === 'dark' || false);
+const toast = useToast();
+
 const setTheme = () => {
   localStorage.setItem('theme', isDark.value ? 'dark' : 'light');
   document.querySelector('html').setAttribute('data-theme', isDark.value ? 'dark' : 'light');
@@ -27,8 +28,8 @@ const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('username');
     router.push('/login')
-  }).catch(error => {
-    console.log(error);
+  }).catch(() => {
+    toast.error('Odhlášení se nezdařilo');
   });
 }
 

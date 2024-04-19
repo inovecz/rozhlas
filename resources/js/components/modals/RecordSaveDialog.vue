@@ -7,7 +7,6 @@ const props = defineProps(['title', 'message', 'uploadedFile']);
 const emit = defineEmits(['confirm', 'cancel']);
 
 const recordSubtype = ref('COMMON');
-console.log(props.uploadedFile ? props.uploadedFile.name : 'Nahrávka ' + new Date().toLocaleString('cs-CZ'));
 const recordName = ref('Nahrávka ' + new Date().toLocaleString('cs-CZ'));
 if (props.uploadedFile?.name) {
   recordName.value = props.uploadedFile.name;

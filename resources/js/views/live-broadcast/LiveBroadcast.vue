@@ -24,7 +24,6 @@ const startRecording = () => {
   navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
   if (navigator.getUserMedia) {
 
-    console.log('startRecording');
     navigator.getUserMedia(
         {audio: true},
         function (stream) {
@@ -35,14 +34,13 @@ const startRecording = () => {
           microphone.connect(destination);
           analyser.connect(aCtx.destination);
         },
-        function () { console.log("Error 003.")}
+        function () { }
     );
   }
 }
 
 const stopRecording = () => {
   recording.value = false;
-  console.log('stopRecording')
   microphone.disconnect();
   aCtx.close();
 }

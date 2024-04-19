@@ -116,7 +116,6 @@ async function startRecording() {
 function handleDataAvailable(event) {
   if (event.data && event.data.size > 0) {
     recordedBlobs.value.push(event.data);
-    console.log(recordedBlobs.value);
   }
 }
 
@@ -257,7 +256,6 @@ function saveRecord(id) {
       toast.success('Záznam byl úspěšně uložen');
     }).catch(error => {
       toast.error('Nepodařilo se uložit záznam');
-      console.log(error);
     });
   });
 }

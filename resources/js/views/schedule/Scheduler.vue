@@ -6,8 +6,8 @@ import ScheduleList from "./ScheduleList.vue";
   <div class="px-5 py-5">
     <h1 class="text-3xl mb-3 text-primary">Plán vysílání</h1>
     <div class="content flex flex-col space-y-4">
-      <ScheduleList title="Naplánováno" type="planned"/>
-      <ScheduleList title="Archív" type="archive"/>
+      <ScheduleList type="planned"/>
+      <ScheduleList type="archive"/>
     </div>
   </div>
 </template>
