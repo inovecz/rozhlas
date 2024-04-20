@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\FileController;
 use App\Http\Controllers\ScheduleController;
+use App\Http\Controllers\LocationController;
 
 Route::group(['prefix' => 'auth', 'middleware' => ['api', 'auth:api']], static function () {
     Route::post('/login', [AuthController::class, 'login'])->withoutMiddleware(['auth:api']);
@@ -33,5 +34,13 @@ Route::group(['middleware' => ['api']], static function () {
         Route::post('/list', [ScheduleController::class, 'list']);
         Route::post('/check-time-conflict', [ScheduleController::class, 'checkTimeConflict']);
         Route::post('/', [ScheduleController::class, 'save']);
+    });
+
+    Route::group(['prefix' => 'locations'], static function () {
+        Route::group(['prefix' => '{location}', 'where' => ['location' => '\d+',]], static function () {
+            Route::delete('/', [LocationController::class, 'delete']);
+        });
+        Route::post('/list', [LocationController::class, 'list']);
+        Route::post('/save', [LocationController::class, 'save']);
     });
 });

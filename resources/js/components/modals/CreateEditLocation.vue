@@ -3,21 +3,16 @@ import {computed, ref} from 'vue'
 import {Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot,} from '@headlessui/vue'
 
 const isOpen = ref(true)
-const props = defineProps(['title', 'message', 'uploadedFile']);
+const props = defineProps(['location']);
 const emit = defineEmits(['confirm', 'cancel']);
 
-const recordSubtype = ref('COMMON');
-const recordName = ref('Nahrávka ' + new Date().toLocaleString('cs-CZ'));
-if (props.uploadedFile?.name) {
-  recordName.value = props.uploadedFile.name;
-}
-const canSave = computed(() => recordName.value.length < 3);
+const canSave = computed(() => props.location.name.length < 3);
 
 const closeModalWith = (value) => {
   isOpen.value = false;
   setTimeout(() => {
     if (value === 'confirm') {
-      emit('confirm', {name: recordName.value, subtype: recordSubtype.value});
+      emit('confirm', props.location);
     } else {
       emit('cancel');
     }
@@ -40,7 +35,7 @@ const closeModalWith = (value) => {
         <div class="fixed inset-0 bg-black/25 backdrop-blur-sm"/>
       </TransitionChild>
 
-      <div class="fixed inset-0 overflow-y-auto">
+      <div class="fixed inset-0 overflow-y-auto z-[999]">
         <div class="flex min-h-full items-center justify-center p-4 text-center">
           <TransitionChild
               as="template"
@@ -52,32 +47,28 @@ const closeModalWith = (value) => {
               leave-to="opacity-0 scale-95">
             <DialogPanel class="w-full max-w-md flex flex-col gap-6 transform overflow-hidden rounded-2xl glass p-6 text-left align-middle shadow-xl transition-all">
               <DialogTitle as="h3" class="text-lg font-medium leading-6 text-primary">
-                Uložit nahrávku
+                {{ props.location.id ? 'Úprava lokality' : 'Nová lokalita' }}
               </DialogTitle>
 
               <div class="flex flex-col gap-3">
 
                 <div class="flex flex-col gap-2">
                   <div class="text-sm text-slate-900">
-                    Zadejte název pod kterým bude nahrávka uložena
+                    Zadejte název pod kterým bude lokalita uložena
                   </div>
                   <div>
-                    <input ref="recordNameInput" v-model="recordName" type="text" placeholder="Zadejte název nahrávky" class="input input-sm w-full"/>
+                    <input v-model="props.location.name" type="text" placeholder="Zadejte název lokality" class="input input-sm w-full"/>
                   </div>
                 </div>
 
                 <div class="flex flex-col gap-2">
                   <div class="text-sm text-slate-900">
-                    Zvolte typ nahrávky
+                    Zvolte typ lokality
                   </div>
                   <div>
-                    <select ref="recordSubtypeSelect" v-model="recordSubtype" class="select select-sm w-full">
-                      <option value="COMMON" selected>Běžné hlášení</option>
-                      <option value="OPENING">Úvodní slovo</option>
-                      <option value="CLOSING">Závěrečné slovo</option>
-                      <option value="INTRO">Úvodní znělka</option>
-                      <option value="OUTRO">Závěrečná znělka</option>
-                      <option value="OTHER">Ostatní</option>
+                    <select v-model="props.location.type" class="select select-sm w-full">
+                      <option value="CENTRAL" :selected="props.location.type === 'CENTRAL'">Centrála</option>
+                      <option value="NEST" :selected="props.location.type === 'NEST'">Hnízdo</option>
                     </select>
                   </div>
                 </div>

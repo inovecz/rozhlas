@@ -24,6 +24,7 @@ return new class extends Migration {
             $table->foreignId('closing_id')->nullable()->constrained('files');
             $table->foreignId('outro_id')->nullable()->constrained('files');
             $table->timestamps();
+            $table->softDeletes();
         });
     }
 

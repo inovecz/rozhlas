@@ -68,7 +68,7 @@ function openModal() {
               <div class="flex flex-col gap-3">
 
                 <div class="flex flex-col gap-2">
-                  <div class="text-sm text-base-content">
+                  <div class="text-sm text-slate-900">
                     {{ message }}
                   </div>
                   <div v-if="inputValue">

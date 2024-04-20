@@ -8,6 +8,7 @@ import LiveBroadcast from "./views/live-broadcast/LiveBroadcast.vue";
 import Recordings from "./views/records/Recordings.vue";
 import Scheduler from "./views/schedule/Scheduler.vue";
 import ScheduleTask from "./views/schedule/ScheduleTask.vue";
+import Map from "./views/map/Map.vue";
 
 const routes = [
     {
@@ -20,6 +21,7 @@ const routes = [
             {path: "/schedule", name: "Scheduler", component: Scheduler, meta: {title: "Plán vysílání"}},
             {path: '/schedule/task', name: "CreateSchedule", component: ScheduleTask, meta: {title: "Nový úkol"}},
             {path: '/schedule/task/:id', name: "EditSchedule", component: ScheduleTask, meta: {title: "Úprava úkolu"}},
+            {path: "/map", name: "Map", component: Map, meta: {title: "Mapa"}},
             {path: '/about', name: "About", component: About},
         ],
     },
@@ -47,7 +49,7 @@ const router = createRouter({
 
 // Update the document title on each route change
 router.beforeEach((to, from, next) => {
-    if (to.name !== 'Login' && to.name !== 'Register' && localStorage.getItem('token') === null) {
+    if (to.name !== 'Login' && to.name !== 'Register' && !localStorage.getItem('token')) {
         next({name: 'Login'});
     }
     document.title = to.meta.title || 'Sarrah IV';

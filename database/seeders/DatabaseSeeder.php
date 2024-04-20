@@ -20,5 +20,9 @@ class DatabaseSeeder extends Seeder
             'username' => 'admin',
             'password' => 'admin',
         ]);
+
+        $this->call([
+            LocationSeeder::class,
+        ]);
     }
 }

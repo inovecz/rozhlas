@@ -1,8 +1,10 @@
 <script setup>
 import imgUrl from '../../../img/background.jpg';
 import {computed, ref} from "vue";
-import router from "../../router.js";
+import {useToast} from "vue-toastification";
 import {jwtDecode} from "jwt-decode";
+import router from "../../router.js";
+import AuthService from "../../services/AuthService.js";
 
 const username = ref('');
 const password = ref('');
@@ -18,12 +20,9 @@ const bgStyle = computed(() => {
 });
 
 const login = () => {
-  http.post('/auth/login', {
-    username: username.value,
-    password: password.value,
-  }).then(response => {
-    localStorage.setItem('token', response.data.access_token);
-    const decodedJwt = jwtDecode(response.data.access_token);
+  AuthService.login(username.value, password.value).then(response => {
+    localStorage.setItem('token', response.access_token);
+    const decodedJwt = jwtDecode(response.access_token);
     localStorage.setItem('username', decodedJwt.username);
     router.push('/live-broadcast')
   }).catch(() => {
@@ -44,7 +43,7 @@ const login = () => {
         <div class="mb-4 w-full">
           <label class="block mb-1 text-sm" for="username">Přihlašovací jméno:</label>
 
-          <input id="username" class="w-full text-zinc-900 border px-4 py-2 rounded focus:border-blue-500 focus:shadow-outline outline-none"
+          <input id="username" class="w-full text-zinc-900 bg-base-content/50 border px-4 py-2 rounded focus:border-blue-500 focus:shadow-outline outline-none"
                  type="text" autofocus placeholder=""
                  v-model="username" required/>
         </div>
@@ -52,7 +51,7 @@ const login = () => {
         <div class="mb-4 w-full">
           <label class="block mb-1 text-sm" for="username">Heslo:</label>
 
-          <input id="password" class="w-full text-zinc-900 border px-4 py-2 rounded focus:border-blue-500 focus:shadow-outline outline-none"
+          <input id="password" class="w-full text-zinc-900 bg-base-content/50 border px-4 py-2 rounded focus:border-blue-500 focus:shadow-outline outline-none"
                  type="password" placeholder=""
                  v-model="password" required/>
         </div>

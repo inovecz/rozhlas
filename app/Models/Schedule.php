@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Staudenmeir\EloquentJsonRelations\HasJsonRelationships;
 use Staudenmeir\EloquentJsonRelations\Relations\BelongsToJson;
 
 class Schedule extends Model
 {
-    use \Staudenmeir\EloquentJsonRelations\HasJsonRelationships;
+    use SoftDeletes, HasJsonRelationships;
 
     // <editor-fold desc="Region: STATE DEFINITION">
     protected $guarded = ['id', 'created_at', 'updated_at'];
