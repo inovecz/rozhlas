@@ -1,10 +1,11 @@
 <script setup>
-import {onMounted, reactive, ref, watch} from "vue";
+import {reactive, ref, watch} from "vue";
 import {useToast} from "vue-toastification";
 import LocationService from "../../services/LocationService.js";
 import {createConfirmDialog} from "vuejs-confirm-dialog";
 import ModalDialog from "../../components/modals/ModalDialog.vue";
 import CreateEditLocation from "../../components/modals/CreateEditLocation.vue";
+import {locationStore} from "../../store/locationStore.js";
 
 const locations = ref([]);
 let orderColumn = 'created_at';
@@ -13,25 +14,20 @@ const pageLength = ref(5);
 const search = reactive({value: null});
 const toast = useToast();
 
-onMounted(() => {
-  fetchLocations();
-});
+const locationStoreInfo = locationStore();
+console.log(locationStoreInfo.locations);
 
 watch(search, debounce(() => {
   fetchLocations();
 }, 500));
 
-emitter.on('refetchLocationsList', () => {
-  fetchLocations();
-});
-
 function fetchLocations(paginatorUrl) {
-  locations.value = LocationService.fetchRecords(true, paginatorUrl, search.value, pageLength.value, orderColumn, orderAsc).then(response => {
-    locations.value = response;
-  }).catch(error => {
-    console.error(error);
-    toast.error('Nepodařilo se načíst seznam lokalit');
-  });
+  //locations.value = LocationService.fetchRecords(true, paginatorUrl, search.value, pageLength.value, orderColumn, orderAsc).then(response => {
+  //  locations.value = response;
+  //}).catch(error => {
+  //  console.error(error);
+  //  toast.error('Nepodařilo se načíst seznam lokalit');
+  //});
 }
 
 function orderBy(column) {
@@ -45,13 +41,13 @@ function orderBy(column) {
 }
 
 function locateOnMap(locationId) {
-  const location = locations.value.data.find(location => location.id === locationId);
+  const location = locationStoreInfo.locations.find(location => location.id === locationId);
   const center = [location.latitude, location.longitude];
   emitter.emit('locateOnMap', center);
 }
 
 function editLocation(id) {
-  const location = locations.value.data.find(location => location.id === id);
+  const location = locationStoreInfo.locations.find(location => location.id === id);
   const {reveal, onConfirm} = createConfirmDialog(CreateEditLocation, {
     location: location
   });
@@ -77,8 +73,7 @@ function deleteLocation(id) {
   onConfirm(() => {
     LocationService.deleteRecord(id).then(() => {
       toast.success('Záznam byl úspěšně smazán');
-      emitter.emit('refetchLocationsOverview');
-      fetchLocations();
+      emitter.emit('refetchLocations');
     }).catch(error => {
       console.error(error);
       toast.error('Nepodařilo se smazat záznam');
@@ -141,7 +136,7 @@ function deleteLocation(id) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="location in locations.data" :key="location.id" class="hover">
+          <tr v-if="locationStoreInfo.locations?.length > 0" v-for="location in locationStoreInfo.locations" :key="location.id" class="hover">
             <td>
               <div class="flex items-center gap-3">
                 <div>
@@ -168,7 +163,7 @@ function deleteLocation(id) {
           </tr>
         </tbody>
       </table>
-      <div v-if="locations?.data?.length === 0" class="text-center py-2">Nebyla nalezena žádná data</div>
+      <div v-if="locationStoreInfo.locations?.length === 0" class="text-center py-2">Nebyla nalezena žádná data</div>
       <div class="flex justify-between items-center py-2 px-1">
         <div>
           <select v-model="pageLength" @change="fetchLocations()" class="select select-sm select-bordered w-full max-w-xs">

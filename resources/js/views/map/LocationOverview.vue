@@ -4,12 +4,13 @@ import "leaflet-extra-markers/dist/css/leaflet.extra-markers.min.css"
 import * as L from "leaflet";
 import "leaflet-extra-markers/dist/js/leaflet.extra-markers.js";
 import {LMap, LMarker, LPopup, LTileLayer} from "@vue-leaflet/vue-leaflet"
-import {onMounted, reactive, ref} from "vue";
+import {reactive, ref} from "vue";
 import {useToast} from "vue-toastification";
 import LocationService from "../../services/LocationService.js";
 import {createConfirmDialog} from "vuejs-confirm-dialog";
 import CreateEditLocation from "../../components/modals/CreateEditLocation.vue";
 import {generateRandomString} from "../../helper.js";
+import {locationStore} from "../../store/locationStore.js";
 
 const map = ref();
 const zoom = ref(18);
@@ -17,17 +18,11 @@ const center = ref([49.454, 17.978]);
 const dragAndDrop = ref(false);
 const toggleDranAndDropButton = ref();
 
-onMounted(() => {
-  fetchLocations();
-});
+const locationStoreInfo = locationStore();
 
 emitter.on('locateOnMap', (center) => {
   center.value = center;
   map.value.leafletObject.setView(new L.LatLng(center.value[0], center.value[1]), 18)
-});
-
-emitter.on('refetchLocationsOverview', () => {
-  fetchLocations();
 });
 
 const icons = {
@@ -54,9 +49,6 @@ const icons = {
   })
 };
 
-const props = defineProps({
-  locations: Array
-});
 const locations = ref([]);
 let orderColumn = 'created_at';
 let orderAsc = false;
@@ -65,17 +57,17 @@ const search = reactive({value: null});
 const toast = useToast();
 
 function fetchLocations(paginatorUrl) {
-  locations.value = LocationService.fetchRecords(false, paginatorUrl, search.value, pageLength.value, orderColumn, orderAsc).then(response => {
-    locations.value = response.data;
-  }).catch(error => {
-    console.error(error);
-    toast.error('Nepodařilo se načíst seznam lokalit');
-  });
+  //locations.value = LocationService.fetchRecords(false, paginatorUrl, search.value, pageLength.value, orderColumn, orderAsc).then(response => {
+  //  locations.value = response.data;
+  //}).catch(error => {
+  //  console.error(error);
+  //  toast.error('Nepodařilo se načíst seznam lokalit');
+  //});
 }
 
 function toggleDragAndDrop(value) {
   if (dragAndDrop.value && value !== true) {
-    const updatedLocations = locations.value.filter((location) => location.updated);
+    const updatedLocations = locationStoreInfo.locations.filter((location) => location.updated);
     if (updatedLocations.length > 0) {
       // remove isNew flag from updated locations
       updatedLocations.forEach((location) => {
@@ -103,7 +95,7 @@ function locationPositionUpdated(event, locationId) {
   const location = event.target;
   if (location.dragging.enabled()) {
     const position = location.getLatLng();
-    locations.value.forEach((location) => {
+    locationStoreInfo.locations.forEach((location) => {
       if (location.hash === locationId) {
         location.latitude = position.lat;
         location.longitude = position.lng;
@@ -124,6 +116,7 @@ function addLocalityMarker() {
     latitude: center.value[0],
     longitude: center.value[1],
     type: 'NEST',
+    is_active: true,
     updated: true,
     isNew: true,
     hash: generateRandomString(16)
@@ -134,7 +127,7 @@ function addLocalityMarker() {
   });
   reveal();
   onConfirm((location) => {
-    locations.value.push(location);
+    locationStoreInfo.locations.push(location);
     if (!dragAndDrop.value) {
       toggleDragAndDrop(true);
     }
@@ -165,7 +158,7 @@ function setNewCenter() {
         <l-tile-layer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                       layer-type="base"
                       name="OpenStreetMap"/>
-        <l-marker v-if="locations.length > 0" v-for="location in locations" :key="location.id" :draggable="dragAndDrop" @mouseup="locationPositionUpdated($event, location.isNew ? location.hash : location.id)" :lat-lng="[location.latitude, location.longitude]" :icon="location.isNew ? icons.NEW : icons[location.type]">
+        <l-marker v-if="locationStoreInfo.locations?.length > 0" v-for="location in locationStoreInfo.locations" :key="location.id" :draggable="dragAndDrop" @mouseup="locationPositionUpdated($event, location.isNew ? location.hash : location.id)" :lat-lng="[location.latitude, location.longitude]" :icon="location.isNew ? icons.NEW : icons[location.type]">
           <L-popup>
             {{ location.name }}
           </L-popup>

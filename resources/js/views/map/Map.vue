@@ -1,6 +1,36 @@
 <script setup>
 import LocationOverview from "./LocationOverview.vue";
 import LocationList from "./LocationList.vue";
+import LocationService from "../../services/LocationService.js";
+import {useToast} from "vue-toastification";
+import {onMounted, reactive, ref} from "vue";
+import {locationStore} from "../../store/locationStore";
+
+const locations = ref([]);
+let orderColumn = 'scheduled_at';
+let orderAsc = true;
+const pageLength = ref(5);
+const search = reactive({value: null});
+const toast = useToast();
+
+const locationStoreInfo = locationStore();
+
+onMounted(() => {
+  fetchLocations();
+});
+
+emitter.on('refetchLocations', () => {
+  fetchLocations();
+});
+
+function fetchLocations(paginatorUrl) {
+  locations.value = LocationService.fetchRecords(false, paginatorUrl, search.value, pageLength.value, orderColumn, orderAsc).then(response => {
+    locationStoreInfo.locations = response.data;
+  }).catch(error => {
+    console.error(error);
+    toast.error('Nepodařilo se načíst seznam lokalit');
+  });
+}
 </script>
 
 <template>

@@ -1,6 +1,6 @@
 import {defineStore} from 'pinia';
 
-export const locationStore = defineStore('basicStore', {
+export const locationStore = defineStore('locationStore', {
     state: () => ({
         locations: [],
     }),
