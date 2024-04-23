@@ -1,5 +1,5 @@
 <script setup>
-import {reactive, ref, watch} from "vue";
+import {onMounted, reactive, ref, watch} from "vue";
 import {useToast} from "vue-toastification";
 import LocationService from "../../services/LocationService.js";
 import {createConfirmDialog} from "vuejs-confirm-dialog";
@@ -8,26 +8,54 @@ import CreateEditLocation from "../../components/modals/CreateEditLocation.vue";
 import {locationStore} from "../../store/locationStore.js";
 
 const locations = ref([]);
-let orderColumn = 'created_at';
+let orderColumn = 'id';
 let orderAsc = false;
 const pageLength = ref(5);
 const search = reactive({value: null});
 const toast = useToast();
 
 const locationStoreInfo = locationStore();
-console.log(locationStoreInfo.locations);
+
+onMounted(() => {
+  filterLocations();
+});
 
 watch(search, debounce(() => {
-  fetchLocations();
-}, 500));
+  filterLocations();
+}, 300));
 
-function fetchLocations(paginatorUrl) {
-  //locations.value = LocationService.fetchRecords(true, paginatorUrl, search.value, pageLength.value, orderColumn, orderAsc).then(response => {
-  //  locations.value = response;
-  //}).catch(error => {
-  //  console.error(error);
-  //  toast.error('Nepodařilo se načíst seznam lokalit');
-  //});
+emitter.on('filterListById', (id) => {
+  search.value = `id:${id}`;
+  filterLocations();
+});
+
+watch(locationStoreInfo, () => {
+  filterLocations();
+});
+
+function filterLocations() {
+  if (search.value !== null && search.value !== '') {
+    if (search.value.startsWith('id:')) {
+      locations.value = locationStoreInfo.locations.filter(location => {
+        return location.id.toString().includes(search.value.replace('id:', ''));
+      });
+      return;
+    }
+    locations.value = locationStoreInfo.locations.filter(location => {
+      return location.name.toLowerCase().includes(search.value.toLowerCase());
+    });
+  } else {
+    locations.value = locationStoreInfo.locations;
+  }
+  // order
+  locations.value = locations.value.sort((a, b) => {
+    if (orderAsc) {
+      return a[orderColumn] > b[orderColumn] ? 1 : -1;
+    } else {
+      return a[orderColumn] < b[orderColumn] ? 1 : -1;
+    }
+  });
+
 }
 
 function orderBy(column) {
@@ -37,7 +65,7 @@ function orderBy(column) {
     orderColumn = column;
     orderAsc = true;
   }
-  fetchLocations();
+  filterLocations();
 }
 
 function locateOnMap(locationId) {
@@ -55,8 +83,7 @@ function editLocation(id) {
   onConfirm((location) => {
     LocationService.updateRecords(location).then(() => {
       toast.success('Záznam byl úspěšně upraven');
-      emitter.emit('refetchLocationsOverview');
-      fetchLocations();
+      emitter.emit('refetchLocations');
     }).catch(error => {
       console.error(error);
       toast.error('Nepodařilo se upravit záznam');
@@ -89,9 +116,12 @@ function deleteLocation(id) {
         Seznam lokalit
       </div>
       <label class="input input-sm input-bordered flex items-center gap-2">
-        <input v-model="search.value" type="text" class="grow" placeholder="Hledat"/>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="w-4 h-4 opacity-70">
           <path fill-rule="evenodd" d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z" clip-rule="evenodd"/>
+        </svg>
+        <input v-model="search.value" type="text" class="grow" placeholder="Hledat"/>
+        <svg @click="() => {search.value = null}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-4 h-4 opacity-70 cursor-pointer">
+          <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"></path>
         </svg>
       </label>
     </div>
@@ -136,7 +166,7 @@ function deleteLocation(id) {
           </tr>
         </thead>
         <tbody>
-          <tr v-if="locationStoreInfo.locations?.length > 0" v-for="location in locationStoreInfo.locations" :key="location.id" class="hover">
+          <tr v-if="locations.length > 0" v-for="location in locations" :key="location.id" class="hover">
             <td>
               <div class="flex items-center gap-3">
                 <div>
@@ -163,26 +193,26 @@ function deleteLocation(id) {
           </tr>
         </tbody>
       </table>
-      <div v-if="locationStoreInfo.locations?.length === 0" class="text-center py-2">Nebyla nalezena žádná data</div>
-      <div class="flex justify-between items-center py-2 px-1">
-        <div>
-          <select v-model="pageLength" @change="fetchLocations()" class="select select-sm select-bordered w-full max-w-xs">
-            <option value="5">5</option>
-            <option value="10">10</option>
-            <option value="25">25</option>
-            <option value="50">50</option>
-          </select>
-        </div>
-        <div v-if="locations?.meta?.last_page > 1">
-          <div class="flex justify-center items-center">
-            <div class="join join-horizontal">
-              <template v-for="page in locations?.meta?.links">
-                <button @click="fetchRecords(page.url)" :disabled="page.url === null" class="btn btn-sm join-item" :class="{['btn-primary']: page.active}">{{ page.label }}</button>
-              </template>
-            </div>
-          </div>
-        </div>
-      </div>
+      <div v-if="locations?.length === 0" class="text-center py-2">Nebyla nalezena žádná data</div>
+      <!--      <div class="flex justify-between items-center py-2 px-1">
+              <div>
+                <select v-model="pageLength" @change="fetchLocations()" class="select select-sm select-bordered w-full max-w-xs">
+                  <option value="5">5</option>
+                  <option value="10">10</option>
+                  <option value="25">25</option>
+                  <option value="50">50</option>
+                </select>
+              </div>
+              <div v-if="locations?.meta?.last_page > 1">
+                <div class="flex justify-center items-center">
+                  <div class="join join-horizontal">
+                    <template v-for="page in locations?.meta?.links">
+                      <button @click="fetchRecords(page.url)" :disabled="page.url === null" class="btn btn-sm join-item" :class="{['btn-primary']: page.active}">{{ page.label }}</button>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </div>-->
     </div>
   </div>
 </template>

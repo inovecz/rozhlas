@@ -138,6 +138,12 @@ function setNewCenter() {
   const newCenter = map.value.leafletObject.getCenter();
   center.value = [newCenter.lat, newCenter.lng]
 }
+
+function filterList(locationId) {
+  if (!dragAndDrop.value) {
+    emitter.emit('filterListById', locationId);
+  }
+}
 </script>
 
 <template>
@@ -158,7 +164,7 @@ function setNewCenter() {
         <l-tile-layer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                       layer-type="base"
                       name="OpenStreetMap"/>
-        <l-marker v-if="locationStoreInfo.locations?.length > 0" v-for="location in locationStoreInfo.locations" :key="location.id" :draggable="dragAndDrop" @mouseup="locationPositionUpdated($event, location.isNew ? location.hash : location.id)" :lat-lng="[location.latitude, location.longitude]" :icon="location.isNew ? icons.NEW : icons[location.type]">
+        <l-marker v-if="locationStoreInfo.locations?.length > 0" v-for="location in locationStoreInfo.locations" :key="location.id" :draggable="dragAndDrop" @click="filterList(location.id)" @mouseup="locationPositionUpdated($event, location.isNew ? location.hash : location.id)" :lat-lng="[location.latitude, location.longitude]" :icon="location.isNew ? icons.NEW : icons[location.type]">
           <L-popup>
             {{ location.name }}
           </L-popup>
