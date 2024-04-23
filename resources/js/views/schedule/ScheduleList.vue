@@ -28,7 +28,7 @@ emitter.on('refetchScheduleLists', () => {
 });
 
 function fetchRecords(paginatorUrl) {
-  schedules.value = ScheduleService.fetchRecords(props.type, paginatorUrl, search.value, pageLength.value, orderColumn, orderAsc).then(response => {
+  ScheduleService.fetchRecords(props.type, paginatorUrl, search.value, pageLength.value, orderColumn, orderAsc).then(response => {
     schedules.value = response;
     if (response.next_end_at !== null) {
       const targetDateTime = new Date(response.next_end_at);

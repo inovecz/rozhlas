@@ -66,6 +66,18 @@ const showSideBar = computed(() => basicStoreInfo.showSideBar)
         <span class="sidebar-item text-gray-100 group-hover:text-secondary">Mapa</span>
       </SidebarItem>
 
+      <SidebarItem class="group" to="Log"
+                   :class="{
+                    ['router-link-active router-link-exact-active']:
+                        $route.path.match('log') !== null,
+                }"
+                   @click="toggleSidebar">
+        <div class="w-10 h-10 text-gray-200 group-hover:text-secondary hover:text-gray-50 flex items-center justify-center">
+          <span class="mdi mdi-math-log text-3xl"></span>
+        </div>
+        <span class="sidebar-item text-gray-100 group-hover:text-secondary">Protokoly</span>
+      </SidebarItem>
+
       <SidebarItem class="group" to="About"
                    :class="{
                     ['router-link-active router-link-exact-active']:

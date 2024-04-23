@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\LogController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\FileController;
 use App\Http\Controllers\ScheduleController;
@@ -42,5 +43,9 @@ Route::group(['middleware' => ['api']], static function () {
         });
         Route::post('/list', [LocationController::class, 'list']);
         Route::post('/save', [LocationController::class, 'save']);
+    });
+
+    Route::group(['prefix' => 'logs'], static function () {
+        Route::post('/list', [LogController::class, 'list']);
     });
 });

@@ -9,6 +9,7 @@ import Recordings from "./views/records/Recordings.vue";
 import Scheduler from "./views/schedule/Scheduler.vue";
 import ScheduleTask from "./views/schedule/ScheduleTask.vue";
 import Map from "./views/map/Map.vue";
+import Log from "./views/log/Log.vue";
 
 const routes = [
     {
@@ -22,6 +23,7 @@ const routes = [
             {path: '/schedule/task', name: "CreateSchedule", component: ScheduleTask, meta: {title: "Nový úkol"}},
             {path: '/schedule/task/:id', name: "EditSchedule", component: ScheduleTask, meta: {title: "Úprava úkolu"}},
             {path: "/map", name: "Map", component: Map, meta: {title: "Mapa"}},
+            {path: "/log", name: "Log", component: Log, meta: {title: "Protokoly"}},
             {path: '/about', name: "About", component: About},
         ],
     },
