@@ -2,7 +2,6 @@
 import imgUrl from '../../../img/background.jpg';
 import {computed, ref} from "vue";
 import {useToast} from "vue-toastification";
-import {jwtDecode} from "jwt-decode";
 import router from "../../router.js";
 import AuthService from "../../services/AuthService.js";
 
@@ -22,8 +21,6 @@ const bgStyle = computed(() => {
 const login = () => {
   AuthService.login(username.value, password.value).then(response => {
     localStorage.setItem('token', response.access_token);
-    const decodedJwt = jwtDecode(response.access_token);
-    localStorage.setItem('username', decodedJwt.username);
     router.push('/live-broadcast')
   }).catch(() => {
     toast.error('Přihlášení se nezdařilo');

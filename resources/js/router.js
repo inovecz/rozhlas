@@ -10,6 +10,7 @@ import Scheduler from "./views/schedule/Scheduler.vue";
 import ScheduleTask from "./views/schedule/ScheduleTask.vue";
 import Map from "./views/map/Map.vue";
 import Log from "./views/log/Log.vue";
+import Users from "./views/users/Users.vue";
 
 const routes = [
     {
@@ -24,6 +25,7 @@ const routes = [
             {path: '/schedule/task/:id', name: "EditSchedule", component: ScheduleTask, meta: {title: "Úprava úkolu"}},
             {path: "/map", name: "Map", component: Map, meta: {title: "Mapa"}},
             {path: "/log", name: "Log", component: Log, meta: {title: "Protokoly"}},
+            {path: "/users", name: "Users", component: Users, meta: {title: "Uživatelé"}},
             {path: '/about', name: "About", component: About},
         ],
     },

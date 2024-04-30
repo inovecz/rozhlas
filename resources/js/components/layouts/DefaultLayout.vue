@@ -3,7 +3,7 @@ import {computed, ref} from 'vue';
 import {basicStore} from '../../store/basicStore';
 import Sidebar from "./Sidebar.vue";
 import router from "../../router.js";
-import {getAudioInputDevices, getAudioOutputDevices} from "../../helper.js";
+import {getAudioInputDevices, getAudioOutputDevices, getLoggedUsername} from "../../helper.js";
 import {useToast} from "vue-toastification";
 
 const basicStoreInfo = basicStore();
@@ -21,12 +21,9 @@ const toggleSidebar = () => {
   basicStoreInfo.showSideBar = !basicStoreInfo.showSideBar;
 }
 
-const username = computed(() => localStorage.getItem('username'));
-
 const logout = () => {
   http.post('/auth/logout').then(response => {
     localStorage.removeItem('token');
-    localStorage.removeItem('username');
     router.push('/login')
   }).catch(() => {
     toast.error('Odhlášení se nezdařilo');
@@ -65,15 +62,16 @@ function persistDefaultOutput() {
   const label = audioOutputSelect.value.options[index].text;
   localStorage.setItem('audioOutputDevice', JSON.stringify({id, label}));
 }
+
 </script>
 
 <template>
   <div class="relative min-h-screen">
     <Sidebar/>
     <!--<editor-fold desc="NAVBAR">-->
-    <div class="bg-base-300 py-4 px-4 text-light-grey flex justify-between items-center fixed left-0 right-0 z-10">
+    <div class="bg-base-300 py-4 px-4 text-light-grey flex justify-between items-center fixed left-0 right-0 z-20">
 
-      <span class="mdi mdi-menu text-3xl text-gray-100 cursor-pointer md:hidden" @click="toggleSidebar"></span>
+      <span class="mdi mdi-menu text-3xl text-base-content cursor-pointer md:hidden" @click="toggleSidebar"></span>
 
       <div class="cursor-pointer">
         <router-link :to="{ name: 'LiveBroadcast' }">
@@ -102,7 +100,7 @@ function persistDefaultOutput() {
 
           <div class="flex items-center gap-4">
           <span class="cursor-pointer" title="Representative">
-            {{ username }}
+            {{ getLoggedUsername() }}
           </span>
           </div>
           <div class="dropdown inline-block relative">

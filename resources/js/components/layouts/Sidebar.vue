@@ -13,6 +13,45 @@ const toggleSidebar = () => {
 }
 
 const showSideBar = computed(() => basicStoreInfo.showSideBar)
+
+const sidebarItems = [
+  {
+    name: 'Živé vysílání',
+    icon: 'mdi-microphone',
+    to: 'LiveBroadcast',
+    active: 'live-broadcast'
+  }, {
+    name: 'Záznamy',
+    icon: 'mdi-album',
+    to: 'Recordings',
+    active: 'recordings'
+  }, {
+    name: 'Plán vysílání',
+    icon: 'mdi-calendar-clock',
+    to: 'Scheduler',
+    active: 'schedule'
+  }, {
+    name: 'Mapa',
+    icon: 'mdi-map',
+    to: 'Map',
+    active: 'map'
+  }, {
+    name: 'Protokoly',
+    icon: 'mdi-math-log',
+    to: 'Log',
+    active: 'log'
+  }, {
+    name: 'Uživatelé',
+    icon: 'mdi-account-group',
+    to: 'Users',
+    active: 'users'
+  }, {
+    name: 'O aplikaci',
+    icon: 'mdi-information',
+    to: 'About',
+    active: 'about'
+  }
+];
 </script>
 
 <template>
@@ -28,96 +67,24 @@ const showSideBar = computed(() => basicStoreInfo.showSideBar)
     </div>
 
     <nav class="relative">
-
-      <SidebarItem to="LiveBroadcast" class="group relative"
-                   :class="{['router-link-active router-link-exact-active text-primary-content']: $route.path.match('live-broadcast') !== null}">
+      <SidebarItem v-for="item in sidebarItems" :key="item.name" :to="item.to"
+                   :class="{['router-link-active router-link-exact-active text-primary-content']: $route.path.match(item.active) !== null}">
         <div class="w-10 h-10 group-hover:text-secondary flex items-center justify-center">
-          <span class="mdi mdi-microphone text-3xl"></span>
+          <span :class="['mdi', item.icon, 'text-3xl']"></span>
         </div>
         <span class="group-hover:opacity-100 transition-opacity bg-gray-800 px-3 text-sm text-gray-100 rounded-md absolute opacity-0 translate-x-14 m-4 mx-auto whitespace-nowrap"
               v-if="!showSideBar">
-          Živé vysílání
+          {{ item.name }}
         </span>
         <span class="sidebar-item group-hover:text-secondary" :class="[showSideBar ? 'block' : 'hidden']">
-          Živé vysílání
+          {{ item.name }}
         </span>
       </SidebarItem>
-
-      <SidebarItem to="Recordings" class="group relative"
-                   :class="{['router-link-active router-link-exact-active text-primary-content'] : $route.path.match('recordings') !== null}">
-        <div class="w-10 h-10 group-hover:text-secondary flex items-center justify-center">
-          <span class="mdi mdi-album text-3xl"></span>
-        </div>
-        <span class="group-hover:opacity-100 transition-opacity bg-gray-800 px-3 text-sm text-gray-100 rounded-md absolute opacity-0 translate-x-14 m-4 mx-auto whitespace-nowrap"
-              v-if="!showSideBar">
-          Záznamy
-        </span>
-        <span class="sidebar-item group-hover:text-secondary" :class="[showSideBar ? 'block' : 'hidden']">
-          Záznamy
-        </span>
-      </SidebarItem>
-
-      <SidebarItem to="Scheduler" class="group relative"
-                   :class="{['router-link-active router-link-exact-active text-primary-content'] : $route.path.match('schedule') !== null}">
-        <div class="w-10 h-10 group-hover:text-secondary flex items-center justify-center">
-          <span class="mdi mdi-calendar-clock text-3xl"></span>
-        </div>
-        <span class="group-hover:opacity-100 transition-opacity bg-gray-800 px-3 text-sm text-gray-100 rounded-md absolute opacity-0 translate-x-14 m-4 mx-auto whitespace-nowrap"
-              v-if="!showSideBar">
-          Plán vysílání
-        </span>
-        <span class="sidebar-item group-hover:text-secondary" :class="[showSideBar ? 'block' : 'hidden']">
-          Plán vysílání
-        </span>
-      </SidebarItem>
-
-      <SidebarItem to="Map" class="group relative"
-                   :class="{['router-link-active router-link-exact-active text-primary-content'] : $route.path.match('map') !== null}">
-        <div class="w-10 h-10 group-hover:text-secondary flex items-center justify-center">
-          <span class="mdi mdi-map text-3xl"></span>
-        </div>
-        <span class="group-hover:opacity-100 transition-opacity bg-gray-800 px-3 text-sm text-gray-100 rounded-md absolute opacity-0 translate-x-14 m-4 mx-auto whitespace-nowrap"
-              v-if="!showSideBar">
-          Mapa
-        </span>
-        <span class="sidebar-item group-hover:text-secondary" :class="[showSideBar ? 'block' : 'hidden']">
-          Mapa
-        </span>
-      </SidebarItem>
-
-      <SidebarItem to="Log" class="group relative"
-                   :class="{['router-link-active router-link-exact-active text-primary-content'] : $route.path.match('log') !== null}">
-        <div class="w-10 h-10 group-hover:text-secondary flex items-center justify-center">
-          <span class="mdi mdi-math-log text-3xl"></span>
-        </div>
-        <span class="group-hover:opacity-100 transition-opacity bg-gray-800 px-3 text-sm text-gray-100 rounded-md absolute opacity-0 translate-x-14 m-4 mx-auto whitespace-nowrap"
-              v-if="!showSideBar">
-          Protokoly
-        </span>
-        <span class="sidebar-item group-hover:text-secondary" :class="[showSideBar ? 'block' : 'hidden']">
-          Protokoly
-        </span>
-      </SidebarItem>
-
-      <SidebarItem to="About" class="group relative"
-                   :class="{['router-link-active router-link-exact-active text-primary-content']: $route.path.match('about') !== null}">
-        <div class="w-10 h-10 group-hover:text-secondary flex items-center justify-center">
-          <span class="mdi mdi-information text-3xl"></span>
-        </div>
-        <span class="group-hover:opacity-100 transition-opacity bg-gray-800 px-3 text-sm text-gray-100 rounded-md absolute opacity-0 translate-x-14 m-4 mx-auto whitespace-nowrap"
-              v-if="!showSideBar">
-          O aplikaci
-        </span>
-        <span class="sidebar-item group-hover:text-secondary" :class="[showSideBar ? 'block' : 'hidden']">
-          O aplikaci
-        </span>
-      </SidebarItem>
-
     </nav>
   </div>
   <!-- /desktop sidebar -->
 
   <!-- mobile side bar -->
-  <MobileSidebar/>
+  <MobileSidebar :sidebar-items="sidebarItems"/>
   <!-- /mobile side bar -->
 </template>

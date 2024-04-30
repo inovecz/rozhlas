@@ -4,7 +4,7 @@ import "leaflet-extra-markers/dist/css/leaflet.extra-markers.min.css"
 import * as L from "leaflet";
 import "leaflet-extra-markers/dist/js/leaflet.extra-markers.js";
 import {LMap, LMarker, LPopup, LTileLayer} from "@vue-leaflet/vue-leaflet"
-import {reactive, ref} from "vue";
+import {ref} from "vue";
 import {useToast} from "vue-toastification";
 import LocationService from "../../services/LocationService.js";
 import {createConfirmDialog} from "vuejs-confirm-dialog";
@@ -49,21 +49,8 @@ const icons = {
   })
 };
 
-const locations = ref([]);
-let orderColumn = 'created_at';
-let orderAsc = false;
-const pageLength = ref(5);
-const search = reactive({value: null});
 const toast = useToast();
 
-function fetchLocations(paginatorUrl) {
-  //locations.value = LocationService.fetchRecords(false, paginatorUrl, search.value, pageLength.value, orderColumn, orderAsc).then(response => {
-  //  locations.value = response.data;
-  //}).catch(error => {
-  //  console.error(error);
-  //  toast.error('Nepodařilo se načíst seznam lokalit');
-  //});
-}
 
 function toggleDragAndDrop(value) {
   if (dragAndDrop.value && value !== true) {

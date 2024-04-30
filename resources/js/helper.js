@@ -1,3 +1,5 @@
+import {jwtDecode} from "jwt-decode";
+
 export const getPermissions = () => {
     // Older browsers might not implement mediaDevices at all, so we set an empty object first
     if (navigator.mediaDevices === undefined) {
@@ -145,4 +147,12 @@ export const generateRandomString = (length) => {
         result += characters.charAt(Math.floor(Math.random() * characters.length));
     }
     return result;
+}
+
+export const getLoggedUsername = () => {
+    return jwtDecode(localStorage.getItem('token')).username;
+}
+
+export const getLoggedUserId = () => {
+    return jwtDecode(localStorage.getItem('token')).user_id;
 }

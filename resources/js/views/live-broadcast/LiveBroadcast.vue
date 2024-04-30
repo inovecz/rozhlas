@@ -49,15 +49,14 @@ const stopRecording = () => {
 
 <template>
   <div class="px-5 py-5">
-    <h1 class="text-3xl mb-3">Živé vysílání</h1>
-    <div class="content">
-      <button id="record" @click="startStream" class="py-4 px-5 text-2xl text-gray-50 border w-full rounded tracking-wide"
-              :class="{'bg-rose-500 hover:bg-rose-600 border-rose-700': recording, 'bg-emerald-500 hover:bg-emerald-600 border-emerald-700': !recording}">Zahájit vysílání
-      </button>
-      <!--      <p v-if="isVisibleLink" class="my-5">
-              Share the following streaming link: {{ streamLink }}
-            </p>-->
-      <video autoplay ref="broadcaster"></video>
+    <h1 class="text-3xl mb-3 text-primary">Živé vysílání</h1>
+    <div class="content flex flex-col space-y-4">
+      <div class="component-box">
+        <button id="record" @click="startStream" class="py-4 px-5 text-2xl text-gray-50 border w-full rounded tracking-wide"
+                :class="{'bg-rose-500 hover:bg-rose-600 border-rose-700': recording, 'bg-emerald-500 hover:bg-emerald-600 border-emerald-700': !recording}">Zahájit vysílání
+        </button>
+        <video autoplay ref="broadcaster" class="hidden"></video>
+      </div>
     </div>
   </div>
 </template>

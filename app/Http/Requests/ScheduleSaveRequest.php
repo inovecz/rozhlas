@@ -34,7 +34,6 @@ class ScheduleSaveRequest extends FormRequest
     public function filters(): array
     {
         return [
-            'field' => 'trim|escape|lowercase|uppercase|capitalize|empty_string_to_null|strip_tags|digit|format_date:"m/d/Y","F j, Y"|cast:(integer,float,string,boolean,object,array,collection)',
             'title' => 'trim|escape',
             'scheduled_at' => 'trim|escape',
             'is_repeating' => 'trim|escape|cast:boolean',
