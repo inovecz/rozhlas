@@ -99,9 +99,9 @@ function persistDefaultOutput() {
         <div class="flex gap-4">
 
           <div class="flex items-center gap-4">
-          <span class="cursor-pointer" title="Representative">
-            {{ getLoggedUsername() }}
-          </span>
+            <span class="cursor-pointer" title="Representative">
+              {{ getLoggedUsername() }}
+            </span>
           </div>
           <div class="dropdown inline-block relative">
             <span class="mdi mdi-account-circle text-3xl"></span>

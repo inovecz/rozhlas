@@ -14,6 +14,7 @@ import Toast, {POSITION, useToast} from "vue-toastification";
 import "vue-toastification/dist/index.css";
 import VueDatePicker from '@vuepic/vue-datepicker';
 import '@vuepic/vue-datepicker/dist/main.css'
+import {Vue3SlideUpDown} from "vue3-slide-up-down";
 
 //define
 const emitter = mitt();
@@ -27,6 +28,7 @@ window.debounce = debounce;
 //define as component
 app.component("app-component", AppComponent);
 app.component('VueDatePicker', VueDatePicker);
+app.component('Vue3SlideUpDown', Vue3SlideUpDown);
 
 //use package
 app.use(pinia);

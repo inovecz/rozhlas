@@ -11,6 +11,10 @@ import ScheduleTask from "./views/schedule/ScheduleTask.vue";
 import Map from "./views/map/Map.vue";
 import Log from "./views/log/Log.vue";
 import Users from "./views/users/Users.vue";
+import GeneralSettings from "./views/settings/GeneralSettings.vue";
+import Contacts from "./views/settings/Contacts.vue";
+import SmtpSettings from "./views/settings/SmtpSettings.vue";
+import SmsSettings from "./views/settings/SmsSettings.vue";
 
 const routes = [
     {
@@ -26,6 +30,10 @@ const routes = [
             {path: "/map", name: "Map", component: Map, meta: {title: "Mapa"}},
             {path: "/log", name: "Log", component: Log, meta: {title: "Protokoly"}},
             {path: "/users", name: "Users", component: Users, meta: {title: "Uživatelé"}},
+            {path: "/settings/general", name: "GeneralSettings", component: GeneralSettings, meta: {title: "Obecné nastavení"}},
+            {path: "/settings/contacts", name: "Contacts", component: Contacts, meta: {title: "Kontakty"}},
+            {path: "/settings/smtp", name: "SmtpSettings", component: SmtpSettings, meta: {title: "Nastavení SMTP"}},
+            {path: "/settings/sms", name: "SmsSettings", component: SmsSettings, meta: {title: "Nastavení SMS"}},
             {path: '/about', name: "About", component: About},
         ],
     },

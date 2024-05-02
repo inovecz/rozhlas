@@ -12,7 +12,7 @@ const props = defineProps({
 <template>
   <router-link
       :to="{ name: to }"
-      class="flex items-center gap-2 px-3 py-2 hover:bg-light-gold transition duration-200 cursor-pointer"
+      class="flex items-center justify-between gap-2 px-3 py-2 hover:bg-primary hover:text-primary-content transition duration-200 cursor-pointer border-b-2 border-b-base-300"
   >
     <slot></slot>
   </router-link>
@@ -21,6 +21,6 @@ const props = defineProps({
 <style scoped>
 .router-link-active,
 .router-link-exact-active {
-  background: #4c4c54;
+  @apply bg-slate-600;
 }
 </style>
