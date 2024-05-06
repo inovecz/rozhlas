@@ -42,8 +42,7 @@ function updateToastMessage(message) {
     const rgx = /(.*\()(\d+)(x\))$/g;
     if (message.match(rgx)) {
         const number = parseInt(message.replace(rgx, '$2')) + 1;
-        const newMessage = message.replace(rgx, `$1${number}$3`);
-        return newMessage;
+        return message.replace(rgx, `$1${number}$3`);
     }
     return `${message} (2x)`;
 }
