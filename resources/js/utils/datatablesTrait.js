@@ -1,9 +1,9 @@
 import {onMounted, reactive, watch} from "vue";
 
-export function useDataTables(fetchRecords) {
-    let orderColumn = 'created_at';
-    let orderAsc = true;
-    const pageLength = reactive({value: 5});
+export function useDataTables(fetchRecords, orderColumnDefault = 'created_at', pageLengthDefault = 5) {
+    const orderAsc = reactive({value: true})
+    const orderColumn = reactive({value: orderColumnDefault});
+    const pageLength = reactive({value: pageLengthDefault});
     const search = reactive({value: null});
 
     onMounted(() => {
@@ -11,12 +11,14 @@ export function useDataTables(fetchRecords) {
     });
 
     function orderBy(column) {
-        if (orderColumn === column) {
-            orderAsc = !orderAsc;
+        console.log('Previous order', orderColumn.value, orderAsc.value)
+        if (orderColumn.value === column) {
+            orderAsc.value = !orderAsc.value;
         } else {
-            orderColumn = column;
-            orderAsc = true;
+            orderColumn.value = column;
+            orderAsc.value = true;
         }
+        console.log('New order', orderColumn.value, orderAsc.value)
         fetchRecords();
     }
 

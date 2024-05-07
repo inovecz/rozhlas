@@ -6,7 +6,6 @@ import {useToast} from "vue-toastification";
 import {onMounted, reactive, ref} from "vue";
 import {locationStore} from "../../store/locationStore";
 
-const locations = ref([]);
 let orderColumn = 'scheduled_at';
 let orderAsc = true;
 const pageLength = ref(5);
@@ -24,7 +23,7 @@ emitter.on('refetchLocations', () => {
 });
 
 function fetchLocations(paginatorUrl) {
-  locations.value = LocationService.fetchRecords(false, paginatorUrl, search.value, pageLength.value, orderColumn, orderAsc).then(response => {
+  LocationService.fetchRecords(false, paginatorUrl, search.value, pageLength.value, orderColumn, orderAsc).then(response => {
     locationStoreInfo.locations = response.data;
   }).catch(error => {
     console.error(error);

@@ -5,6 +5,7 @@ use App\Http\Controllers\LogController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\FileController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\ContactController;
 use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\SettingsController;
@@ -17,7 +18,23 @@ Route::group(['prefix' => 'auth', 'middleware' => ['api', 'auth:api']], static f
 });
 
 Route::group(['middleware' => ['api']], static function () {
-    Route::post('/upload', [FileController::class, 'upload']);
+    Route::group(['prefix' => 'contacts'], static function () {
+        Route::group(['prefix' => '{contact}', 'where' => ['contact' => '\d+',]], static function () {
+            Route::post('/', [ContactController::class, 'saveContact']);
+            Route::delete('/', [ContactController::class, 'deleteContact']);
+        });
+        Route::group(['prefix' => 'groups'], static function () {
+            Route::group(['prefix' => '{contactGroup}', 'where' => ['contactGroup' => '\d+',]], static function () {
+                Route::post('/', [ContactController::class, 'saveContactGroup']);
+                Route::delete('/', [ContactController::class, 'deleteContactGroup']);
+            });
+            Route::get('/', [ContactController::class, 'getAllGroups']);
+            Route::post('/', [ContactController::class, 'saveContactGroup']);
+            Route::post('list', [ContactController::class, 'listGroups']);
+        });
+        Route::post('/', [ContactController::class, 'saveContact']);
+        Route::post('list', [ContactController::class, 'list']);
+    });
 
     Route::group(['prefix' => 'locations'], static function () {
         Route::group(['prefix' => '{location}', 'where' => ['location' => '\d+',]], static function () {
@@ -57,6 +74,8 @@ Route::group(['middleware' => ['api']], static function () {
             Route::get('/', [SettingsController::class, 'getSmtpSettings']);
         });
     });
+
+    Route::post('/upload', [FileController::class, 'upload']);
 
     Route::group(['prefix' => 'users'], static function () {
         Route::group(['prefix' => '{user}', 'where' => ['user' => '\d+',]], static function () {

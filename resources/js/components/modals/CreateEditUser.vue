@@ -62,7 +62,7 @@ const closeModalWith = (value) => {
               <div class="flex flex-col gap-3">
 
                 <div class="flex flex-col gap-2">
-                  <div class="text-sm text-slate-900">
+                  <div class="text-sm text-base-content">
                     Uživatelské jméno
                   </div>
                   <div>
@@ -71,7 +71,7 @@ const closeModalWith = (value) => {
                 </div>
 
                 <div class="flex flex-col gap-2">
-                  <div class="text-sm text-slate-900">
+                  <div class="text-sm text-base-content">
                     Heslo
                   </div>
                   <div>

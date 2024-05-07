@@ -53,7 +53,7 @@ const closeModalWith = (value) => {
               <div class="flex flex-col gap-3">
 
                 <div class="flex flex-col gap-2">
-                  <div class="text-sm text-slate-900">
+                  <div class="text-sm text-base-content">
                     Zadejte název pod kterým bude lokalita uložena
                   </div>
                   <div>
@@ -62,7 +62,7 @@ const closeModalWith = (value) => {
                 </div>
 
                 <div class="flex flex-col gap-2">
-                  <div class="text-sm text-slate-900">
+                  <div class="text-sm text-base-content">
                     Zvolte typ lokality
                   </div>
                   <div>
