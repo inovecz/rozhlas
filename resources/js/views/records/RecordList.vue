@@ -5,24 +5,21 @@ import {durationToTime, formatBytes, formatDate} from "../../helper.js";
 import {createConfirmDialog} from "vuejs-confirm-dialog";
 import ModalDialog from "../../components/modals/ModalDialog.vue";
 import {useToast} from "vue-toastification";
+import {useDataTables} from "../../utils/datatablesTrait.js";
 
 const records = ref([]);
 const playingId = ref(null);
 const recordsCache = [];
-let orderColumn = 'created_at';
-let orderAsc = false;
-const pageLength = ref(5)
-const search = reactive({value: null})
 const typeFilter = reactive({value: 'ALL'})
-
 const toast = useToast();
+
+const {fetchRecords, orderAsc, orderBy, orderColumn, pageLength, search} = useDataTables(fetchRecordings, 'created_at');
 
 onMounted(() => {
   fetchRecords();
 });
 
-
-function fetchRecords(paginatorUrl) {
+function fetchRecordings(paginatorUrl) {
   let page = 1;
   if (paginatorUrl) {
     page = paginatorUrl.match(/page=(\d+)/);
@@ -39,7 +36,7 @@ function fetchRecords(paginatorUrl) {
     page,
     search: search.value,
     length: pageLength.value,
-    order: [{'column': orderColumn, 'dir': orderAsc ? 'asc' : 'desc'}],
+    order: [{'column': orderColumn.value, 'dir': orderAsc.value ? 'asc' : 'desc'}],
     filter
   }).then(response => {
     records.value = response.data;
@@ -47,20 +44,6 @@ function fetchRecords(paginatorUrl) {
     console.error(error);
   });
 }
-
-function orderBy(column) {
-  if (orderColumn === column) {
-    orderAsc = !orderAsc;
-  } else {
-    orderColumn = column;
-    orderAsc = true;
-  }
-  fetchRecords();
-}
-
-watch(search, debounce(() => {
-  fetchRecords();
-}, 500));
 
 watch(typeFilter, () => fetchRecords());
 
@@ -188,45 +171,45 @@ emitter.on('recordSaved', () => {
               <div class="flex items-center cursor-pointer">
                 Název
                 <span v-if="orderColumn === 'name'">
-                <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
-                <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
-              </span>
+                  <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
+                  <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
+                </span>
               </div>
             </th>
             <th @click="orderBy('subtype')">
               <div class="flex items-center cursor-pointer">
                 Typ
                 <span v-if="orderColumn === 'subtype'">
-                <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
-                <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
-              </span>
+                  <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
+                  <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
+                </span>
               </div>
             </th>
             <th @click="orderBy('created_at')">
               <div class="flex items-center cursor-pointer">
                 Nahráno
                 <span v-if="orderColumn === 'created_at'">
-                <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
-                <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
-              </span>
+                  <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
+                  <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
+                </span>
               </div>
             </th>
             <th @click="orderBy('size')">
               <div class="flex items-center cursor-pointer">
                 Velikost
                 <span v-if="orderColumn === 'size'">
-                <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
-                <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
-              </span>
+                  <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
+                  <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
+                </span>
               </div>
             </th>
             <th @click="orderBy('metadata->duration')">
               <div class="flex items-center cursor-pointer">
                 Délka
                 <span v-if="orderColumn === 'metadata->duration'">
-                <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
-                <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
-              </span>
+                  <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
+                  <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
+                </span>
               </div>
             </th>
             <th class="text-right">Akce</th>

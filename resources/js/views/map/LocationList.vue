@@ -10,9 +10,9 @@ import {locationStore} from "../../store/locationStore.js";
 const locations = ref([]);
 let orderColumn = 'id';
 let orderAsc = false;
-const pageLength = ref(5);
 const search = reactive({value: null});
 const toast = useToast();
+
 
 const locationStoreInfo = locationStore();
 
@@ -134,22 +134,22 @@ function deleteLocation(id) {
               <div class="flex items-center cursor-pointer underline">
                 Název
                 <span v-if="orderColumn === 'name'">
-                      <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
-                      <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
-                    </span>
+                  <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
+                  <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
+                </span>
               </div>
             </th>
             <th @click="orderBy('type')">
               <div class="flex items-center cursor-pointer underline">
                 Typ
                 <span v-if="orderColumn === 'type'">
-                      <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
-                      <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
-                    </span>
+                  <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
+                  <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
+                </span>
               </div>
             </th>
             <th>
-              <div class="flex items-center cursor-pointer">
+              <div class="flex items-center">
                 Pozice
               </div>
             </th>
@@ -157,9 +157,9 @@ function deleteLocation(id) {
               <div class="flex items-center cursor-pointer underline">
                 Aktivní
                 <span v-if="orderColumn === 'is_active'">
-                      <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
-                      <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
-                    </span>
+                  <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
+                  <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
+                </span>
               </div>
             </th>
             <th class="text-right">Akce</th>
@@ -179,8 +179,8 @@ function deleteLocation(id) {
             </td>
             <td>
               <span class="text-xs spacing">
-              {{ location.latitude.toFixed(8) }}<br/>{{ location.longitude.toFixed(8) }}
-                </span>
+                {{ location.latitude.toFixed(8) }}<br/>{{ location.longitude.toFixed(8) }}
+              </span>
             </td>
             <td>
               {{ location.is_active ? 'Ano' : 'Ne' }}
