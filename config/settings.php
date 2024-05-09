@@ -9,6 +9,7 @@ return [
     'settings' => [
         \App\Settings\SmtpSettings::class,
         \App\Settings\FMSettings::class,
+        \App\Settings\TwoWayCommSettings::class,
     ],
 
     /*

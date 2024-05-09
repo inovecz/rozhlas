@@ -49,11 +49,11 @@ const cantSave = computed(() => {
           </div>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-          <label for="smtp-host" class="label">
+          <label for="fm-frequency" class="label">
             <span class="label-text">Frekvence rádia [MHz]:</span>
           </label>
           <div class="form-control w-full">
-            <input id="smtp-host" v-model="fmSettings.frequency" type="text" placeholder="Např.: 103.3" class="input input-bordered w-full"/>
+            <input id="fm-frequency" v-model="fmSettings.frequency" type="text" placeholder="Např.: 103.3" class="input input-bordered w-full"/>
           </div>
           <div class="col-span-1 md:col-span-2 mt-4 flex justify-end">
             <button class="btn btn-primary" @click="saveFMSettings" :disabled="cantSave">Uložit</button>

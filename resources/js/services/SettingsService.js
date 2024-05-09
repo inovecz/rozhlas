@@ -37,5 +37,25 @@ export default {
                 reject(error.response.data);
             });
         });
+    },
+
+    fetchTwoWayCommSettings() {
+        return new Promise((resolve, reject) => {
+            http.get('settings/two-way-comm').then(response => {
+                resolve(response.data);
+            }).catch(error => {
+                reject([]);
+            });
+        });
+    },
+
+    saveTwoWayCommSettings(settings) {
+        return new Promise((resolve, reject) => {
+            http.post('settings/two-way-comm', settings).then(response => {
+                resolve(response.data);
+            }).catch(error => {
+                reject(error.response.data);
+            });
+        });
     }
 }

@@ -16,6 +16,7 @@ import Contacts from "./views/settings/Contacts.vue";
 import SmtpSettings from "./views/settings/SmtpSettings.vue";
 import SmsSettings from "./views/settings/SmsSettings.vue";
 import FMSettings from "./views/settings/FMSettings.vue";
+import TwoWayCommSettings from "./views/settings/TwoWayCommSettings.vue";
 
 const routes = [
     {
@@ -36,6 +37,7 @@ const routes = [
             {path: "/settings/smtp", name: "SmtpSettings", component: SmtpSettings, meta: {title: "Nastavení SMTP"}},
             {path: "/settings/sms", name: "SmsSettings", component: SmsSettings, meta: {title: "Nastavení SMS"}},
             {path: "/settings/fm", name: "FMSettings", component: FMSettings, meta: {title: "Nastavení FM rádia"}},
+            {path: "/settings/two-way-comm", name: "TwoWayCommSettings", component: TwoWayCommSettings, meta: {title: "Nastavení obousměrné komunikace"}},
             {path: '/about', name: "About", component: About},
         ],
     },

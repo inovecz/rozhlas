@@ -196,18 +196,6 @@ function saveTask() {
               <div class="label">
                 <span class="font-bold">Termín vysílání</span>
               </div>
-              <!--              <VueDatePicker :input-class-name="'input input-bordered w-full '+(errorBag.scheduleDate ? 'input-error' : '' )"
-                                           v-model="scheduleDate"
-                                           time-picker-inline
-                                           format="dd.MM.yyyy HH:mm"
-                                           model-type="yyyy-MM-dd HH:mm"
-                                           placeholder="Vyberte termín vysílání"
-                                           locale="cs"
-                                           :enable-time-picker="true"
-                                           minutes-grid-increment="1"
-                                           @closed="checkTimeConflict"
-
-                            />-->
               <input type="datetime-local" :class="'input input-bordered w-full '+(errorBag.scheduleDate ? 'input-error' : '' )"
                      v-model="scheduleDate"
                      placeholder="Vyberte termín vysílání"

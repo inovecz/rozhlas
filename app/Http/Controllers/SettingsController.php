@@ -8,8 +8,11 @@ use App\Enums\SmtpTypeEnum;
 use App\Settings\FMSettings;
 use App\Settings\SmtpSettings;
 use Illuminate\Http\JsonResponse;
+use App\Enums\TwoWayCommTypeEnum;
+use App\Settings\TwoWayCommSettings;
 use App\Http\Requests\FMSettingsRequest;
 use App\Http\Requests\SmtpSettingsRequest;
+use App\Http\Requests\TwoWayCommSettingsRequest;
 
 class SettingsController extends Controller
 {
@@ -54,6 +57,36 @@ class SettingsController extends Controller
         $fmSettings = app(FMSettings::class);
         $fmSettings->frequency = $request->input('frequency');
         $fmSettings->save();
+        return $this->success();
+    }
+
+    public function getTwoWayCommSettings(): JsonResponse
+    {
+        $twoWayCommSettings = app(TwoWayCommSettings::class);
+        return $this->success([
+            'type' => $twoWayCommSettings->type,
+            'spam' => $twoWayCommSettings->spam,
+            'nestStatusAutoUpdate' => $twoWayCommSettings->nestStatusAutoUpdate,
+            'nestFirstReadTime' => $twoWayCommSettings->nestFirstReadTime,
+            'nestNextReadInterval' => $twoWayCommSettings->nestNextReadInterval,
+            'sensorStatusAutoUpdate' => $twoWayCommSettings->sensorStatusAutoUpdate,
+            'sensorFirstReadTime' => $twoWayCommSettings->sensorFirstReadTime,
+            'sensorNextReadInterval' => $twoWayCommSettings->sensorNextReadInterval,
+        ]);
+    }
+
+    public function saveTwoWayCommSettings(TwoWayCommSettingsRequest $request): JsonResponse
+    {
+        $twoWayCommSettings = app(TwoWayCommSettings::class);
+        $twoWayCommSettings->type = TwoWayCommTypeEnum::tryFrom($request->input('type', 'NONE')) ?? TwoWayCommTypeEnum::NONE;
+        $twoWayCommSettings->spam = $request->input('spam');
+        $twoWayCommSettings->nestStatusAutoUpdate = $request->input('nestStatusAutoUpdate');
+        $twoWayCommSettings->nestFirstReadTime = $request->input('nestFirstReadTime');
+        $twoWayCommSettings->nestNextReadInterval = $request->input('nestNextReadInterval');
+        $twoWayCommSettings->sensorStatusAutoUpdate = $request->input('sensorStatusAutoUpdate');
+        $twoWayCommSettings->sensorFirstReadTime = $request->input('sensorFirstReadTime');
+        $twoWayCommSettings->sensorNextReadInterval = $request->input('sensorNextReadInterval');
+        $twoWayCommSettings->save();
         return $this->success();
     }
 }

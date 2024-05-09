@@ -74,8 +74,12 @@ Route::group(['middleware' => ['api']], static function () {
             Route::get('/', [SettingsController::class, 'getSmtpSettings']);
         });
         Route::group(['prefix' => 'fm'], static function () {
-            Route::post('/', [SettingsController::class, 'saveFmSettings']);
-            Route::get('/', [SettingsController::class, 'getFmSettings']);
+            Route::post('/', [SettingsController::class, 'saveFMSettings']);
+            Route::get('/', [SettingsController::class, 'getFMSettings']);
+        });
+        Route::group(['prefix' => 'two-way-comm'], static function () {
+            Route::post('/', [SettingsController::class, 'saveTwoWayCommSettings']);
+            Route::get('/', [SettingsController::class, 'getTwoWayCommSettings']);
         });
     });
 

@@ -68,6 +68,11 @@ const sidebarItems = ref([
         to: 'Contacts',
         active: 'settings/contacts'
       }, {
+        name: 'Obousměrná komunikace',
+        icon: 'mdi-swap-horizontal',
+        to: 'TwoWayCommSettings',
+        active: 'settings/two-way-comm'
+      }, {
         name: 'SMTP',
         icon: 'mdi-email',
         to: 'SmtpSettings',
