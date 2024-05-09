@@ -77,6 +77,7 @@ class Contact extends Model
             'id' => $this->getId(),
             'name' => $this->getName(),
             'surname' => $this->getSurname(),
+            'fullname' => $this->getSurname().' '.$this->getName(),
             'position' => $this->getPosition(),
             'email' => $this->getEmail(),
             'has_info_email_allowed' => $this->hasInfoEmailAllowed(),
@@ -92,6 +93,14 @@ class Contact extends Model
         }
 
         return $array;
+    }
+
+    public function getToArraySelect(): array
+    {
+        return [
+            'id' => $this->getId(),
+            'fullname' => $this->getSurname().' '.$this->getName(),
+        ];
     }
     // </editor-fold desc="Region: ARRAY GETTERS">
 

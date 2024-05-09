@@ -37,6 +37,11 @@ const sidebarItems = ref([
     to: 'Scheduler',
     active: 'schedule'
   }, {
+    name: 'Zprávy',
+    icon: 'mdi-cellphone-message',
+    to: 'Messages',
+    active: 'messages'
+  }, {
     name: 'Mapa',
     icon: 'mdi-map',
     to: 'Map',

@@ -35,6 +35,14 @@ class ContactGroup extends Model
             'contacts_count' => $this->contacts->count(),
         ];
     }
+
+    public function getToArraySelect(): array
+    {
+        return [
+            'id' => $this->getId(),
+            'name' => $this->getName(),
+        ];
+    }
     // </editor-fold desc="Region: COMPUTED GETTERS">
 
     // <editor-fold desc="Region: ARRAY GETTERS">

@@ -6,6 +6,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Contact;
 use App\Models\ContactGroup;
+use Illuminate\Http\Request;
 use App\Services\ContactService;
 use Illuminate\Http\JsonResponse;
 use App\Http\Requests\ListRequest;
@@ -43,6 +44,15 @@ class ContactController extends Controller
         return ContactResource::collection($users);
     }
 
+    public function getAllContacts(Request $request): JsonResponse
+    {
+        $scope = $request->query('scope') ?? 'default';
+        $contacts = Contact::all()->map(static function (Contact $contact) use ($scope) {
+            return $contact->getToArray($scope);
+        })->values()->toArray();
+        return $this->success($contacts);
+    }
+
     public function listGroups(ListRequest $request): AnonymousResourceCollection
     {
         $users = ContactGroup::query()->with('contacts')
@@ -59,10 +69,13 @@ class ContactController extends Controller
         return ContactGroupResource::collection($users);
     }
 
-    public function getAllGroups(): AnonymousResourceCollection
+    public function getAllGroups(Request $request): JsonResponse
     {
-        $contactGroups = ContactGroup::all();
-        return ContactGroupResource::collection($contactGroups);
+        $scope = $request->query('scope') ?? 'default';
+        $contactGroups = ContactGroup::all()->map(static function (ContactGroup $contactGroup) use ($scope) {
+            return $contactGroup->getToArray($scope);
+        })->values()->toArray();
+        return $this->success($contactGroups);
     }
 
     public function saveContact(ContactSaveRequest $request, Contact $contact = null): JsonResponse

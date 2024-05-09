@@ -6,6 +6,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\FileController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\ContactController;
+use App\Http\Controllers\MessageController;
 use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\SettingsController;
@@ -30,10 +31,11 @@ Route::group(['middleware' => ['api']], static function () {
             });
             Route::get('/', [ContactController::class, 'getAllGroups']);
             Route::post('/', [ContactController::class, 'saveContactGroup']);
-            Route::post('list', [ContactController::class, 'listGroups']);
+            Route::post('/list', [ContactController::class, 'listGroups']);
         });
+        Route::get('/', [ContactController::class, 'getAllContacts']);
         Route::post('/', [ContactController::class, 'saveContact']);
-        Route::post('list', [ContactController::class, 'list']);
+        Route::post('/list', [ContactController::class, 'list']);
     });
 
     Route::group(['prefix' => 'locations'], static function () {
@@ -46,6 +48,10 @@ Route::group(['middleware' => ['api']], static function () {
 
     Route::group(['prefix' => 'logs'], static function () {
         Route::post('/list', [LogController::class, 'list']);
+    });
+
+    Route::group(['prefix' => 'messages'], static function () {
+        Route::post('/list', [MessageController::class, 'list']);
     });
 
     Route::group(['prefix' => 'records'], static function () {

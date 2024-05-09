@@ -17,6 +17,8 @@ import SmtpSettings from "./views/settings/SmtpSettings.vue";
 import SmsSettings from "./views/settings/SmsSettings.vue";
 import FMSettings from "./views/settings/FMSettings.vue";
 import TwoWayCommSettings from "./views/settings/TwoWayCommSettings.vue";
+import Messages from "./views/messages/Messages.vue";
+import CreateMessage from "./views/messages/CreateMessage.vue";
 
 const routes = [
     {
@@ -29,6 +31,8 @@ const routes = [
             {path: "/schedule", name: "Scheduler", component: Scheduler, meta: {title: "Plán vysílání"}},
             {path: '/schedule/task', name: "CreateSchedule", component: ScheduleTask, meta: {title: "Nový úkol"}},
             {path: '/schedule/task/:id', name: "EditSchedule", component: ScheduleTask, meta: {title: "Úprava úkolu"}},
+            {path: "/messages", name: "Messages", component: Messages, meta: {title: "Zprávy"}},
+            {path: "/messages/create", name: "CreateMessage", component: CreateMessage, meta: {title: "Nová zpráva"}},
             {path: "/map", name: "Map", component: Map, meta: {title: "Mapa"}},
             {path: "/log", name: "Log", component: Log, meta: {title: "Protokoly"}},
             {path: "/users", name: "Users", component: Users, meta: {title: "Uživatelé"}},

@@ -21,6 +21,21 @@ export default {
         });
     },
 
+    getAllContacts(scope = null) {
+        let queryParams = '';
+        if (scope) {
+            queryParams = '?scope=' + (Array.isArray(scope) ? scope.join(',') : scope);
+        }
+
+        return new Promise((resolve, reject) => {
+            http.get('contacts' + queryParams).then(response => {
+                resolve(response.data);
+            }).catch(error => {
+                reject([]);
+            });
+        });
+    },
+
     saveContact(contact) {
         return new Promise((resolve, reject) => {
             http.post('contacts' + (contact.id ? '/' + contact.id : ''), contact).then(response => {
@@ -64,9 +79,13 @@ export default {
         });
     },
 
-    getAllContactGroups() {
+    getAllContactGroups(scope = null) {
+        let queryParams = '';
+        if (scope) {
+            queryParams = '?scope=' + (Array.isArray(scope) ? scope.join(',') : scope);
+        }
         return new Promise((resolve, reject) => {
-            http.get('contacts/groups').then(response => {
+            http.get('contacts/groups' + queryParams).then(response => {
                 resolve(response.data);
             }).catch(error => {
                 reject([]);
