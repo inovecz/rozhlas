@@ -58,6 +58,11 @@ const sidebarItems = ref([
     active: 'settings',
     submenu: [
       {
+        name: 'FM rádio',
+        icon: 'mdi-radio',
+        to: 'FMSettings',
+        active: 'settings/fm'
+      }, {
         name: 'Kontakty',
         icon: 'mdi-card-account-mail',
         to: 'Contacts',

@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Enums\SmtpTypeEnum;
+use App\Settings\FMSettings;
 use App\Settings\SmtpSettings;
 use Illuminate\Http\JsonResponse;
+use App\Http\Requests\FMSettingsRequest;
 use App\Http\Requests\SmtpSettingsRequest;
 
 class SettingsController extends Controller
@@ -36,6 +38,22 @@ class SettingsController extends Controller
         $smtpSettings->from_address = $request->input('from_address');
         $smtpSettings->from_name = $request->input('from_name');
         $smtpSettings->save();
+        return $this->success();
+    }
+
+    public function getFMSettings(): JsonResponse
+    {
+        $fmSettings = app(FMSettings::class);
+        return $this->success([
+            'frequency' => $fmSettings->frequency,
+        ]);
+    }
+
+    public function saveFMSettings(FMSettingsRequest $request): JsonResponse
+    {
+        $fmSettings = app(FMSettings::class);
+        $fmSettings->frequency = $request->input('frequency');
+        $fmSettings->save();
         return $this->success();
     }
 }

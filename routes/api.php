@@ -73,6 +73,10 @@ Route::group(['middleware' => ['api']], static function () {
             Route::post('/', [SettingsController::class, 'saveSmtpSettings']);
             Route::get('/', [SettingsController::class, 'getSmtpSettings']);
         });
+        Route::group(['prefix' => 'fm'], static function () {
+            Route::post('/', [SettingsController::class, 'saveFmSettings']);
+            Route::get('/', [SettingsController::class, 'getFmSettings']);
+        });
     });
 
     Route::post('/upload', [FileController::class, 'upload']);

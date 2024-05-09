@@ -15,6 +15,7 @@ import GeneralSettings from "./views/settings/GeneralSettings.vue";
 import Contacts from "./views/settings/Contacts.vue";
 import SmtpSettings from "./views/settings/SmtpSettings.vue";
 import SmsSettings from "./views/settings/SmsSettings.vue";
+import FMSettings from "./views/settings/FMSettings.vue";
 
 const routes = [
     {
@@ -34,6 +35,7 @@ const routes = [
             {path: "/settings/contacts", name: "Contacts", component: Contacts, meta: {title: "Kontakty"}},
             {path: "/settings/smtp", name: "SmtpSettings", component: SmtpSettings, meta: {title: "Nastavení SMTP"}},
             {path: "/settings/sms", name: "SmsSettings", component: SmsSettings, meta: {title: "Nastavení SMS"}},
+            {path: "/settings/fm", name: "FMSettings", component: FMSettings, meta: {title: "Nastavení FM rádia"}},
             {path: '/about', name: "About", component: About},
         ],
     },

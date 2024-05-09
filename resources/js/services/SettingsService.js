@@ -17,5 +17,25 @@ export default {
                 reject(error.response.data);
             });
         });
+    },
+
+    fetchFMSettings() {
+        return new Promise((resolve, reject) => {
+            http.get('settings/fm').then(response => {
+                resolve(response.data);
+            }).catch(error => {
+                reject([]);
+            });
+        });
+    },
+
+    saveFMSettings(settings) {
+        return new Promise((resolve, reject) => {
+            http.post('settings/fm', settings).then(response => {
+                resolve(response.data);
+            }).catch(error => {
+                reject(error.response.data);
+            });
+        });
     }
 }
