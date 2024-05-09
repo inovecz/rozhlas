@@ -10,7 +10,7 @@ return new class extends Migration {
      */
     public function up(): void
     {
-        Schema::create('schedules', function (Blueprint $table) {
+        Schema::create('schedules', static function (Blueprint $table) {
             $table->id();
             $table->string('title');
             $table->dateTime('scheduled_at');

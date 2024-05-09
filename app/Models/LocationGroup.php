@@ -4,32 +4,27 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use App\Enums\LocationTypeEnum;
-use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class Location extends Model
+class LocationGroup extends Model
 {
-    use SoftDeletes;
-
     // <editor-fold desc="Region: STATE DEFINITION">
     protected $guarded = ['id', 'created_at', 'updated_at'];
 
     protected function casts(): array
     {
         return [
-            'type' => LocationTypeEnum::class,
-            'longitude' => 'double',
-            'latitude' => 'double',
-            'is_active' => 'boolean',
+            'is_hidden' => 'boolean',
+            'subtone_data' => 'array',
+            'timing' => 'array',
         ];
     }
     // </editor-fold desc="Region: STATE DEFINITION">
 
     // <editor-fold desc="Region: RELATIONS">
-    public function locationGroup(): BelongsTo
+    public function locations(): HasMany
     {
-        return $this->belongsTo(LocationGroup::class);
+        return $this->hasMany(Location::class);
     }
     // </editor-fold desc="Region: RELATIONS">
 
@@ -39,24 +34,19 @@ class Location extends Model
         return $this->name;
     }
 
-    public function getType(): LocationTypeEnum
+    public function isHidden(): bool
     {
-        return $this->type;
+        return $this->is_hidden;
     }
 
-    public function getLongitude(): double
+    public function getSubtoneData(): array
     {
-        return $this->longitude;
+        return $this->subtone_data;
     }
 
-    public function getLatitude(): double
+    public function getTiming(): ?array
     {
-        return $this->latitude;
-    }
-
-    public function isActive(): bool
-    {
-        return $this->is_active;
+        return $this->timing;
     }
     // </editor-fold desc="Region: GETTERS">
 
@@ -67,12 +57,12 @@ class Location extends Model
     public function getToArrayDefault(): array
     {
         return [
-            'id' => $this->id,
-            'name' => $this->name,
-            'type' => $this->type->value,
-            'longitude' => $this->longitude,
-            'latitude' => $this->latitude,
-            'is_active' => $this->is_active,
+            'id' => $this->getId(),
+            'name' => $this->getName(),
+            'is_hidden' => $this->isHidden(),
+            'subtone_data' => $this->getSubtoneData(),
+            'timing' => $this->getTiming(),
+            'locations' => $this->locations->map(fn(Location $location) => $location->getToArrayDefault()),
         ];
     }
     // </editor-fold desc="Region: ARRAY GETTERS">

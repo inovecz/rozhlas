@@ -73,6 +73,11 @@ const sidebarItems = ref([
         to: 'Contacts',
         active: 'settings/contacts'
       }, {
+        name: 'Lokality',
+        icon: 'mdi-selection-marker',
+        to: 'LocalitySettings',
+        active: 'settings/locality'
+      }, {
         name: 'Obousměrná komunikace',
         icon: 'mdi-swap-horizontal',
         to: 'TwoWayCommSettings',
@@ -83,10 +88,10 @@ const sidebarItems = ref([
         to: 'SmtpSettings',
         active: 'settings/smtp'
       }, {
-        name: 'SMS',
-        icon: 'mdi-message',
-        to: 'SmsSettings',
-        active: 'settings/sms'
+        name: 'GSM',
+        icon: 'mdi-sim',
+        to: 'GSMSettings',
+        active: 'settings/gsm'
       }
     ],
     submenuVisible: route.path.match('settings') !== null,
@@ -102,7 +107,7 @@ const sidebarItems = ref([
 <template>
   <!-- desktop sidebar  -->
   <div
-      class="bg-base-300 text-light-grey h-screen hidden w-full md:block md:fixed md:top-0 md:bottom-0 md:z-10 md:pt-[68px]"
+      class="bg-base-300 text-light-grey h-screen hidden w-full md:block md:fixed md:top-0 md:bottom-0 md:z-20 md:pt-[68px]"
       :class="[showSideBar ? 'md:w-64' : 'md:w-16']">
     <div class="flex items-center" :class="{'justify-end mr-2': showSideBar, 'justify-center': !showSideBar}">
       <span class="mdi mdi-chevron-left text-3xl text-gray-500 hover:text-gray-50 cursor-pointer"

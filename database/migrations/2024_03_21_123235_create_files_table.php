@@ -10,7 +10,7 @@ return new class extends Migration {
      */
     public function up(): void
     {
-        Schema::create('files', function (Blueprint $table) {
+        Schema::create('files', static function (Blueprint $table) {
             $table->id();
             $table->foreignId('author_id')->nullable()->constrained('users');
             $table->enum('type', ['COMMON', 'RECORDING'])->default('COMMON');

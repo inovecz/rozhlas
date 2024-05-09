@@ -47,23 +47,23 @@ const closeModalWith = (value) => {
               leave-to="opacity-0 scale-95">
             <DialogPanel class="w-full max-w-md flex flex-col gap-6 transform overflow-hidden rounded-2xl glass p-6 text-left align-middle shadow-xl transition-all">
               <DialogTitle as="h3" class="text-lg font-medium leading-6 text-primary">
-                {{ props.location.id ? 'Úprava lokality' : 'Nová lokalita' }}
+                {{ props.location.id ? 'Úprava místa' : 'Nové místo' }}
               </DialogTitle>
 
               <div class="flex flex-col gap-3">
 
                 <div class="flex flex-col gap-2">
                   <div class="text-sm text-base-content">
-                    Zadejte název pod kterým bude lokalita uložena
+                    Zadejte název pod kterým bude místo uloženo
                   </div>
                   <div>
-                    <input v-model="props.location.name" type="text" placeholder="Zadejte název lokality" class="input input-sm w-full"/>
+                    <input v-model="props.location.name" type="text" placeholder="Zadejte název místa" class="input input-sm w-full"/>
                   </div>
                 </div>
 
                 <div class="flex flex-col gap-2">
                   <div class="text-sm text-base-content">
-                    Zvolte typ lokality
+                    Zvolte typ místa
                   </div>
                   <div>
                     <select v-model="props.location.type" class="select select-sm w-full">

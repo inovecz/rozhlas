@@ -113,7 +113,7 @@ function deleteLocation(id) {
   <div class="component-box">
     <div class="flex flex-col sm:flex-row sm:items-center justify-between">
       <div class="text-xl text-primary mb-4 mt-3 px-1">
-        Seznam lokalit
+        Seznam míst
       </div>
       <label class="input input-sm input-bordered flex items-center gap-2">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="w-4 h-4 opacity-70">

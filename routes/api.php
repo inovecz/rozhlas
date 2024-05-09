@@ -42,6 +42,9 @@ Route::group(['middleware' => ['api']], static function () {
         Route::group(['prefix' => '{location}', 'where' => ['location' => '\d+',]], static function () {
             Route::delete('/', [LocationController::class, 'delete']);
         });
+        Route::group(['prefix' => 'groups'], static function () {
+            Route::post('/list', [LocationController::class, 'listGroups']);
+        });
         Route::post('/list', [LocationController::class, 'list']);
         Route::post('/save', [LocationController::class, 'save']);
     });

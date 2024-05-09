@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Models\Location;
+use App\Models\LocationGroup;
 use Illuminate\Http\JsonResponse;
 use App\Http\Requests\ListRequest;
 use App\Http\Resources\LocationResource;
 use App\Http\Requests\LocationsSaveRequest;
+use App\Http\Resources\LocationGroupResource;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class LocationController extends Controller
@@ -39,6 +41,22 @@ class LocationController extends Controller
         }
 
         return LocationResource::collection($locations);
+    }
+
+    public function listGroups(ListRequest $request): AnonymousResourceCollection
+    {
+        $locationGroups = LocationGroup::query()
+            ->when($request->input('search'), static function ($query, $search) {
+                return $query->where('name', 'like', '%'.$search.'%');
+            })
+            ->when($request->input('order'), static function ($query, $order) {
+                foreach ($order as $item) {
+                    $query->orderBy($item['column'], $item['dir']);
+                }
+                return $query;
+            })->paginate($request->input('length', 10));
+
+        return LocationGroupResource::collection($locationGroups);
     }
 
     public function save(LocationsSaveRequest $request): JsonResponse

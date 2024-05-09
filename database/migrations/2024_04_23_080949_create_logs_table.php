@@ -9,7 +9,7 @@ use Illuminate\Database\Migrations\Migration;
 return new class extends Migration {
     public function up(): void
     {
-        Schema::create('logs', function (Blueprint $table) {
+        Schema::create('logs', static function (Blueprint $table) {
             $table->id();
             $table->string('type');
             $table->string('title');

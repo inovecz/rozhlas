@@ -23,6 +23,8 @@ class DatabaseSeeder extends Seeder
 
         $this->call([
             LocationSeeder::class,
+            ContactSeeder::class,
+            MessageSeeder::class,
         ]);
     }
 }

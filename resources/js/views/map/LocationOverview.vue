@@ -62,14 +62,14 @@ function toggleDragAndDrop(value) {
         delete location.hash;
       });
       LocationService.updateRecords(updatedLocations).then(response => {
-        toast.success('Lokality byly úspěšně uloženy');
+        toast.success('Místa byla úspěšně uložena');
         emitter.emit('refetchLocationsList');
       }).catch(error => {
-        toast.error('Lokality se nepodařilo uložit');
+        toast.error('Místa se nepodařilo uložit');
         console.error(error);
       });
     } else {
-      toast.info('Nebyla provedena žádná změna v rozmístění lokalit');
+      toast.info('Nebyla provedena žádná změna v rozmístění míst');
     }
     toggleDranAndDropButton.value.innerText = "Upravit rozmístění";
   } else {
@@ -96,10 +96,10 @@ function locationPositionUpdated(event, locationId) {
   }
 }
 
-function addLocalityMarker() {
+function addLocationMarker() {
   const newLocation = {
     id: null,
-    name: 'Nová lokalita',
+    name: 'Nové místo',
     latitude: center.value[0],
     longitude: center.value[1],
     type: 'NEST',
@@ -137,10 +137,10 @@ function filterList(locationId) {
   <div class="component-box">
     <div class="flex flex-col sm:flex-row sm:items-center justify-between">
       <div class="text-xl text-primary mb-4 mt-3 px-1">
-        Přehled lokalit
+        Přehled míst
       </div>
       <div class="space-x-2">
-        <button @click="addLocalityMarker" class="btn btn-sm btn-primary">Přidat lokalitu</button>
+        <button @click="addLocationMarker" class="btn btn-sm btn-primary">Přidat místo</button>
         <button @click="toggleDragAndDrop" ref="toggleDranAndDropButton" class="btn btn-sm" :class="dragAndDrop === true ? 'btn-secondary' : 'btn-primary'">Upravit rozmístění</button>
       </div>
     </div>

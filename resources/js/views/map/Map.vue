@@ -25,7 +25,7 @@ function fetchLocations(paginatorUrl) {
     locationStoreInfo.locations = response.data;
   }).catch(error => {
     console.error(error);
-    toast.error('Nepodařilo se načíst seznam lokalit');
+    toast.error('Nepodařilo se načíst seznam míst');
   });
 }
 </script>
