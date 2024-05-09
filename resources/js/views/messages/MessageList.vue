@@ -7,7 +7,7 @@ import {formatDate} from "../../helper.js";
 
 const messages = ref([]);
 const toast = useToast();
-const {fetchRecords, orderAsc, orderBy, orderColumn, pageLength, search} = useDataTables(fetchMessages, 'created_at', 10);
+const {fetchRecords, orderAsc, orderBy, orderColumn, pageLength, search} = useDataTables(fetchMessages, 'created_at', 10, false);
 
 const channels = {
   'SMS': 'SMS',
@@ -37,7 +37,7 @@ function fetchMessages(paginatorUrl) {
 
 <template>
   <div class="component-box">
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between">
+    <div class="flex flex-col sm:flex-row items-center sm:items-start justify-between">
       <div class="text-xl text-primary mb-4 mt-3 px-1">
         Seznam zpráv
       </div>
@@ -140,7 +140,7 @@ function fetchMessages(paginatorUrl) {
               {{ formatDate(new Date(message.created_at), 'd.m.Y H:i') }}
             </td>
             <td class="max-w-36">
-              <div class="truncate">{{ message.content }}</div>
+              <div class="truncate" :title="message.content">{{ message.content }}</div>
             </td>
           </tr>
         </tbody>
