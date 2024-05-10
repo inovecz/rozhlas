@@ -48,6 +48,20 @@ export default {
         });
     },
 
+    getAllLocationGroups(scope = null) {
+        let queryParams = '';
+        if (scope) {
+            queryParams = '?scope=' + (Array.isArray(scope) ? scope.join(',') : scope);
+        }
+        return new Promise((resolve, reject) => {
+            http.get('locations/groups' + queryParams).then(response => {
+                resolve(response.data);
+            }).catch(error => {
+                reject([]);
+            });
+        });
+    },
+
     updateRecords(locations) {
         return new Promise((resolve, reject) => {
             http.post('locations/save',

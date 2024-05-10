@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Models\Location;
+use Illuminate\Http\Request;
 use App\Models\LocationGroup;
 use Illuminate\Http\JsonResponse;
 use App\Http\Requests\ListRequest;
@@ -57,6 +58,15 @@ class LocationController extends Controller
             })->paginate($request->input('length', 10));
 
         return LocationGroupResource::collection($locationGroups);
+    }
+
+    public function getAllGroups(Request $request): JsonResponse
+    {
+        $scope = $request->query('scope') ?? 'default';
+        $locationGroups = LocationGroup::all()->map(static function (LocationGroup $locationGroup) use ($scope) {
+            return $locationGroup->getToArray($scope);
+        })->values()->toArray();
+        return $this->success($locationGroups);
     }
 
     public function save(LocationsSaveRequest $request): JsonResponse

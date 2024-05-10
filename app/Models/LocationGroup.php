@@ -56,13 +56,29 @@ class LocationGroup extends Model
     // <editor-fold desc="Region: ARRAY GETTERS">
     public function getToArrayDefault(): array
     {
-        return [
+        $array = [
             'id' => $this->getId(),
             'name' => $this->getName(),
             'is_hidden' => $this->isHidden(),
             'subtone_data' => $this->getSubtoneData(),
             'timing' => $this->getTiming(),
-            'locations' => $this->locations->map(fn(Location $location) => $location->getToArrayDefault()),
+            'locations_count' => $this->locations()->count(),
+        ];
+
+        if ($this->relationLoaded('locations')) {
+            $array['locations'] = $this->locations->map(static function (Location $location) {
+                return $location->getToArrayDefault();
+            });
+        }
+
+        return $array;
+    }
+
+    public function getToArraySelect(): array
+    {
+        return [
+            'id' => $this->getId(),
+            'name' => $this->getName(),
         ];
     }
     // </editor-fold desc="Region: ARRAY GETTERS">

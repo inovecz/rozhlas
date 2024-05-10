@@ -8,17 +8,27 @@ import CreateEditLocation from "../../components/modals/CreateEditLocation.vue";
 import {locationStore} from "../../store/locationStore.js";
 
 const locations = ref([]);
+const locationGroups = ref([]);
 let orderColumn = 'id';
 let orderAsc = false;
 const search = reactive({value: null});
 const toast = useToast();
 
-
 const locationStoreInfo = locationStore();
 
 onMounted(() => {
   filterLocations();
+  getAllLocationGroups();
 });
+
+function getAllLocationGroups() {
+  LocationService.getAllLocationGroups('select').then(response => {
+    locationGroups.value = response;
+  }).catch(error => {
+    console.error(error);
+    toast.error('Nepodařilo se načíst seznam skupin míst');
+  });
+}
 
 watch(search, debounce(() => {
   filterLocations();
@@ -48,7 +58,7 @@ function filterLocations() {
     locations.value = locationStoreInfo.locations;
   }
   // order
-  locations.value = locations.value.sort((a, b) => {
+  locations.value = [...locations.value].sort((a, b) => {
     if (orderAsc) {
       return a[orderColumn] > b[orderColumn] ? 1 : -1;
     } else {
@@ -76,11 +86,18 @@ function locateOnMap(locationId) {
 
 function editLocation(id) {
   const location = locationStoreInfo.locations.find(location => location.id === id);
+  console.log(locationGroups.value);
   const {reveal, onConfirm} = createConfirmDialog(CreateEditLocation, {
-    location: location
+    locationGroups: locationGroups.value,
+    location: {...location}
   });
   reveal();
   onConfirm((location) => {
+    location.location_group_id = null;
+    if (location.location_group) {
+      location.location_group_id = location.location_group.id;
+      delete location.location_group;
+    }
     LocationService.updateRecords(location).then(() => {
       toast.success('Záznam byl úspěšně upraven');
       emitter.emit('refetchLocations');
@@ -171,6 +188,7 @@ function deleteLocation(id) {
               <div class="flex items-center gap-3">
                 <div>
                   <div class="font-bold">{{ location.name }}</div>
+                  <div v-if="location.location_group" class="text-xs text-secondary">{{ location.location_group.name }}</div>
                 </div>
               </div>
             </td>

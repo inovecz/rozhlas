@@ -24,6 +24,7 @@ class LocationsSaveRequest extends FormRequest
         if ($isArray) {
             return [
                 '*.id' => 'nullable|numeric|exists:locations,id',
+                '*.location_group_id' => 'nullable|numeric|exists:location_groups,id',
                 '*.name' => 'required|string',
                 '*.type' => ['required', 'string', new Enum(LocationTypeEnum::class)],
                 '*.longitude' => 'required|numeric',
@@ -33,6 +34,7 @@ class LocationsSaveRequest extends FormRequest
         }
         return [
             'id' => 'nullable|numeric|exists:locations,id',
+            'location_group_id' => 'nullable|numeric|exists:location_groups,id',
             'name' => 'required|string',
             'type' => ['required', 'string', new Enum(LocationTypeEnum::class)],
             'longitude' => 'required|numeric',

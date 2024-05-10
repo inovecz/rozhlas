@@ -44,12 +44,12 @@ class Location extends Model
         return $this->type;
     }
 
-    public function getLongitude(): double
+    public function getLongitude(): float
     {
         return $this->longitude;
     }
 
-    public function getLatitude(): double
+    public function getLatitude(): float
     {
         return $this->latitude;
     }
@@ -68,11 +68,12 @@ class Location extends Model
     {
         return [
             'id' => $this->id,
-            'name' => $this->name,
-            'type' => $this->type->value,
-            'longitude' => $this->longitude,
-            'latitude' => $this->latitude,
-            'is_active' => $this->is_active,
+            'location_group' => $this->locationGroup?->getToArray('select'),
+            'name' => $this->getName(),
+            'type' => $this->getType()->value,
+            'longitude' => $this->getLongitude(),
+            'latitude' => $this->getLatitude(),
+            'is_active' => $this->isActive(),
         ];
     }
     // </editor-fold desc="Region: ARRAY GETTERS">

@@ -18,8 +18,8 @@ import FMSettings from "./views/settings/FMSettings.vue";
 import TwoWayCommSettings from "./views/settings/TwoWayCommSettings.vue";
 import Messages from "./views/messages/Messages.vue";
 import CreateMessage from "./views/messages/CreateMessage.vue";
-import LocalitySettings from "./views/settings/LocalitySettings.vue";
 import GSMSettings from "./views/settings/GSMSettings.vue";
+import LocationGroupsSettings from "./views/settings/LocationGroupsSettings.vue";
 
 const routes = [
     {
@@ -43,7 +43,7 @@ const routes = [
             {path: "/settings/gsm", name: "GSMSettings", component: GSMSettings, meta: {title: "Nastavení GSM"}},
             {path: "/settings/fm", name: "FMSettings", component: FMSettings, meta: {title: "Nastavení FM rádia"}},
             {path: "/settings/two-way-comm", name: "TwoWayCommSettings", component: TwoWayCommSettings, meta: {title: "Nastavení obousměrné komunikace"}},
-            {path: "/settings/locality", name: "LocalitySettings", component: LocalitySettings, meta: {title: "Nastavení lokalit"}},
+            {path: "/settings/location-groups", name: "LocationGroupsSettings", component: LocationGroupsSettings, meta: {title: "Nastavení lokalit"}},
             {path: '/about', name: "About", component: About},
         ],
     },

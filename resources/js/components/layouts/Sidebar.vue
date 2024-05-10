@@ -75,7 +75,7 @@ const sidebarItems = ref([
       }, {
         name: 'Lokality',
         icon: 'mdi-selection-marker',
-        to: 'LocalitySettings',
+        to: 'LocationGroupsSettings',
         active: 'settings/locality'
       }, {
         name: 'Obousměrná komunikace',

@@ -3,7 +3,7 @@ import {computed, ref} from 'vue'
 import {Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot,} from '@headlessui/vue'
 
 const isOpen = ref(true)
-const props = defineProps(['location']);
+const props = defineProps(['locationGroups', 'location']);
 const emit = defineEmits(['confirm', 'cancel']);
 
 const canSave = computed(() => props.location.name.length < 3);
@@ -69,6 +69,18 @@ const closeModalWith = (value) => {
                     <select v-model="props.location.type" class="select select-sm w-full">
                       <option value="CENTRAL" :selected="props.location.type === 'CENTRAL'">Centrála</option>
                       <option value="NEST" :selected="props.location.type === 'NEST'">Hnízdo</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="flex flex-col gap-2">
+                  <div class="text-sm text-base-content">
+                    Zvolte lokaci
+                  </div>
+                  <div>
+                    <select v-model="props.location.location_group" class="select select-sm w-full">
+                      <option :value="null" :selected="props.location.locationGroup === null">Nepřiřazeno</option>
+                      <option v-if="props.locationGroups" v-for="locationGroup of props.locationGroups" :value="locationGroup" :selected="props.location.location_group?.id === locationGroup.id">{{ locationGroup.name }}</option>
                     </select>
                   </div>
                 </div>
