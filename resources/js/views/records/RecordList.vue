@@ -13,7 +13,7 @@ const recordsCache = [];
 const typeFilter = reactive({value: 'ALL'})
 const toast = useToast();
 
-const {fetchRecords, orderAsc, orderBy, orderColumn, pageLength, search} = useDataTables(fetchRecordings, 'created_at');
+const {fetchRecords, orderAsc, orderBy, orderColumn, pageLength, search} = useDataTables(fetchRecordings, 'created_at', 5);
 
 onMounted(() => {
   fetchRecords();
@@ -248,7 +248,7 @@ emitter.on('recordSaved', () => {
       <div v-if="records?.data?.length === 0" class="text-center py-2">Nebyla nalezena žádná data</div>
       <div class="flex justify-between items-center py-2 px-1">
         <div>
-          <select v-model="pageLength" @change="fetchRecords()" class="select select-sm select-bordered w-full max-w-xs">
+          <select v-model="pageLength.value" @change="fetchRecords()" class="select select-sm select-bordered w-full max-w-xs">
             <option value="5">5</option>
             <option value="10">10</option>
             <option value="25">25</option>

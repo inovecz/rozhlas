@@ -10,6 +10,9 @@ import ModalDialog from "../../components/modals/ModalDialog.vue";
 
 const contactGroupStoreInfo = contactGroupStore();
 const contactGroups = ref([]);
+const contacts = ref([]);
+const groupFilter = ref('');
+const toast = useToast();
 
 onMounted(() => {
   fetchRecords();
@@ -24,9 +27,6 @@ emitter.on('filterContactListByGroupId', (contactGroupId) => {
   fetchRecords();
 });
 
-const contacts = ref([]);
-const groupFilter = ref('');
-const toast = useToast();
 const {fetchRecords, orderAsc, orderBy, orderColumn, pageLength, search} = useDataTables(fetchContacts, 'surname', 5);
 
 function fetchContacts(paginatorUrl = null) {

@@ -4,8 +4,10 @@ import ContactGroupList from "./ContactGroupList.vue";
 import {onMounted} from "vue";
 import ContactService from "../../services/ContactService.js";
 import {contactGroupStore} from "../../store/contactGroupStore.js";
+import {useToast} from "vue-toastification";
 
 const contactGroupStoreInfo = contactGroupStore();
+const toast = useToast();
 
 onMounted(() => {
   fetchContactGroupsSelect();
@@ -17,9 +19,7 @@ emitter.on('refetchContactGroupsSelect', () => {
 
 function fetchContactGroupsSelect() {
   ContactService.getAllContactGroups().then(response => {
-    contactGroupStoreInfo.contactGroups = response.data.map(group => {
-      return {id: group.id, name: group.name};
-    });
+    contactGroupStoreInfo.contactGroups = response;
   }).catch(error => {
     console.error(error);
     toast.error('Nepodařilo se načíst data');
