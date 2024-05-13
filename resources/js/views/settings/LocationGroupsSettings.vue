@@ -4,6 +4,9 @@ import {useToast} from "vue-toastification";
 import {useDataTables} from "../../utils/datatablesTrait.js";
 import LocationService from "../../services/LocationService.js";
 import {ref} from "vue";
+import router from "../../router.js";
+import {createConfirmDialog} from "vuejs-confirm-dialog";
+import ModalDialog from "../../components/modals/ModalDialog.vue";
 
 const locationGroups = ref([]);
 const toast = useToast();
@@ -15,6 +18,28 @@ function fetchLocationGroups(paginatorUrl = null) {
   }).catch(error => {
     console.error(error);
     toast.error('Nepodařilo se načíst data');
+  });
+}
+
+function editLocationGroup(id = null) {
+  router.push({name: 'EditLocationGroup', params: {id}});
+}
+
+function deleteLocationGroup(id) {
+  const foundLocationGroup = locationGroups.value.data.find(locationGroup => locationGroup.id === id);
+  const {reveal, onConfirm} = createConfirmDialog(ModalDialog, {
+    title: 'Opravdu chcete smazat lokalitu?',
+    message: `Lokalita ${foundLocationGroup.name} bude trvale smazána. Spolu s tím dojde k odpojení všech míst, která jsou s touto lokalitou svázána. Tato akce je nevratná.`
+  });
+  reveal();
+  onConfirm(() => {
+    LocationService.deleteLocationGroup(id).then(() => {
+      toast.success('Lokalita byla smazána');
+      fetchRecords();
+    }).catch(error => {
+      console.error(error);
+      toast.error('Nepodařilo se smazat lokalitu');
+    });
   });
 }
 </script>
@@ -39,7 +64,10 @@ function fetchLocationGroups(paginatorUrl = null) {
                 <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"></path>
               </svg>
             </label>
-            <button @click="editLocationGroup" class="btn btn-primary btn-square btn-sm text-xl"><span class="mdi mdi-plus-box"></span></button>
+            <router-link :to="{ name: 'CreateLocationGroup' }"
+                         class="btn btn-sm btn-primary btn-square text-xl">
+              <span class="mdi mdi-plus-box"></span>
+            </router-link>
           </div>
         </div>
 
@@ -57,18 +85,24 @@ function fetchLocationGroups(paginatorUrl = null) {
                     </span>
                   </div>
                 </th>
-                <th @click="orderBy('is_hidden')">
-                  <div class="flex items-center cursor-pointer underline">
-                    Skrytá
-                    <span v-if="orderColumn.value === 'is_hidden'">
-                      <span v-if="orderAsc.value" class="mdi mdi-triangle-small-up text-lg"></span>
-                      <span v-if="!orderAsc.value" class="mdi mdi-triangle-small-down text-lg"></span>
-                    </span>
+                <th>
+                  <div class="flex items-center">
+                    Počet míst
                   </div>
                 </th>
                 <th>
                   <div class="flex items-center">
-                    Počet míst
+                    Typ subtónu
+                  </div>
+                </th>
+                <th>
+                  <div class="flex items-center">
+                    Subtón
+                  </div>
+                </th>
+                <th>
+                  <div class="flex items-center">
+                    Subtón (záznam)
                   </div>
                 </th>
                 <th class="text-right">Akce</th>
@@ -78,16 +112,27 @@ function fetchLocationGroups(paginatorUrl = null) {
               <tr v-for="locationGroup in locationGroups.data" :key="locationGroup.id" class="hover">
                 <td>
                   {{ locationGroup.name }}
-                </td>
-                <td>
-                  {{ locationGroup.is_hidden ? 'Ano' : 'Ne' }}
+                  <span v-if="locationGroup.is_hidden" class="mdi mdi-eye-off"></span>
                 </td>
                 <td>
                   <span>{{ locationGroup.locations_count }}</span>
                 </td>
+                <td>
+                  <span>{{ locationGroup.subtone_type }}</span>
+                </td>
+                <td>
+                  <span v-for="(listenSubtone, index) of locationGroup.subtone_data.listen" :key="index">
+                    {{ listenSubtone }}{{ index < locationGroup.subtone_data.listen.length - 1 ? ', ' : '' }}
+                  </span>
+                </td>
+                <td>
+                  <span v-for="(recordSubtone, index) of locationGroup.subtone_data.record" :key="index">
+                    {{ recordSubtone }}{{ index < locationGroup.subtone_data.record.length - 1 ? ', ' : '' }}
+                  </span>
+                </td>
                 <td class="flex gap-2 justify-end items-center pt-4">
-                  <button @click="editContactGroup(locationGroup.id)"><span class="mdi mdi-rename text-primary text-xl"></span></button>
-                  <button @click="deleteContactGroup(locationGroup.id)"><span class="mdi mdi-trash-can text-red-500 text-xl"></span></button>
+                  <button @click="editLocationGroup(locationGroup.id)"><span class="mdi mdi-rename text-primary text-xl"></span></button>
+                  <button @click="deleteLocationGroup(locationGroup.id)"><span class="mdi mdi-trash-can text-red-500 text-xl"></span></button>
                 </td>
               </tr>
             </tbody>

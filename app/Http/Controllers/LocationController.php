@@ -8,10 +8,12 @@ use App\Models\Location;
 use Illuminate\Http\Request;
 use App\Models\LocationGroup;
 use Illuminate\Http\JsonResponse;
+use App\Services\LocationService;
 use App\Http\Requests\ListRequest;
 use App\Http\Resources\LocationResource;
 use App\Http\Requests\LocationsSaveRequest;
 use App\Http\Resources\LocationGroupResource;
+use App\Http\Requests\LocationGroupSaveRequest;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class LocationController extends Controller
@@ -69,7 +71,12 @@ class LocationController extends Controller
         return $this->success($locationGroups);
     }
 
-    public function save(LocationsSaveRequest $request): JsonResponse
+    public function getLocationGroup(Request $request, LocationGroup $locationGroup): JsonResponse
+    {
+        return $this->success($locationGroup->getToArray());
+    }
+
+    public function saveLocation(LocationsSaveRequest $request): JsonResponse
     {
         $locations = isset($request->all()[0]) ? collect($request->validated()) : collect([$request->validated()]);
         $locations->each(static function ($location) {
@@ -79,9 +86,23 @@ class LocationController extends Controller
         return response()->json(['message' => 'Locations saved successfully']);
     }
 
-    public function delete(Location $location): JsonResponse
+    public function saveLocationGroup(LocationGroupSaveRequest $request, LocationGroup $locationGroup = null): JsonResponse
+    {
+        $locationService = new LocationService();
+        $locationService->saveLocationGroupPost($request, $locationGroup);
+        return $locationService->getResponse();
+    }
+
+    public function deleteLocation(Location $location): JsonResponse
     {
         $location->delete();
+        return $this->success();
+    }
+
+    public function deleteLocationGroup(LocationGroup $locationGroup): JsonResponse
+    {
+        Location::where('location_group_id', $locationGroup->getId())->update(['location_group_id' => null]);
+        $locationGroup->delete();
         return $this->success();
     }
 }

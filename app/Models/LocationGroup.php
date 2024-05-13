@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\SubtoneTypeEnum;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class LocationGroup extends Model
@@ -14,6 +16,7 @@ class LocationGroup extends Model
     protected function casts(): array
     {
         return [
+            'subtone_type' => SubtoneTypeEnum::class,
             'is_hidden' => 'boolean',
             'subtone_data' => 'array',
             'timing' => 'array',
@@ -26,12 +29,27 @@ class LocationGroup extends Model
     {
         return $this->hasMany(Location::class);
     }
+
+    public function initAudio(): HasOne
+    {
+        return $this->hasOne(File::class, 'id', 'init_audio_id');
+    }
+
+    public function exitAudio(): HasOne
+    {
+        return $this->hasOne(File::class, 'id', 'exit_audio_id');
+    }
     // </editor-fold desc="Region: RELATIONS">
 
     // <editor-fold desc="Region: GETTERS">
     public function getName(): string
     {
         return $this->name;
+    }
+
+    public function getSubtoneType(): SubtoneTypeEnum
+    {
+        return $this->subtone_type;
     }
 
     public function isHidden(): bool
@@ -59,10 +77,13 @@ class LocationGroup extends Model
         $array = [
             'id' => $this->getId(),
             'name' => $this->getName(),
+            'subtone_type' => $this->getSubtoneType()->value,
             'is_hidden' => $this->isHidden(),
             'subtone_data' => $this->getSubtoneData(),
             'timing' => $this->getTiming(),
             'locations_count' => $this->locations()->count(),
+            'init_audio' => $this->initAudio?->getToArray(),
+            'exit_audio' => $this->exitAudio?->getToArray(),
         ];
 
         if ($this->relationLoaded('locations')) {

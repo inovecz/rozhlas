@@ -25,7 +25,6 @@ export default {
 
     saveUser(user) {
         return new Promise((resolve, reject) => {
-            console.log(user);
             http.post('users' + (user.id ? '/' + user.id : ''), user).then(response => {
                 resolve(response.data);
             }).catch(error => {

@@ -11,14 +11,12 @@ export function useDataTables(fetchRecords, orderColumnDefault = 'created_at', p
     });
 
     function orderBy(column) {
-        console.log('Previous order', orderColumn.value, orderAsc.value)
         if (orderColumn.value === column) {
             orderAsc.value = !orderAsc.value;
         } else {
             orderColumn.value = column;
             orderAsc.value = true;
         }
-        console.log('New order', orderColumn.value, orderAsc.value)
         fetchRecords();
     }
 

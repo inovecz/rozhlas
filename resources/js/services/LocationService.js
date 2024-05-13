@@ -48,6 +48,32 @@ export default {
         });
     },
 
+    getLocationGroup(id) {
+        return new Promise((resolve, reject) => {
+            http.get('locations/groups/' + id).then(response => {
+                resolve(response.data);
+            }).catch(error => {
+                reject([]);
+            });
+        });
+    },
+
+    saveLocationGroup(locationGroup) {
+        // extract id if not null
+        let locationGroupId = null
+        if (locationGroup.id !== null) {
+            locationGroupId = locationGroup.id;
+            delete locationGroup.id;
+        }
+        return new Promise((resolve, reject) => {
+            http.post('locations/groups' + (locationGroupId ? '/' + locationGroupId : ''), locationGroup).then(response => {
+                resolve(response.data);
+            }).catch(error => {
+                reject([]);
+            });
+        });
+    },
+
     getAllLocationGroups(scope = null) {
         let queryParams = '';
         if (scope) {
@@ -83,4 +109,14 @@ export default {
             });
         });
     },
+
+    deleteLocationGroup(id) {
+        return new Promise((resolve, reject) => {
+            http.delete('locations/groups/' + id).then(response => {
+                resolve(response.data);
+            }).catch(error => {
+                reject([]);
+            });
+        });
+    }
 }

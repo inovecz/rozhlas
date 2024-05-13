@@ -40,14 +40,20 @@ Route::group(['middleware' => ['api']], static function () {
 
     Route::group(['prefix' => 'locations'], static function () {
         Route::group(['prefix' => '{location}', 'where' => ['location' => '\d+',]], static function () {
-            Route::delete('/', [LocationController::class, 'delete']);
+            Route::delete('/', [LocationController::class, 'deleteLocation']);
         });
         Route::group(['prefix' => 'groups'], static function () {
+            Route::group(['prefix' => '{locationGroup}', 'where' => ['locationGroup' => '\d+',]], static function () {
+                Route::get('/', [LocationController::class, 'getLocationGroup']);
+                Route::post('/', [LocationController::class, 'saveLocationGroup']);
+                Route::delete('/', [LocationController::class, 'deleteLocationGroup']);
+            });
             Route::get('/', [LocationController::class, 'getAllGroups']);
+            Route::post('/', [LocationController::class, 'saveLocationGroup']);
             Route::post('/list', [LocationController::class, 'listGroups']);
         });
         Route::post('/list', [LocationController::class, 'list']);
-        Route::post('/save', [LocationController::class, 'save']);
+        Route::post('/save', [LocationController::class, 'saveLocation']);
     });
 
     Route::group(['prefix' => 'logs'], static function () {

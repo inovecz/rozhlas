@@ -9,18 +9,6 @@ use Illuminate\Database\Migrations\Migration;
 return new class extends Migration {
     public function up(): void
     {
-        Schema::create('location_groups', static function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->boolean('is_hidden')->default(false);
-            $table->string('subtone_type')->default('none');
-            $table->json('subtone_data')->default('{"listen":[],"record":[]}');
-            $table->foreignId('init_audio_id')->nullable()->constrained('files')->nullOnDelete();
-            $table->foreignId('exit_audio_id')->nullable()->constrained('files')->nullOnDelete();
-            $table->json('timing')->nullable();
-            $table->timestamps();
-        });
-
         Schema::create('locations', static function (Blueprint $table) {
             $table->id();
             $table->foreignId('location_group_id')->nullable()->constrained()->nullOnDelete();

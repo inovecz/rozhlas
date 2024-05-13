@@ -86,7 +86,6 @@ function locateOnMap(locationId) {
 
 function editLocation(id) {
   const location = locationStoreInfo.locations.find(location => location.id === id);
-  console.log(locationGroups.value);
   const {reveal, onConfirm} = createConfirmDialog(CreateEditLocation, {
     locationGroups: locationGroups.value,
     location: {...location}
