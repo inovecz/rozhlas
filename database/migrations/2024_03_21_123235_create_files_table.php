@@ -13,8 +13,8 @@ return new class extends Migration {
         Schema::create('files', static function (Blueprint $table) {
             $table->id();
             $table->foreignId('author_id')->nullable()->constrained('users');
-            $table->enum('type', ['COMMON', 'RECORDING'])->default('COMMON');
-            $table->enum('subtype', ['COMMON', 'OPENING', 'CLOSING', 'INTRO', 'OUTRO', 'OTHER',])->default('OTHER');
+            $table->enum('type', ['COMMON', 'RECORDING', 'JSVV'])->default('COMMON');
+            $table->enum('subtype', ['COMMON', 'OPENING', 'CLOSING', 'INTRO', 'OUTRO', 'OTHER', 'SIREN', 'GONG', 'VERBAL', 'AUDIO'])->default('OTHER');
             $table->string('name');
             $table->uuid('filename');
             $table->string('path');

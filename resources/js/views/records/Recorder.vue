@@ -4,6 +4,7 @@ import {createConfirmDialog} from "vuejs-confirm-dialog";
 import RecordSaveDialog from "../../components/modals/RecordSaveDialog.vue";
 import {isBase64} from "../../helper.js";
 import {useToast} from "vue-toastification";
+import RecordingService from "../../services/RecordingService.js";
 
 const selectedCodec = ref([])
 const echoCancellation = ref(false)
@@ -244,16 +245,11 @@ function saveRecord(id) {
     formData.append('extension', extension);
     formData.append('metadata[duration]', duration);
 
-
-    http.post('/upload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data'
-      }
-    }).then(response => {
+    RecordingService.uploadRecording(formData).then(response => {
       emitter.emit('recordSaved');
+      toast.success('Záznam byl úspěšně uložen');
       uploadedFile.value = {content: null, name: null, type: null, extension: null, duration: null};
       recordedBlobs.value = undefined;
-      toast.success('Záznam byl úspěšně uložen');
     }).catch(error => {
       toast.error('Nepodařilo se uložit záznam');
     });

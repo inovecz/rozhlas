@@ -16,6 +16,11 @@ enum FileSubtypeEnum: string
     case INTRO = 'INTRO';
     case OUTRO = 'OUTRO';
     case OTHER = 'OTHER';
+    // JSVV Subtypes
+    case SIREN = 'SIREN';
+    case GONG = 'GONG';
+    case VERBAL = 'VERBAL';
+    case AUDIO = 'AUDIO';
 
     public function translate(): string
     {
@@ -26,6 +31,10 @@ enum FileSubtypeEnum: string
             self::INTRO => 'Úvodní znělka',
             self::OUTRO => 'Závěrečná znělka',
             self::OTHER => 'Ostatní',
+            self::SIREN => 'Siréna',
+            self::GONG => 'Gong',
+            self::VERBAL => 'Verbální informace',
+            self::AUDIO => 'Audiovstupy',
         };
     }
 }

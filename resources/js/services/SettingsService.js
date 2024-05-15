@@ -57,5 +57,25 @@ export default {
                 reject(error.response.data);
             });
         });
+    },
+
+    fetchJsvvSettings() {
+        return new Promise((resolve, reject) => {
+            http.get('settings/jsvv').then(response => {
+                resolve(response.data);
+            }).catch(error => {
+                reject([]);
+            });
+        });
+    },
+
+    saveJsvvSettings(settings) {
+        return new Promise((resolve, reject) => {
+            http.post('settings/jsvv', settings).then(response => {
+                resolve(response.data);
+            }).catch(error => {
+                reject(error.response.data);
+            });
+        });
     }
 }

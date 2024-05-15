@@ -6,11 +6,10 @@ namespace App\Enums;
 
 use App\Enums\Traits\EnumTrait;
 
-enum FileTypeEnum: string
+enum JsvvAudioTypeEnum: string
 {
     use EnumTrait;
 
-    case COMMON = 'COMMON';
-    case RECORDING = 'RECORDING';
-    case JSVV = 'JSVV';
+    case FILE = 'FILE';
+    case SOURCE = 'SOURCE';
 }

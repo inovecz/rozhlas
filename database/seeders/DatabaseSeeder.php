@@ -25,6 +25,7 @@ class DatabaseSeeder extends Seeder
             LocationSeeder::class,
             ContactSeeder::class,
             MessageSeeder::class,
+            JsvvSeeder::class,
         ]);
     }
 }

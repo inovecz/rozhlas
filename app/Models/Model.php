@@ -9,7 +9,7 @@ class Model extends \Illuminate\Database\Eloquent\Model
 {
     use ArrayableTrait;
 
-    public function getId(): int
+    public function getId(): int|string
     {
         $primaryKey = $this->primaryKey;
         return $this->$primaryKey;

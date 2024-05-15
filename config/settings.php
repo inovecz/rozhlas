@@ -10,6 +10,7 @@ return [
         \App\Settings\SmtpSettings::class,
         \App\Settings\FMSettings::class,
         \App\Settings\TwoWayCommSettings::class,
+        \App\Settings\JsvvSettings::class,
     ],
 
     /*

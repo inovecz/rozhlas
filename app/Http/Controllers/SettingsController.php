@@ -7,11 +7,13 @@ namespace App\Http\Controllers;
 use App\Enums\SmtpTypeEnum;
 use App\Settings\FMSettings;
 use App\Settings\SmtpSettings;
+use App\Settings\JsvvSettings;
 use Illuminate\Http\JsonResponse;
 use App\Enums\TwoWayCommTypeEnum;
 use App\Settings\TwoWayCommSettings;
 use App\Http\Requests\FMSettingsRequest;
 use App\Http\Requests\SmtpSettingsRequest;
+use App\Http\Requests\JsvvSettingsRequest;
 use App\Http\Requests\TwoWayCommSettingsRequest;
 
 class SettingsController extends Controller
@@ -87,6 +89,22 @@ class SettingsController extends Controller
         $twoWayCommSettings->sensorFirstReadTime = $request->input('sensorFirstReadTime');
         $twoWayCommSettings->sensorNextReadInterval = $request->input('sensorNextReadInterval');
         $twoWayCommSettings->save();
+        return $this->success();
+    }
+
+    public function getJsvvSettings(): JsonResponse
+    {
+        $jsvvSettings = app(JsvvSettings::class);
+        return $this->success([
+            'locationGroupId' => $jsvvSettings->locationGroupId,
+        ]);
+    }
+
+    public function saveJsvvSettings(JsvvSettingsRequest $request): JsonResponse
+    {
+        $jsvvSettings = app(JsvvSettings::class);
+        $jsvvSettings->locationGroupId = $request->input('locationGroupId');
+        $jsvvSettings->save();
         return $this->success();
     }
 }

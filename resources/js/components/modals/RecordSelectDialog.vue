@@ -36,9 +36,14 @@ function fetchRecords(paginatorUrl) {
   }
 
   let filter = [];
-  if (props.typeFilter.value !== 'ALL') {
-    filter.push({'column': 'subtype', 'value': props.typeFilter});
+  if (props.typeFilter !== 'ALL') {
+    if (props.typeFilter === 'JSVV') {
+      filter.push({'column': 'type', 'value': 'JSVV'});
+    } else {
+      filter.push({'column': 'subtype', 'value': props.typeFilter});
+    }
   }
+
 
   http.post('records/list', {
     type: 'RECORDING',
@@ -220,31 +225,31 @@ const closeModalWith = (value) => {
                   </tbody>
                 </table>
                 <div v-if="records?.data?.length === 0" class="text-center py-2">Nebyla nalezena žádná data</div>
-                <div class="flex justify-between items-center py-2 px-1">
-                  <div>
-                    <select v-model="pageLength" @change="fetchRecords()" class="select select-sm select-bordered w-full max-w-xs">
-                      <option value="5">5</option>
-                      <option value="10">10</option>
-                      <option value="25">25</option>
-                      <option value="50">50</option>
-                    </select>
-                  </div>
-                  <div v-if="records?.meta?.last_page > 1">
-                    <div class="flex justify-center items-center">
-                      <div class="join join-horizontal">
-                        <template v-for="page in records?.meta?.links">
-                          <button @click="fetchRecords(page.url)" :disabled="page.url === null" class="btn btn-sm join-item" :class="{['btn-primary']: page.active}">{{ page.label }}</button>
-                        </template>
-                      </div>
-                    </div>
-                  </div>
-                </div>
 
               </div>
 
-              <div class="flex items-center justify-end space-x-5">
-                <button class="underline" @click="closeModalWith('cancel')">Zrušit</button>
-                <button class="btn btn-sm btn-primary" @click="closeModalWith('confirm')">Potvrdit</button>
+              <div class="flex items-center justify-between space-x-5">
+                <div>
+                  <select v-model="pageLength" @change="fetchRecords()" class="select select-sm select-bordered w-full max-w-xs">
+                    <option value="5">5</option>
+                    <option value="10">10</option>
+                    <option value="25">25</option>
+                    <option value="50">50</option>
+                  </select>
+                </div>
+                <div v-if="records?.meta?.last_page > 1">
+                  <div class="flex justify-center items-center">
+                    <div class="join join-horizontal">
+                      <template v-for="page in records?.meta?.links">
+                        <button @click="fetchRecords(page.url)" :disabled="page.url === null" class="btn btn-sm join-item" :class="{['btn-primary']: page.active}">{{ page.label }}</button>
+                      </template>
+                    </div>
+                  </div>
+                </div>
+                <div class="flex space-x-5">
+                  <button class="underline" @click="closeModalWith('cancel')">Zrušit</button>
+                  <button class="btn btn-sm btn-primary" @click="closeModalWith('confirm')">Potvrdit</button>
+                </div>
               </div>
             </DialogPanel>
           </TransitionChild>

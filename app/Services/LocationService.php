@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\LocationGroup;
+use App\Enums\SubtoneTypeEnum;
 use Illuminate\Http\JsonResponse;
 use App\Http\Requests\LocationGroupSaveRequest;
 
@@ -25,7 +26,7 @@ class LocationService extends Service
         return $this->saveLocationGroup($data, $locationGroup);
     }
 
-    /** @param  array{}  $data */
+    /** @param  array{name: string, is_hidden: boolean, subtone_type: SubtoneTypeEnum, subtone_data: array{listen: int[], record: int[]}, init_audio_id?: int, exit_audio_id?: int, timing: array }  $data */
     public function saveLocationGroup(array $data, LocationGroup $locationGroup = null): string
     {
         if (!$locationGroup) {

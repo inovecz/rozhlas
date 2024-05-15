@@ -37,6 +37,11 @@ const sidebarItems = ref([
     to: 'Scheduler',
     active: 'schedule'
   }, {
+    name: 'Poplach JSVV',
+    icon: 'mdi-alarm-light',
+    to: 'JSVV',
+    active: 'jsvv-list'
+  }, {
     name: 'Zprávy',
     icon: 'mdi-cellphone-message',
     to: 'Messages',
@@ -73,6 +78,11 @@ const sidebarItems = ref([
         to: 'Contacts',
         active: 'settings/contacts'
       }, {
+        name: 'JSVV',
+        icon: 'mdi-alarm-light-outline',
+        to: 'JSVVSettings',
+        active: 'settings/jsvv'
+      }, {
         name: 'Lokality',
         icon: 'mdi-selection-marker',
         to: 'LocationGroupsSettings',
@@ -102,6 +112,8 @@ const sidebarItems = ref([
     active: 'about'
   }
 ]);
+
+
 </script>
 
 <template>
@@ -120,11 +132,11 @@ const sidebarItems = ref([
       <nav class="relative mb-24">
         <div v-for="item in sidebarItems" :key="item.name">
           <SidebarItem :to="item.to"
-                       :class="{['router-link-active router-link-exact-active text-primary-content']: $route.path.match(item.active) !== null, 'dropdown': !showSideBar && item.submenu}">
+                       :class="{['router-link-active router-link-exact-active text-primary-content']: $route.path.match(item.active) === true, 'dropdown': !showSideBar && item.submenu}">
             <ul v-if="item.submenu" class="dropdown-menu min-w-max absolute right-0 translate-x-full bg-base-300 text-base-content hidden">
               <li v-for="subItem in item.submenu" :key="subItem.name" class="">
                 <SidebarItem :to="subItem.to"
-                             :class="{['router-link-active router-link-exact-active text-primary-content']: $route.path.match(subItem.active) !== null}">
+                             :class="{['router-link-active router-link-exact-active text-primary-content']: $route.path.match(subItem.active) === true}">
                   <div class="flex items-center sidebar-item">
                     <div :class="['mdi', subItem.icon, 'text-xl', 'mr-3']"></div>
                     <div>{{ subItem.name }}</div>
@@ -148,7 +160,7 @@ const sidebarItems = ref([
             <div v-if="item.submenu && item.submenuVisible" :class="[showSideBar ? 'ml-8 border-l-2 border-slate-600' : '']">
               <div v-for="subItem in item.submenu" :key="subItem.name">
                 <SidebarItem :to="subItem.to"
-                             :class="{['router-link-active router-link-exact-active text-primary-content']: $route.path.match(subItem.active) !== null}">
+                             :class="{['router-link-active router-link-exact-active text-primary-content']: $route.path.match(subItem.active) === true}">
                   <div class="flex items-center sidebar-item" :class="[showSideBar ? 'block' : 'hidden']">
                     <div :class="['mdi', subItem.icon, 'text-xl', 'mr-3']"></div>
                     <div>{{ subItem.name }}</div>

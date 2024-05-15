@@ -21,6 +21,9 @@ import CreateMessage from "./views/messages/CreateMessage.vue";
 import GSMSettings from "./views/settings/GSMSettings.vue";
 import LocationGroupsSettings from "./views/settings/LocationGroupsSettings.vue";
 import LocationGroupEdit from "./views/settings/LocationGroupEdit.vue";
+import Jsvv from "./views/jsvv/Jsvv.vue";
+import JsvvEdit from "./views/jsvv/JsvvEdit.vue";
+import JSVVSettings from "./views/settings/JSVVSettings.vue";
 
 const routes = [
     {
@@ -33,6 +36,9 @@ const routes = [
             {path: "/schedule", name: "Scheduler", component: Scheduler, meta: {title: "Plán vysílání"}},
             {path: '/schedule/task', name: "CreateSchedule", component: ScheduleTask, meta: {title: "Nový úkol"}},
             {path: '/schedule/task/:id', name: "EditSchedule", component: ScheduleTask, meta: {title: "Úprava úkolu"}},
+            {path: "/jsvv-list", name: "JSVV", component: Jsvv, meta: {title: "Jednotný systém varování a vyrozumění"}},
+            {path: "/jsvv-list/alarm", name: "CreateJSVV", component: JsvvEdit, meta: {title: "JSVV - Nový alarm"}},
+            {path: "/jsvv-list/alarm/:id", name: "EditJSVV", component: JsvvEdit, meta: {title: "JSVV - Úprava alarmu"}},
             {path: "/messages", name: "Messages", component: Messages, meta: {title: "Zprávy"}},
             {path: "/messages/create", name: "CreateMessage", component: CreateMessage, meta: {title: "Nová zpráva"}},
             {path: "/map", name: "Map", component: Map, meta: {title: "Mapa"}},
@@ -43,6 +49,7 @@ const routes = [
             {path: "/settings/smtp", name: "SmtpSettings", component: SmtpSettings, meta: {title: "Nastavení SMTP"}},
             {path: "/settings/gsm", name: "GSMSettings", component: GSMSettings, meta: {title: "Nastavení GSM"}},
             {path: "/settings/fm", name: "FMSettings", component: FMSettings, meta: {title: "Nastavení FM rádia"}},
+            {path: "/settings/jsvv", name: "JSVVSettings", component: JSVVSettings, meta: {title: "Nastavení JSVV"}},
             {path: "/settings/two-way-comm", name: "TwoWayCommSettings", component: TwoWayCommSettings, meta: {title: "Nastavení obousměrné komunikace"}},
             {path: "/settings/location-groups", name: "LocationGroupsSettings", component: LocationGroupsSettings, meta: {title: "Nastavení lokalit"}},
             {path: "/settings/location-group", name: "CreateLocationGroup", component: LocationGroupEdit, meta: {title: "Nová lokalita"}},

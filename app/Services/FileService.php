@@ -23,14 +23,14 @@ class FileService
         $name = $request->input('name');
         $metadata = $request->input('metadata');
         $extension = $request->input('extension');
-        return $this->upload($file, $type, $subtype, $name, $extension, $metadata);
+        return $this->upload($file, $type, $subtype, $name, null, $extension, $metadata);
     }
 
-    public function upload(UploadedFile $uploadedFile, FileTypeEnum $type, FileSubtypeEnum $subtype, string $name, string $extension = null, array $metadata = null): File
+    public function upload(UploadedFile $uploadedFile, FileTypeEnum $type, FileSubtypeEnum $subtype, string $name, string $path = null, string $extension = null, array $metadata = null): File
     {
         $filename = Str::uuid()->toString();
         $extension = $extension ?? $uploadedFile->getClientOriginalExtension();
-        $path = 'uploads/';
+        $path = $path ?? 'uploads/';
         Storage::put($path.$filename.'.'.$extension, $uploadedFile->getContent());
         $fileSize = Storage::size($path.$filename.'.'.$extension);
         $data = [
