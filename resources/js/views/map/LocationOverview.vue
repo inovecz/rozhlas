@@ -4,26 +4,36 @@ import "leaflet-extra-markers/dist/css/leaflet.extra-markers.min.css"
 import * as L from "leaflet";
 import "leaflet-extra-markers/dist/js/leaflet.extra-markers.js";
 import {LMap, LMarker, LPopup, LTileLayer} from "@vue-leaflet/vue-leaflet"
-import {ref} from "vue";
+import {ref, watch} from "vue";
 import {useToast} from "vue-toastification";
 import LocationService from "../../services/LocationService.js";
 import {createConfirmDialog} from "vuejs-confirm-dialog";
 import CreateEditLocation from "../../components/modals/CreateEditLocation.vue";
 import {generateRandomString} from "../../helper.js";
 import {locationStore} from "../../store/locationStore.js";
+import Box from "../../components/custom/Box.vue";
 
 const map = ref();
 const zoom = ref(18);
 const center = ref([49.454, 17.978]);
 const dragAndDrop = ref(false);
 const toggleDranAndDropButton = ref();
-
 const locationStoreInfo = locationStore();
+const locationGroups = ref([]);
+const toast = useToast();
 
 emitter.on('locateOnMap', (center) => {
   center.value = center;
   map.value.leafletObject.setView(new L.LatLng(center.value[0], center.value[1]), 18)
 });
+
+watch(locationStoreInfo, () => {
+  updateLocationGroups();
+}, {deep: true});
+
+function updateLocationGroups() {
+  locationGroups.value = locationStoreInfo.locationGroups;
+}
 
 const icons = {
   NEST: L.ExtraMarkers.icon({
@@ -49,9 +59,6 @@ const icons = {
   })
 };
 
-const toast = useToast();
-
-
 function toggleDragAndDrop(value) {
   if (dragAndDrop.value && value !== true) {
     const updatedLocations = locationStoreInfo.locations.filter((location) => location.updated);
@@ -63,7 +70,7 @@ function toggleDragAndDrop(value) {
       });
       LocationService.updateRecords(updatedLocations).then(response => {
         toast.success('Místa byla úspěšně uložena');
-        emitter.emit('refetchLocationsList');
+        emitter.emit('refetchLocations');
       }).catch(error => {
         toast.error('Místa se nepodařilo uložit');
         console.error(error);
@@ -100,6 +107,7 @@ function addLocationMarker() {
   const newLocation = {
     id: null,
     name: 'Nové místo',
+    location_group_id: null,
     latitude: center.value[0],
     longitude: center.value[1],
     type: 'NEST',
@@ -110,6 +118,7 @@ function addLocationMarker() {
   };
 
   const {reveal, onConfirm} = createConfirmDialog(CreateEditLocation, {
+    locationGroups: locationGroups.value,
     location: newLocation,
   });
   reveal();
@@ -134,19 +143,13 @@ function filterList(locationId) {
 </script>
 
 <template>
-  <div class="component-box">
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between">
-      <div class="text-xl text-primary mb-4 mt-3 px-1">
-        Přehled míst
-      </div>
-      <div class="space-x-2">
-        <button @click="addLocationMarker" class="btn btn-sm btn-primary">Přidat místo</button>
-        <button @click="toggleDragAndDrop" ref="toggleDranAndDropButton" class="btn btn-sm" :class="dragAndDrop === true ? 'btn-secondary' : 'btn-primary'">Upravit rozmístění</button>
-      </div>
-    </div>
+  <Box label="Přehled míst">
+    <template #header>
+      <button @click="addLocationMarker" class="btn btn-sm btn-primary">Přidat místo</button>
+      <button @click="toggleDragAndDrop" ref="toggleDranAndDropButton" class="btn btn-sm" :class="dragAndDrop === true ? 'btn-secondary' : 'btn-primary'">Upravit rozmístění</button>
+    </template>
 
     <div id="map" class="w-full h-96">
-      <!--        <iframe class="w-full min-h-96" src="https://www.openstreetmap.org/export/embed.html?bbox=17.97043561935425%2C49.45124805196347%2C17.98269867897034%2C49.45675780335221&amp;layer=mapnik" style="border: 1px solid black"></iframe>-->
       <l-map ref="map" :zoom="zoom" :center="center" :use-global-leaflet="false" @mouseup="setNewCenter" class="z-10">
         <l-tile-layer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                       layer-type="base"
@@ -158,9 +161,9 @@ function filterList(locationId) {
         </l-marker>
       </l-map>
     </div>
-  </div>
+  </Box>
+
 </template>
 
 <style scoped>
-
 </style>

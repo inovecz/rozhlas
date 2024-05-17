@@ -97,13 +97,33 @@ class SettingsController extends Controller
         $jsvvSettings = app(JsvvSettings::class);
         return $this->success([
             'locationGroupId' => $jsvvSettings->locationGroupId,
+            'allowSms' => $jsvvSettings->allowSms,
+            'smsContacts' => $jsvvSettings->smsContacts,
+            'smsMessage' => $jsvvSettings->smsMessage,
+            'allowEmail' => $jsvvSettings->allowEmail,
+            'emailContacts' => $jsvvSettings->emailContacts,
+            'emailSubject' => $jsvvSettings->emailSubject,
+            'emailMessage' => $jsvvSettings->emailMessage,
         ]);
     }
 
     public function saveJsvvSettings(JsvvSettingsRequest $request): JsonResponse
     {
         $jsvvSettings = app(JsvvSettings::class);
-        $jsvvSettings->locationGroupId = $request->input('locationGroupId');
+        if ($request->has('locationGroupId')) {
+            $jsvvSettings->locationGroupId = $request->input('locationGroupId');
+        }
+        if ($request->has('allowSms')) {
+            $jsvvSettings->allowSms = $request->input('allowSms');
+            $jsvvSettings->smsContacts = $request->input('smsContacts');
+            $jsvvSettings->smsMessage = $request->input('smsMessage');
+        }
+        if ($request->has('allowEmail')) {
+            $jsvvSettings->allowEmail = $request->input('allowEmail');
+            $jsvvSettings->emailContacts = $request->input('emailContacts');
+            $jsvvSettings->emailSubject = $request->input('emailSubject');
+            $jsvvSettings->emailMessage = $request->input('emailMessage');
+        }
         $jsvvSettings->save();
         return $this->success();
     }

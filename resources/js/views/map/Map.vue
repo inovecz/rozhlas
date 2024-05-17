@@ -6,6 +6,7 @@ import {useToast} from "vue-toastification";
 import {onMounted} from "vue";
 import {locationStore} from "../../store/locationStore";
 import {useDataTables} from "../../utils/datatablesTrait.js";
+import PageContent from "../../components/custom/PageContent.vue";
 
 const toast = useToast();
 const {fetchRecords, orderAsc, orderBy, orderColumn, pageLength, search} = useDataTables(fetchLocations, 'scheduled_at');
@@ -14,6 +15,7 @@ const locationStoreInfo = locationStore();
 
 onMounted(() => {
   fetchLocations();
+  getAllLocationGroups();
 });
 
 emitter.on('refetchLocations', () => {
@@ -28,18 +30,23 @@ function fetchLocations(paginatorUrl) {
     toast.error('Nepodařilo se načíst seznam míst');
   });
 }
+
+function getAllLocationGroups() {
+  LocationService.getAllLocationGroups('select').then(response => {
+    locationStoreInfo.locationGroups = [{id: null, name: 'Nepřiřazeno'}, ...response];
+  }).catch(error => {
+    console.error(error);
+    toast.error('Nepodařilo se načíst seznam lokací');
+  });
+}
 </script>
 
 <template>
-  <div class="px-5 py-5">
-    <h1 class="text-3xl mb-3 text-primary">Mapa</h1>
-    <div class="content flex flex-col space-y-4">
-      <LocationOverview/>
-      <LocationList/>
-    </div>
-  </div>
+  <PageContent label="Mapa">
+    <LocationOverview/>
+    <LocationList/>
+  </PageContent>
 </template>
 
 <style scoped>
-
 </style>

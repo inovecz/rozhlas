@@ -7,6 +7,8 @@ import router from "../../router.js";
 import {createConfirmDialog} from "vuejs-confirm-dialog";
 import ModalDialog from "../../components/modals/ModalDialog.vue";
 import {useToast} from "vue-toastification";
+import Box from "../../components/custom/Box.vue";
+import Button from "../../components/forms/Button.vue";
 
 const schedules = ref([]);
 let orderColumn = 'scheduled_at';
@@ -79,17 +81,11 @@ function deleteSchedule(id) {
 </script>
 
 <template>
-  <div class="component-box">
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between">
-      <div class="text-xl text-primary mb-4 mt-3 px-1">
-        {{ props.type === 'planned' ? 'Naplánované úkoly' : 'Archivované úkoly' }}
-      </div>
-      <router-link v-if="props.type==='planned'"
-                   :to="{ name: 'CreateSchedule' }"
-                   class="btn btn-sm btn-primary">
-        Nový úkol
-      </router-link>
-    </div>
+  <Box :label="props.type === 'planned' ? 'Naplánované úkoly' : 'Archivované úkoly'">
+    <template #header>
+      <Button v-if="props.type === 'planned'" route-to="CreateSchedule" icon="mdi-plus-box" size="sm"/>
+    </template>
+
     <div class="overflow-x-auto">
       <table class="table">
         <!-- head -->
@@ -99,36 +95,36 @@ function deleteSchedule(id) {
               <div class="flex items-center cursor-pointer underline">
                 Název
                 <span v-if="orderColumn === 'title'">
-                      <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
-                      <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
-                    </span>
+                  <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
+                  <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
+                </span>
               </div>
             </th>
             <th @click="orderBy('scheduled_at')">
               <div class="flex items-center cursor-pointer underline">
                 {{ props.type === 'planned' ? 'Naplánováno na' : 'Spuštěno' }}
                 <span v-if="orderColumn === 'scheduled_at'">
-                      <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
-                      <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
-                    </span>
+                  <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
+                  <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
+                </span>
               </div>
             </th>
             <th @click="orderBy('is_repeating')">
               <div class="flex items-center cursor-pointer underline">
                 Opakování
                 <span v-if="orderColumn === 'is_repeating'">
-                      <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
-                      <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
-                    </span>
+                  <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
+                  <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
+                </span>
               </div>
             </th>
             <th @click="orderBy('duration')">
               <div class="flex items-center cursor-pointer underline">
                 Délka
                 <span v-if="orderColumn === 'duration'">
-                      <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
-                      <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
-                    </span>
+                  <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
+                  <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
+                </span>
               </div>
             </th>
             <th class="text-right">Akce</th>
@@ -181,9 +177,8 @@ function deleteSchedule(id) {
         </div>
       </div>
     </div>
-  </div>
+  </Box>
 </template>
 
 <style scoped>
-
 </style>

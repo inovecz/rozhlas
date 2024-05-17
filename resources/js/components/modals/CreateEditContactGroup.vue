@@ -2,14 +2,19 @@
 import {computed, ref} from 'vue'
 import {Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot,} from '@headlessui/vue'
 import "vue-multiselect/dist/vue-multiselect.css";
+import Button from "../forms/Button.vue";
+import Input from "../forms/Input.vue";
 
+const errorBag = ref({});
 const isOpen = ref(true)
 const props = defineProps(['contactGroup']);
 const emit = defineEmits(['confirm', 'cancel']);
 
 const cantSave = computed(() => {
+  errorBag.value = {};
   let retVal = false;
   if (props.contactGroup.name.length < 3) {
+    errorBag.value.name = 'Název musí mít alespoň 3 znaky';
     retVal = true;
   }
   return retVal;
@@ -57,22 +62,12 @@ const closeModalWith = (value) => {
                 {{ props.contactGroup.id ? 'Úprava skupiny' : 'Nová skupina' }}
               </DialogTitle>
 
-              <div class="flex flex-col gap-3">
-
-                <div class="flex flex-col gap-2">
-                  <div class="text-sm text-base-content">
-                    Název skupiny
-                  </div>
-                  <div>
-                    <input v-model="props.contactGroup.name" type="text" placeholder="Zadejte název (min. 3 znaky)" class="input input-sm w-full"/>
-                  </div>
-                </div>
-
+              <div class="flex flex-col">
+                <Input v-model="props.contactGroup.name" label="Název skupiny:" placeholder="Zadejte název (min. 3 znaky)" :error="errorBag?.name" size="sm"/>
               </div>
-
-              <div class="flex items-center justify-end space-x-5">
-                <button class="underline" @click="closeModalWith('cancel')">Zrušit</button>
-                <button class="btn btn-sm btn-primary" @click="closeModalWith('confirm')" :disabled="cantSave">Potvrdit</button>
+              <div class="flex items-center justify-end space-x-2">
+                <Button data-class="btn-ghost" label="Zrušit" size="sm" @click="closeModalWith('cancel')"/>
+                <Button icon="mdi-content-save" label="Uložit" size="sm" @click="closeModalWith('confirm')" :disabled="cantSave"/>
               </div>
             </DialogPanel>
           </TransitionChild>

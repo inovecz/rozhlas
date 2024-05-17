@@ -5,6 +5,9 @@ import RecordSaveDialog from "../../components/modals/RecordSaveDialog.vue";
 import {isBase64} from "../../helper.js";
 import {useToast} from "vue-toastification";
 import RecordingService from "../../services/RecordingService.js";
+import Box from "../../components/custom/Box.vue";
+import Select from "../../components/forms/Select.vue";
+import Checkbox from "../../components/forms/Checkbox.vue";
 
 const selectedCodec = ref([])
 const echoCancellation = ref(false)
@@ -260,10 +263,7 @@ function saveRecord(id) {
 </script>
 
 <template>
-  <div class="component-box">
-    <div class="text-xl text-primary mb-4 mt-3 px-1">
-      Nahrání záznamu
-    </div>
+  <Box label="Nahrání záznamu">
     <div class="flex justify-between gap-2">
       <div class="flex gap-2 flex-shrink">
         <button ref="recordButton" @click="record()" class="btn btn-sm" :class="recording ? 'btn-error' : 'btn-success'"><span class="mdi mdi-record text-rose-500"></span>Nový záznam</button>
@@ -277,30 +277,9 @@ function saveRecord(id) {
         <button ref="saveButton" @click="saveRecord()" class="btn btn-sm btn-primary" :disabled="(recording || recordedBlobs === undefined)"><span class="mdi mdi-content-save"></span>Uložit</button>
       </div>
     </div>
-    <div>
-      <span id="error-message"></span>
-    </div>
-    <div>
-      <div class="form-control">
-        <label class="label cursor-pointer">
-          <span class="label-text">Formát záznamu:</span>
-          <select v-model="selectedCodec" class="select select-bordered w-full max-w-xs" :disabled="recording">
-            <option v-if="supportedCodecs.length === 0" disabled value="">Nenalezen žádný kodek</option>
-            <option v-for="codec in supportedCodecs" :value="codec.value">
-              {{ codec.label }}
-            </option>
-          </select>
-        </label>
-      </div>
-      <div class="form-control">
-        <label class="label cursor-pointer">
-          <span class="label-text">Potlačení ozvěny</span>
-          <input v-model="echoCancellation" type="checkbox" checked="checked" class="checkbox" :disabled="recording"/>
-        </label>
-      </div>
-    </div>
-    <div>
-      <audio ref="audioPlayer" @ended="playPauseRecorded()"></audio>
-    </div>
-  </div>
+    <div id="error-message"></div>
+    <Select v-model="selectedCodec" label="Formát záznamu:" :options="supportedCodecs" option-label="label" option-key="value"/>
+    <Checkbox v-model="echoCancellation" label="Potlačení ozvěny" :disabled="recording"/>
+    <audio ref="audioPlayer" @ended="playPauseRecorded()"></audio>
+  </Box>
 </template>

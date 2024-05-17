@@ -4,7 +4,12 @@ import {Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot,} from
 import VueMultiselect from 'vue-multiselect'
 import "vue-multiselect/dist/vue-multiselect.css";
 import {contactGroupStore} from "../../store/contactGroupStore.js";
+import Button from "../forms/Button.vue";
+import Input from "../forms/Input.vue";
+import Checkbox from "../forms/Checkbox.vue";
+import CustomFormControl from "../forms/CustomFormControl.vue";
 
+const errorBag = ref({});
 const isOpen = ref(true)
 const props = defineProps(['contactGroups', 'contact']);
 const emit = defineEmits(['confirm', 'cancel']);
@@ -12,11 +17,33 @@ const contactGroupStoreInfo = contactGroupStore();
 const contactGroups = ref(contactGroupStoreInfo.contactGroups);
 
 const cantSave = computed(() => {
+  errorBag.value = {};
+  const phoneRegex = /^(\+(?:\d{1,3}))?(\s|-)?((?:\d{2,3})|\(\d{2,3}\))(?:\s|-)?(\d{3})(?:\s|-)?(\d{3})$/;
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
   let retVal = false;
   if (props.contact.name.length < 3) {
+    errorBag.value.name = 'Jméno musí mít alespoň 3 znaky';
     retVal = true;
   }
   if (props.contact.surname.length < 3) {
+    errorBag.value.surname = 'Příjmení musí mít alespoň 3 znaky';
+    retVal = true;
+  }
+
+  if (props.contact.email && !emailRegex.test(props.contact.email)) {
+    errorBag.value.email = 'Zadejte platný e-mail';
+    retVal = true;
+  }
+
+  if (props.contact.phone && !phoneRegex.test(props.contact.phone)) {
+    errorBag.value.phone = 'Zadejte platný telefon';
+    retVal = true;
+  }
+
+  if (!props.contact.phone && !props.contact.email) {
+    errorBag.value.phone = 'Zadejte alespoň jeden kontakt (telefon nebo e-mail)';
+    errorBag.value.email = 'Zadejte alespoň jeden kontakt (telefon nebo e-mail)';
     retVal = true;
   }
   return retVal;
@@ -64,78 +91,32 @@ const closeModalWith = (value) => {
                 {{ props.contact.id ? 'Úprava kontaktu' : 'Nový kontakt' }}
               </DialogTitle>
 
-              <div class="flex flex-col gap-3">
+              <div class="flex flex-col">
 
-                <div class="flex flex-col gap-2">
-                  <div class="text-sm text-base-content">
-                    Jméno
-                  </div>
-                  <div>
-                    <input v-model="props.contact.name" type="text" placeholder="Zadejte jméno (min. 3 znaky)" class="input input-sm w-full"/>
-                  </div>
+                <Input v-model="props.contact.name" size="sm" label="Jméno:" placeholder="Zadejte jméno (min. 3 znaky)" :error="errorBag?.name"/>
+                <Input v-model="props.contact.surname" size="sm" label="Příjmení:" placeholder="Zadejte příjmení (min. 3 znaky)" :error="errorBag?.surname"/>
+
+                <Input v-model="props.contact.email" type="email" size="sm" label="E-mail:" placeholder="Zadejte e-mail" :error="errorBag?.email"/>
+                <Checkbox v-model="props.contact.has_info_email_allowed" label="Použít e-mail pro zasílání informačních zpráv"/>
+
+                <Input v-model="props.contact.phone" size="sm" label="Telefon:" placeholder="Zadejte telefon" :error="errorBag?.phone"/>
+                <Checkbox v-model="props.contact.has_info_sms_allowed" label="Použít telefon pro zasílání informačních zpráv"/>
+
+                <CustomFormControl label="Skupiny">
+                  <VueMultiselect v-model="props.contact.contact_groups" :options="contactGroups" label="name" trackBy="id" :multiple="true"
+                                  :close-on-select="false"
+                                  placeholder="Vyhledat skupinu" tagPlaceholder="" noOptions="Seznam je prázdný"
+                                  selectedLabel="Vybráno" selectLabel="Klikněte pro přidání" deselectLabel="Klikněte pro odebrání">
+                    <template #noResult>
+                      <span>Zadaným parametrům neodpovídá žádná skupina</span>
+                    </template>
+                  </VueMultiselect>
+                </CustomFormControl>
+
+                <div class="flex items-center justify-end space-x-2">
+                  <Button data-class="btn-ghost" label="Zrušit" size="sm" @click="closeModalWith('cancel')"/>
+                  <Button icon="mdi-content-save" label="Uložit" size="sm" @click="closeModalWith('confirm')" :disabled="cantSave"/>
                 </div>
-
-                <div class="flex flex-col gap-2">
-                  <div class="text-sm text-base-content">
-                    Příjmení
-                  </div>
-                  <div>
-                    <input v-model="props.contact.surname" type="text" placeholder="Zadejte příjmení (min. 3 znaky)" class="input input-sm w-full"/>
-                  </div>
-                </div>
-
-                <div class="flex flex-col gap-2">
-                  <div class="text-sm text-base-content">
-                    E-mail
-                  </div>
-                  <div>
-                    <input v-model="props.contact.email" type="email" placeholder="Zadejte e-mail" class="input input-sm w-full"/>
-                  </div>
-                </div>
-
-                <div class="form-control">
-                  <label class="label cursor-pointer">
-                    <span class="label-text">Použít e-mail pro zasílání informačních zpráv</span>
-                    <input v-model="props.contact.has_info_email_allowed" type="checkbox" checked="checked" class="checkbox checkbox-primary"/>
-                  </label>
-                </div>
-
-                <div class="flex flex-col gap-2">
-                  <div class="text-sm text-base-content">
-                    Telefon
-                  </div>
-                  <div>
-                    <input v-model="props.contact.phone" type="text" placeholder="Zadejte telefon" class="input input-sm w-full"/>
-                  </div>
-                </div>
-
-                <div class="form-control">
-                  <label class="label cursor-pointer">
-                    <span class="label-text">Použít telefon pro zasílání informačních zpráv</span>
-                    <input v-model="props.contact.has_info_sms_allowed" type="checkbox" checked="checked" class="checkbox checkbox-primary"/>
-                  </label>
-                </div>
-
-                <div class="flex flex-col gap-2">
-                  <div class="text-sm text-base-content">
-                    Skupiny
-                  </div>
-                  <div>
-                    <VueMultiselect v-model="props.contact.contact_groups" :options="contactGroups" label="name" trackBy="id" :multiple="true"
-                                    :close-on-select="false"
-                                    placeholder="Vyhledat skupinu" tagPlaceholder="" noOptions="Seznam je prázdný"
-                                    selectedLabel="Vybráno" selectLabel="Klikněte pro přidání" deselectLabel="Klikněte pro odebrání">
-                      <template #noResult>
-                        <span>Zadaným parametrům neodpovídá žádná skupina</span>
-                      </template>
-                    </VueMultiselect>
-                  </div>
-                </div>
-              </div>
-
-              <div class="flex items-center justify-end space-x-5">
-                <button class="underline" @click="closeModalWith('cancel')">Zrušit</button>
-                <button class="btn btn-sm btn-primary" @click="closeModalWith('confirm')" :disabled="cantSave">Potvrdit</button>
               </div>
             </DialogPanel>
           </TransitionChild>

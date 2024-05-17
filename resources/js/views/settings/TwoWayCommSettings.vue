@@ -2,6 +2,12 @@
 import {useToast} from "vue-toastification";
 import {computed, onMounted, ref} from "vue";
 import SettingsService from "../../services/SettingsService.js";
+import PageContent from "../../components/custom/PageContent.vue";
+import Select from "../../components/forms/Select.vue";
+import Checkbox from "../../components/forms/Checkbox.vue";
+import Box from "../../components/custom/Box.vue";
+import Input from "../../components/forms/Input.vue";
+import Button from "../../components/forms/Button.vue";
 
 const toast = useToast();
 const twoWayCommSettings = ref({
@@ -61,128 +67,32 @@ const cantSave = computed(() => {
 </script>
 
 <template>
-  <div class="px-5 py-5">
-    <h1 class="text-3xl mb-3 text-primary">Nastavení obousměrné komunikace</h1>
-    <div class="content flex flex-col space-y-4">
+  <PageContent label="Nastavení obousměrné komunikace">
+    <Box label="Typ komunikace">
+      <Select v-model="twoWayCommSettings.type" label="Typ obousměru:" :options="[
+        {value: 'NONE', label: 'Žádný'},
+        {value: 'EIGHTSIXEIGHT', label: '868 Mhz'},
+        {value: 'EIGHTZERO', label: '80 Mhz'},
+        {value: 'DIGITAL', label: 'Digitální'},
+      ]"/>
+      <Checkbox v-model="twoWayCommSettings.spam" label="Nevyžádané zprávy"/>
+    </Box>
+    <Box label="Nastavení automatické aktualizace stavu hnízd">
+      <Checkbox v-model="twoWayCommSettings.nestStatusAutoUpdate" label="Automatické vyčítání stavu hnízd"/>
+      <Input v-model="twoWayCommSettings.nestFirstReadTime" :error="errorBag?.nestFirstReadTime" label="Čas prvního vyčítání:" type="time" placeholder="Zvolte čas prvního vyčítání"/>
+      <Input v-model="twoWayCommSettings.nestNextReadInterval" :error="errorBag?.nestNextReadInterval" label="Interval dalších vyčítání během dne [min]:" type="number" placeholder="Zvolte prodlevu mezi následujícími vyčítáními"/>
+    </Box>
+    <Box label="Nastavení automatické aktualizace stavu senzorů">
+      <Checkbox v-model="twoWayCommSettings.sensorStatusAutoUpdate" label="Automatické vyčítání stavu senzorů"/>
+      <Input v-model="twoWayCommSettings.sensorFirstReadTime" :error="errorBag?.sensorFirstReadTime" label="Čas prvního vyčítání:" type="time" placeholder="Zvolte čas prvního vyčítání"/>
+      <Input v-model="twoWayCommSettings.sensorNextReadInterval" :error="errorBag?.sensorNextReadInterval" label="Interval dalších vyčítání během dne [min]:" type="number" placeholder="Zvolte prodlevu mezi následujícími vyčítáními"/>
+    </Box>
 
-      <div class="component-box">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between">
-          <div class="text-xl text-primary mb-4 mt-3 px-1">
-            Typ komunikace
-          </div>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-          <label for="2w-type" class="label">
-            <span class="label-text">Typ obousměru:</span>
-          </label>
-          <div class="form-control w-full">
-            <select id="2w-type" v-model="twoWayCommSettings.type" class="select select-bordered w-full">
-              <option value="NONE">Žádný</option>
-              <option value="EIGHTSIXEIGHT">868 Mhz</option>
-              <option value="EIGHTZERO">80 Mhz</option>
-              <option value="DIGITAL">Digitální</option>
-            </select>
-          </div>
-
-          <div class="form-control col-span-1 md:col-span-2">
-            <label class="label cursor-pointer">
-              <span class="label-text">Nevyžádané zprávy</span>
-              <input v-model="twoWayCommSettings.spam" type="checkbox" class="checkbox"/>
-            </label>
-          </div>
-        </div>
-      </div>
-
-      <div class="component-box">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between">
-          <div class="text-xl text-primary mb-4 mt-3 px-1">
-            Nastavení automatické aktualizace stavu hnízd
-          </div>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-          <div class="form-control col-span-1 md:col-span-2">
-            <label class="label cursor-pointer">
-              <span class="label-text">Automatické vyčítání stavu hnízd</span>
-              <input v-model="twoWayCommSettings.nestStatusAutoUpdate" type="checkbox" class="checkbox"/>
-            </label>
-          </div>
-
-          <label for="2w-nest-first-read" class="label">
-            <span class="label-text">Čas prvního vyčítání: {{ typeof twoWayCommSettings.nestFirstReadTime }}</span>
-          </label>
-          <div class="form-control w-full">
-            <input id="2w-nest-first-read" type="time" :class="'input input-bordered w-full'+(errorBag?.nestFirstReadTime ? 'input-error' : '' )"
-                   v-model="twoWayCommSettings.nestFirstReadTime"
-                   placeholder="Zvolte čas prvního vyčítání"/>
-            <div class="label">
-              <span v-if="errorBag?.nestFirstReadTime" class="label-text-alt text-red-500"><span class="mdi mdi-alert-circle-outline mr-1"></span>{{ errorBag.nestFirstReadTime }}</span>
-            </div>
-          </div>
-
-          <label for="2w-nest-next-interval" class="label">
-            <span class="label-text">Interval dalších vyčítání během dne [min]:</span>
-          </label>
-          <div class="form-control w-full">
-            <input id="2w-nest-next-interval" type="number" :class="'input input-bordered w-full'+(errorBag?.nestNextReadInterval ? 'input-error' : '' )"
-                   v-model="twoWayCommSettings.nestNextReadInterval"
-                   placeholder="Zvolte prodlevu mezi následujícími vyčítáními"/>
-            <div class="label">
-              <span v-if="errorBag?.nestNextReadInterval" class="label-text-alt text-red-500"><span class="mdi mdi-alert-circle-outline mr-1"></span>{{ errorBag.nestNextReadInterval }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="component-box">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between">
-          <div class="text-xl text-primary mb-4 mt-3 px-1">
-            Nastavení automatické aktualizace stavu senzorů
-          </div>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-          <div class="form-control col-span-1 md:col-span-2">
-            <label class="label cursor-pointer">
-              <span class="label-text">Automatické vyčítání stavu senzorů</span>
-              <input v-model="twoWayCommSettings.sensorStatusAutoUpdate" type="checkbox" class="checkbox"/>
-            </label>
-          </div>
-
-          <label for="2w-sensor-first-read" class="label">
-            <span class="label-text">Čas prvního vyčítání:</span>
-          </label>
-          <div class="form-control w-full">
-            <input id="2w-sensor-first-read" type="time" :class="'input input-bordered w-full'+(errorBag?.sensorFirstReadTime ? 'input-error' : '' )"
-                   v-model="twoWayCommSettings.sensorFirstReadTime"
-                   placeholder="Zvolte čas prvního vyčítání"/>
-            <div class="label">
-              <span v-if="errorBag?.sensorFirstReadTime" class="label-text-alt text-red-500"><span class="mdi mdi-alert-circle-outline mr-1"></span>{{ errorBag.sensorFirstReadTime }}</span>
-            </div>
-          </div>
-
-          <label for="2w-sensor-next-interval" class="label">
-            <span class="label-text">Interval dalších vyčítání během dne [min]:</span>
-          </label>
-          <div class="form-control w-full">
-            <input id="2w-sensor-next-interval" type="number" :class="'input input-bordered w-full'+(errorBag?.sensorNextReadInterval ? 'input-error' : '' )"
-                   v-model="twoWayCommSettings.sensorNextReadInterval"
-                   placeholder="Zvolte prodlevu mezi následujícími vyčítáními"/>
-            <div class="label">
-              <span v-if="errorBag?.sensorNextReadInterval" class="label-text-alt text-red-500"><span class="mdi mdi-alert-circle-outline mr-1"></span>{{ errorBag.sensorNextReadInterval }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="flex justify-end">
-        <div class="text-xl text-primary mb-4 mt-3 px-1">
-          <button class="btn btn-primary" @click="saveTwoWayCommSettings" :disabled="cantSave">Uložit</button>
-        </div>
-      </div>
+    <div class="flex justify-end">
+      <Button @click="saveTwoWayCommSettings" icon="mdi-content-save" label="Uložit" size="sm" :disabled="cantSave"/>
     </div>
-
-  </div>
+  </PageContent>
 </template>
 
 <style scoped>
-
 </style>

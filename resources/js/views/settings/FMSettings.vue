@@ -2,6 +2,10 @@
 import {useToast} from "vue-toastification";
 import {computed, onMounted, ref} from "vue";
 import SettingsService from "../../services/SettingsService.js";
+import PageContent from "../../components/custom/PageContent.vue";
+import Box from "../../components/custom/Box.vue";
+import Input from "../../components/forms/Input.vue";
+import Button from "../../components/forms/Button.vue";
 
 const toast = useToast();
 const fmSettings = ref({
@@ -39,31 +43,15 @@ const cantSave = computed(() => {
 </script>
 
 <template>
-  <div class="px-5 py-5">
-    <h1 class="text-3xl mb-3 text-primary">Nastavení FM rádia</h1>
-    <div class="content flex flex-col space-y-4">
-      <div class="component-box">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between">
-          <div class="text-xl text-primary mb-4 mt-3 px-1">
-            Nastavení spojení
-          </div>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-          <label for="fm-frequency" class="label">
-            <span class="label-text">Frekvence rádia [MHz]:</span>
-          </label>
-          <div class="form-control w-full">
-            <input id="fm-frequency" v-model="fmSettings.frequency" type="text" placeholder="Např.: 103.3" class="input input-bordered w-full"/>
-          </div>
-          <div class="col-span-1 md:col-span-2 mt-4 flex justify-end">
-            <button class="btn btn-primary" @click="saveFMSettings" :disabled="cantSave">Uložit</button>
-          </div>
-        </div>
+  <PageContent label="Nastavení FM rádia">
+    <Box label="Nastavení spojení">
+      <Input v-model="fmSettings.frequency" label="Frekvence rádia:" badge="MHz" placeholder="Např.: 103.3"/>
+      <div class="flex justify-end">
+        <Button @click="saveFMSettings" icon="mdi-content-save" label="Uložit" size="sm" :disabled="cantSave"/>
       </div>
-    </div>
-  </div>
+    </Box>
+  </PageContent>
 </template>
 
 <style scoped>
-
 </style>

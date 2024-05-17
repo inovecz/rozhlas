@@ -19,7 +19,15 @@ class JsvvSettingsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'locationGroupId' => 'nullable|integer|exists:location_groups,id',
+            'locationGroupId' => 'sometimes|nullable|integer|exists:location_groups,id',
+            'allowSms' => 'sometimes|required|boolean',
+            'smsContacts' => 'sometimes|required_if:allowSms,true|array',
+            'smsMessage' => 'sometimes|required_if:allowSms,true|string',
+            'allowEmail' => 'sometimes|required|boolean',
+            'emailContacts' => 'sometimes|required_if:allowEmail,true|array',
+            'emailContacts.*' => 'email',
+            'emailSubject' => 'sometimes|nullable|required_if:allowEmail,true|string',
+            'emailMessage' => 'sometimes|nullable|required_if:allowEmail,true|string',
         ];
     }
 
@@ -27,6 +35,15 @@ class JsvvSettingsRequest extends FormRequest
     {
         return [
             'locationGroupId' => 'trim|digit|empty_string_to_null',
+            'allowSms' => 'trim|cast:boolean',
+            'smsContacts' => 'trim',
+            'smsContacts.*' => 'trim',
+            'smsMessage' => 'trim',
+            'allowEmail' => 'trim|cast:boolean',
+            'emailContacts' => 'trim',
+            'emailContacts.*' => 'trim',
+            'emailSubject' => 'trim',
+            'emailMessage' => 'trim',
         ];
     }
 }

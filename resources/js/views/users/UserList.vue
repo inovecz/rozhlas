@@ -7,6 +7,8 @@ import UserService from "../../services/UserService.js";
 import {createConfirmDialog} from "vuejs-confirm-dialog";
 import CreateEditUser from "../../components/modals/CreateEditUser.vue";
 import ModalDialog from "../../components/modals/ModalDialog.vue";
+import Box from "../../components/custom/Box.vue";
+import Input from "../../components/forms/Input.vue";
 
 const users = ref([]);
 const toast = useToast();
@@ -57,24 +59,13 @@ function deleteUser(id) {
 </script>
 
 <template>
-  <div class="component-box">
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between">
-      <div class="text-xl text-primary mb-4 mt-3 px-1">
-        Seznam uživatelů
-      </div>
-      <div class="flex gap-4">
-        <label class="input input-bordered input-sm flex items-center gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="w-4 h-4 opacity-70">
-            <path fill-rule="evenodd" d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z" clip-rule="evenodd"/>
-          </svg>
-          <input v-model="search.value" type="text" class="grow" placeholder="Hledat"/>
-          <svg @click="() => {search.value = null}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-4 h-4 opacity-70 cursor-pointer">
-            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"></path>
-          </svg>
-        </label>
-        <button @click="editUser" class="btn btn-primary btn-square btn-sm text-xl"><span class="mdi mdi-plus-box"></span></button>
-      </div>
-    </div>
+  <Box label="Seznam uživatelů">
+    <template #header>
+      <Input v-model="search.value" icon="mdi-magnify" :eraseable="true" placeholder="Hledat" data-class="input-bordered input-sm"/>
+      <button @click="editUser" class="btn btn-primary btn-square btn-sm text-xl">
+        <span class="mdi mdi-plus-box"></span>
+      </button>
+    </template>
 
     <div class="overflow-x-auto">
       <table class="table">
@@ -151,9 +142,8 @@ function deleteUser(id) {
       </div>
     </div>
 
-  </div>
+  </Box>
 </template>
 
 <style scoped>
-
 </style>

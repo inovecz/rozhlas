@@ -5,6 +5,7 @@ import {onMounted} from "vue";
 import ContactService from "../../services/ContactService.js";
 import {contactGroupStore} from "../../store/contactGroupStore.js";
 import {useToast} from "vue-toastification";
+import PageContent from "../../components/custom/PageContent.vue";
 
 const contactGroupStoreInfo = contactGroupStore();
 const toast = useToast();
@@ -28,15 +29,11 @@ function fetchContactGroupsSelect() {
 </script>
 
 <template>
-  <div class="px-5 py-5">
-    <h1 class="text-3xl mb-3 text-primary">Kontakty</h1>
-    <div class="content flex flex-col space-y-4 mb-4">
-      <ContactList/>
-      <ContactGroupList/>
-    </div>
-  </div>
+  <PageContent label="Kontakty">
+    <ContactList/>
+    <ContactGroupList/>
+  </PageContent>
 </template>
 
 <style scoped>
-
 </style>

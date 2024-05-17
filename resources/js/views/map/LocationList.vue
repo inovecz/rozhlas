@@ -6,6 +6,8 @@ import {createConfirmDialog} from "vuejs-confirm-dialog";
 import ModalDialog from "../../components/modals/ModalDialog.vue";
 import CreateEditLocation from "../../components/modals/CreateEditLocation.vue";
 import {locationStore} from "../../store/locationStore.js";
+import Box from "../../components/custom/Box.vue";
+import Input from "../../components/forms/Input.vue";
 
 const locations = ref([]);
 const locationGroups = ref([]);
@@ -18,17 +20,7 @@ const locationStoreInfo = locationStore();
 
 onMounted(() => {
   filterLocations();
-  getAllLocationGroups();
 });
-
-function getAllLocationGroups() {
-  LocationService.getAllLocationGroups('select').then(response => {
-    locationGroups.value = response;
-  }).catch(error => {
-    console.error(error);
-    toast.error('Nepodařilo se načíst seznam skupin míst');
-  });
-}
 
 watch(search, debounce(() => {
   filterLocations();
@@ -41,7 +33,12 @@ emitter.on('filterListById', (id) => {
 
 watch(locationStoreInfo, () => {
   filterLocations();
-});
+  updateLocationGroups();
+}, {deep: true});
+
+function updateLocationGroups() {
+  locationGroups.value = locationStoreInfo.locationGroups;
+}
 
 function filterLocations() {
   if (search.value !== null && search.value !== '') {
@@ -91,13 +88,9 @@ function editLocation(id) {
     location: {...location}
   });
   reveal();
-  onConfirm((location) => {
-    location.location_group_id = null;
-    if (location.location_group) {
-      location.location_group_id = location.location_group.id;
-      delete location.location_group;
-    }
-    LocationService.updateRecords(location).then(() => {
+  onConfirm((updatedLocation) => {
+    delete updatedLocation.location_group;
+    LocationService.updateRecords(updatedLocation).then(() => {
       toast.success('Záznam byl úspěšně upraven');
       emitter.emit('refetchLocations');
     }).catch(error => {
@@ -108,9 +101,11 @@ function editLocation(id) {
 }
 
 function deleteLocation(id) {
+  const foundLocation = locationStoreInfo.locations.find(location => location.id === id);
+  console.log(foundLocation)
   const {reveal, onConfirm} = createConfirmDialog(ModalDialog, {
-    title: 'Opravdu si přejete smazat lokaci?',
-    message: 'Tato akce je nevratná, dojde k trvalému smazání lokace.'
+    title: 'Opravdu si přejete smazat místo?',
+    message: `Místo ${foundLocation.name} bude trvale smazáno. Tato akce je nevratná.`
   });
   reveal();
   onConfirm(() => {
@@ -126,21 +121,11 @@ function deleteLocation(id) {
 </script>
 
 <template>
-  <div class="component-box">
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between">
-      <div class="text-xl text-primary mb-4 mt-3 px-1">
-        Seznam míst
-      </div>
-      <label class="input input-sm input-bordered flex items-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="w-4 h-4 opacity-70">
-          <path fill-rule="evenodd" d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z" clip-rule="evenodd"/>
-        </svg>
-        <input v-model="search.value" type="text" class="grow" placeholder="Hledat"/>
-        <svg @click="() => {search.value = null}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-4 h-4 opacity-70 cursor-pointer">
-          <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"></path>
-        </svg>
-      </label>
-    </div>
+  <Box label="Seznam míst">
+    <template #header>
+      <Input v-model="search.value" icon="mdi-magnify" :eraseable="true" placeholder="Hledat" data-class="input-bordered input-sm"/>
+    </template>
+
     <div class="overflow-x-auto">
       <table class="table">
         <!-- head -->
@@ -211,29 +196,10 @@ function deleteLocation(id) {
         </tbody>
       </table>
       <div v-if="locations?.length === 0" class="text-center py-2">Nebyla nalezena žádná data</div>
-      <!--      <div class="flex justify-between items-center py-2 px-1">
-              <div>
-                <select v-model="pageLength" @change="fetchLocations()" class="select select-sm select-bordered w-full max-w-xs">
-                  <option value="5">5</option>
-                  <option value="10">10</option>
-                  <option value="25">25</option>
-                  <option value="50">50</option>
-                </select>
-              </div>
-              <div v-if="locations?.meta?.last_page > 1">
-                <div class="flex justify-center items-center">
-                  <div class="join join-horizontal">
-                    <template v-for="page in locations?.meta?.links">
-                      <button @click="fetchRecords(page.url)" :disabled="page.url === null" class="btn btn-sm join-item" :class="{['btn-primary']: page.active}">{{ page.label }}</button>
-                    </template>
-                  </div>
-                </div>
-              </div>
-            </div>-->
     </div>
-  </div>
+
+  </Box>
 </template>
 
 <style scoped>
-
 </style>

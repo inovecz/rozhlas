@@ -5,6 +5,12 @@ import {useToast} from "vue-toastification";
 import JsvvAlarmService from "../../services/JsvvAlarmService.js";
 import VueMultiselect from "vue-multiselect";
 import router from "../../router.js";
+import PageContent from "../../components/custom/PageContent.vue";
+import Box from "../../components/custom/Box.vue";
+import Input from "../../components/forms/Input.vue";
+import Select from "../../components/forms/Select.vue";
+import CustomFormControl from "../../components/forms/CustomFormControl.vue";
+import Button from "../../components/forms/Button.vue";
 
 const route = useRoute();
 const toast = useToast();
@@ -97,88 +103,33 @@ const cantSave = computed(() => {
 </script>
 
 <template>
-  <div class="px-5 py-5">
-    <h1 class="text-3xl mb-3 text-primary">{{ jsvvAlarm.id ? 'Úprava alarmu' : 'Nový alarm' }}</h1>
-    <div class="content flex flex-col space-y-4">
-
-      <div class="component-box">
-        <div class="flex flex-col gap-4">
-          <div class="flex flex-col gap-2">
-            <div class="text-sm text-base-content">
-              Název
-            </div>
-            <div>
-              <input v-model="jsvvAlarm.name" type="text" placeholder="Zadejte název (min. 3 znaky)" class="input input-bordered w-full"/>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div class="flex flex-col gap-2">
-              <div class="text-sm text-base-content">
-                Tlačítko
-              </div>
-              <div>
-                <select v-model="jsvvAlarm.button" class="select select-bordered w-full">
-                  <option :value="null">Nepřiřazeno</option>
-                  <option v-for="button of jsvvAlarm.available_buttons" :key="button" :value="button" :selected="jsvvAlarm.button === button">{{ button }}</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="flex flex-col gap-2">
-              <div class="text-sm text-base-content">
-                Mobilní tlačítko
-              </div>
-              <div>
-                <select v-model="jsvvAlarm.mobile_button" class="select select-bordered w-full">
-                  <option :value="null">Nepřiřazeno</option>
-                  <option v-for="mobile_button of jsvvAlarm.available_mobile_buttons" :key="mobile_button" :value="mobile_button" :selected="jsvvAlarm.mobile_button === mobile_button">{{ mobile_button }}</option>
-                </select>
-              </div>
-            </div>
-
-          </div>
-
-          <div class="flex flex-col gap-2">
-            <div class="flex justify-between text-sm text-base-content">
-              <div :class="{'text-error': errorBag?.sequence}">
-                Sekvence JSVV (pořadí dle výběru):
-                <span v-if="selectedSequenceItems.length > 0" class="font-bold">{{ selectedSequenceItems.map(item => item.symbol).join('') }}</span>
-              </div>
-              <router-link :to="{ name: 'JSVVSettings' }">
-                <div class="text-xxs text-primary"><span class="mdi mdi-cog mr-1"/>Nastavení zvuků JSVV</div>
-              </router-link>
-
-            </div>
-            <div class="join lg:join-horizontal w-full">
-              <VueMultiselect v-model="selectedSequenceItems" :options="audioGroupOptions" label="name" trackBy="symbol" :multiple="true"
-                              group-values="audios" group-label="group_label" :group-select="false"
-                              :close-on-select="false"
-                              placeholder="Vyhledat skupinu" tagPlaceholder="" noOptions="Seznam je prázdný"
-                              selectedLabel="Vybráno" selectLabel="Klikněte pro přidání" deselectLabel="Klikněte pro odebrání">
-                <template #noResult>
-                  <span>Zadaným parametrům neodpovídá žádná skupina</span>
-                </template>
-              </VueMultiselect>
-            </div>
-            <div>
-              <span v-if="errorBag?.sequence" class="label-text-alt text-red-500"><span class="mdi mdi-alert-circle-outline mr-1"></span>{{ errorBag.sequence }}</span>
-            </div>
-          </div>
-
-          <div class="lg:col-span-2 flex items-center justify-end space-x-5">
-            <router-link :to="{ name: 'JSVV' }">
-              <button class="underline">Zrušit</button>
-            </router-link>
-            <button @click="saveJsvvAlarm" class="btn btn-sm btn-primary" :disabled="cantSave">Uložit</button>
-          </div>
-        </div>
+  <PageContent :label="jsvvAlarm.id ? 'Úprava alarmu' : 'Nový alarm'" back-route="JSVV">
+    <Box label="Nastavení alarmu">
+      <Input v-model="jsvvAlarm.name" label="Název" placeholder="Zadejte název (min. 3 znaky)"/>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Select v-model="jsvvAlarm.button" label="Tlačítko" :options="jsvvAlarm.available_buttons"/>
+        <Select v-model="jsvvAlarm.mobile_button" label="Mobilní tlačítko" :options="jsvvAlarm.available_mobile_buttons"/>
       </div>
 
-    </div>
-  </div>
+      <CustomFormControl :label="'Sekvence JSVV (pořadí dle výběru):' + (selectedSequenceItems.length > 0 ? ' <span class=&quot;font-bold&quot;>'+ selectedSequenceItems.map(item => item.symbol).join('')+'</span>' : '')" :error="errorBag?.sequence">
+        <VueMultiselect v-model="selectedSequenceItems" :options="audioGroupOptions" label="name" trackBy="symbol" :multiple="true"
+                        group-values="audios" group-label="group_label" :group-select="false"
+                        :close-on-select="false"
+                        placeholder="Vyhledat skupinu" tagPlaceholder="" noOptions="Seznam je prázdný"
+                        selectedLabel="Vybráno" selectLabel="Klikněte pro přidání" deselectLabel="Klikněte pro odebrání">
+          <template #noResult>
+            <span>Zadaným parametrům neodpovídá žádná skupina</span>
+          </template>
+        </VueMultiselect>
+      </CustomFormControl>
+
+      <div class="flex items-center justify-end space-x-2">
+        <Button route-to="JSVV" data-class="btn-ghost" label="Zrušit" size="sm"/>
+        <Button icon="mdi-content-save" label="Uložit" size="sm" @click="saveJsvvAlarm" :disabled="cantSave"/>
+      </div>
+    </Box>
+  </PageContent>
 </template>
 
 <style scoped>
-
 </style>

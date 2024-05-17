@@ -1,6 +1,9 @@
 <script setup>
 import {computed, ref} from 'vue'
 import {Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot,} from '@headlessui/vue'
+import Button from "../forms/Button.vue";
+import Input from "../forms/Input.vue";
+import Select from "../forms/Select.vue";
 
 const isOpen = ref(true)
 const props = defineProps(['title', 'message', 'uploadedFile']);
@@ -11,7 +14,7 @@ const recordName = ref('Nahrávka ' + new Date().toLocaleString('cs-CZ'));
 if (props.uploadedFile?.name) {
   recordName.value = props.uploadedFile.name;
 }
-const canSave = computed(() => recordName.value.length < 3);
+const cantSave = computed(() => recordName.value.length < 3);
 
 const closeModalWith = (value) => {
   isOpen.value = false;
@@ -55,38 +58,21 @@ const closeModalWith = (value) => {
                 Uložit nahrávku
               </DialogTitle>
 
-              <div class="flex flex-col gap-3">
-
-                <div class="flex flex-col gap-2">
-                  <div class="text-sm text-base-content">
-                    Zadejte název pod kterým bude nahrávka uložena
-                  </div>
-                  <div>
-                    <input ref="recordNameInput" v-model="recordName" type="text" placeholder="Zadejte název nahrávky" class="input input-sm w-full"/>
-                  </div>
-                </div>
-
-                <div class="flex flex-col gap-2">
-                  <div class="text-sm text-base-content">
-                    Zvolte typ nahrávky
-                  </div>
-                  <div>
-                    <select ref="recordSubtypeSelect" v-model="recordSubtype" class="select select-sm w-full">
-                      <option value="COMMON" selected>Běžné hlášení</option>
-                      <option value="OPENING">Úvodní slovo</option>
-                      <option value="CLOSING">Závěrečné slovo</option>
-                      <option value="INTRO">Úvodní znělka</option>
-                      <option value="OUTRO">Závěrečná znělka</option>
-                      <option value="OTHER">Ostatní</option>
-                    </select>
-                  </div>
-                </div>
-
+              <div class="flex flex-col">
+                <Input v-model="recordName" type="text" placeholder="Zadejte název nahrávky" label="Název nahrávky" size="sm"/>
+                <Select v-model="recordSubtype" :options="[
+                  {value: 'COMMON', label: 'Běžné hlášení'},
+                  {value: 'OPENING', label: 'Úvodní slovo'},
+                  {value: 'CLOSING', label: 'Závěrečné slovo'},
+                  {value: 'INTRO', label: 'Úvodní znělka'},
+                  {value: 'OUTRO', label: 'Závěrečná znělka'},
+                  {value: 'OTHER', label: 'Ostatní'},
+                ]" label="Typ nahrávky" size="sm"/>
               </div>
 
-              <div class="flex items-center justify-end space-x-5">
-                <button class="underline" @click="closeModalWith('cancel')">Zrušit</button>
-                <button class="btn btn-sm btn-primary" @click="closeModalWith('confirm')" :disabled="canSave">Potvrdit</button>
+              <div class="flex items-center justify-end space-x-2">
+                <Button data-class="btn-ghost" label="Zrušit" size="sm" @click="closeModalWith('cancel')"/>
+                <Button icon="mdi-content-save" label="Uložit" size="sm" @click="closeModalWith('confirm')" :disabled="cantSave"/>
               </div>
             </DialogPanel>
           </TransitionChild>

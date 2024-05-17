@@ -2,10 +2,14 @@
 
 import {computed, onMounted, ref} from "vue";
 import SettingsService from "../../services/SettingsService.js";
-import {useDisableAutocomplete} from "../../utils/diableAutocompleteTrait.js";
 import {useToast} from "vue-toastification";
+import PageContent from "../../components/custom/PageContent.vue";
+import Box from "../../components/custom/Box.vue";
+import Input from "../../components/forms/Input.vue";
+import Select from "../../components/forms/Select.vue";
+import Button from "../../components/forms/Button.vue";
+import {disableAutoComplete} from "../../utils/diableAutocompleteTrait.js";
 
-useDisableAutocomplete();
 const toast = useToast();
 
 const smtpSettings = ref({
@@ -20,6 +24,7 @@ const smtpSettings = ref({
 
 onMounted(() => {
   fetchSmtpSettings();
+  disableAutoComplete();
 });
 
 function fetchSmtpSettings() {
@@ -68,79 +73,22 @@ const cantSave = computed(() => {
 </script>
 
 <template>
-  <div class="px-5 py-5">
-    <h1 class="text-3xl mb-3 text-primary">Nastavení SMTP komunikace</h1>
-    <div class="content flex flex-col space-y-4">
-      <div class="component-box">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between">
-          <div class="text-xl text-primary mb-4 mt-3 px-1">
-            Nastavení poštovního serveru
-          </div>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-          <label for="smtp-host" class="label">
-            <span class="label-text">Adresa SMTP serveru:</span>
-          </label>
-          <div class="form-control w-full">
-            <input id="smtp-host" v-model="smtpSettings.host" type="text" placeholder="Např.: smtp.seznam.cz" class="input input-bordered w-full"/>
-          </div>
+  <PageContent label="Nastavení SMTP komunikace">
+    <Box label="Nastavení poštovního serveru">
+      <Input v-model="smtpSettings.host" label="Adresa SMTP serveru:" placeholder="Např.: smtp.seznam.cz"/>
+      <Input v-model="smtpSettings.port" type="number" label="Port SMTP serveru:" placeholder="Např.: 465"/>
+      <Select v-model="smtpSettings.encryption" label="Typ připojení:" :options="['TCP', 'SSL', 'TLS']"/>
+      <Input v-model="smtpSettings.username" label="Uživatelské jméno:" placeholder="Např.: jan.novak" autocomplete-off/>
+      <Input v-model="smtpSettings.password" type="password" label="Heslo:" placeholder="Např.: 1234567890" autocomplete-off/>
+      <Input v-model="smtpSettings.from_address" label="E-mailová adresa odesílatele:" placeholder="Např.: jan.novak@seznam.cz"/>
+      <Input v-model="smtpSettings.from_name" label="Jméno odesílatele:" placeholder="Např.: Jan Novák"/>
 
-          <label for="smtp-port" class="label">
-            <span class="label-text">Port SMTP serveru:</span>
-          </label>
-          <div class="form-control w-full">
-            <input id="smtp-port" v-model="smtpSettings.port" type="number" placeholder="Např.: 465" class="input input-bordered w-full"/>
-          </div>
-
-          <label for="smtp-encryption" class="label">
-            <span class="label-text">Typ připojení:</span>
-          </label>
-          <div class="form-control w-full">
-            <select id="smtp-encryption" v-model="smtpSettings.encryption" class="select select-bordered w-full">
-              <option value="TCP">TCP</option>
-              <option value="SSL">SSL</option>
-              <option value="TLS">TLS</option>
-            </select>
-          </div>
-
-          <label for="smtp-username" class="label">
-            <span class="label-text">Uživatelské jméno:</span>
-          </label>
-          <div class="form-control w-full">
-            <input id="smtp-username" v-model="smtpSettings.username" type="text" placeholder="Např.: jan.novak" class="input input-bordered w-full" autocomplete="off"/>
-          </div>
-
-          <label for="smtp-password" class="label">
-            <span class="label-text">Heslo:</span>
-          </label>
-          <div class="form-control w-full">
-            <input id="smtp-password" v-model="smtpSettings.password" type="password" placeholder="Např.: 1234567890" class="input input-bordered w-full" autocomplete="off"/>
-          </div>
-
-          <label for="smtp-from_address" class="label">
-            <span class="label-text">E-mailová adresa odesílatele:</span>
-          </label>
-          <div class="form-control w-full">
-            <input id="smtp-from_address" v-model="smtpSettings.from_address" type="email" placeholder="Např.: jan.novak@seznam.cz" class="input input-bordered w-full"/>
-          </div>
-
-          <label for="smtp-from_name" class="label">
-            <span class="label-text">Jméno odesílatele:</span>
-          </label>
-          <div class="form-control w-full">
-            <input id="smtp-from_name" v-model="smtpSettings.from_name" type="text" placeholder="Např.: Jan Novák" class="input input-bordered w-full"/>
-          </div>
-
-          <div class="col-span-1 md:col-span-2 mt-4 flex justify-end">
-            <button class="btn btn-primary" @click="saveSmtpSettings" :disabled="cantSave">Uložit</button>
-          </div>
-
-        </div>
+      <div class="flex justify-end">
+        <Button icon="mdi-content-save" label="Uložit" size="sm" @click="saveSmtpSettings" :disabled="cantSave"/>
       </div>
-    </div>
-  </div>
+    </Box>
+  </PageContent>
 </template>
 
 <style scoped>
-
 </style>

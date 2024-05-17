@@ -3,6 +3,7 @@
 import {onMounted, reactive, ref, watch} from "vue";
 import {Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot} from "@headlessui/vue";
 import {durationToTime} from "../../helper.js";
+import Button from "../forms/Button.vue";
 
 const props = defineProps(['typeFilter', 'multiple']);
 
@@ -246,9 +247,9 @@ const closeModalWith = (value) => {
                     </div>
                   </div>
                 </div>
-                <div class="flex space-x-5">
-                  <button class="underline" @click="closeModalWith('cancel')">Zrušit</button>
-                  <button class="btn btn-sm btn-primary" @click="closeModalWith('confirm')">Potvrdit</button>
+                <div class="flex items-center space-x-2">
+                  <Button data-class="btn-ghost" label="Zrušit" size="sm" @click="closeModalWith('cancel')"/>
+                  <Button icon="mdi-check-bold" label="Potvrdit" size="sm" @click="closeModalWith('confirm')" :disabled="selectedRecordings.length === 0"/>
                 </div>
               </div>
             </DialogPanel>
@@ -260,5 +261,4 @@ const closeModalWith = (value) => {
 </template>
 
 <style scoped>
-
 </style>

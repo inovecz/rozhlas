@@ -39,6 +39,11 @@ class Location extends Model
         return $this->name;
     }
 
+    public function getLocationGroupId(): ?int
+    {
+        return $this->location_group_id;
+    }
+
     public function getType(): LocationTypeEnum
     {
         return $this->type;
@@ -68,6 +73,7 @@ class Location extends Model
     {
         return [
             'id' => $this->id,
+            'location_group_id' => $this->getLocationGroupId(),
             'location_group' => $this->locationGroup?->getToArray('select'),
             'name' => $this->getName(),
             'type' => $this->getType()->value,

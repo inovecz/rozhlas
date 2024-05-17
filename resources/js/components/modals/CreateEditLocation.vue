@@ -1,12 +1,24 @@
 <script setup>
 import {computed, ref} from 'vue'
 import {Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot,} from '@headlessui/vue'
+import Button from "../forms/Button.vue";
+import Input from "../forms/Input.vue";
+import Select from "../forms/Select.vue";
 
+const errorBag = ref({});
 const isOpen = ref(true)
 const props = defineProps(['locationGroups', 'location']);
 const emit = defineEmits(['confirm', 'cancel']);
 
-const canSave = computed(() => props.location.name.length < 3);
+const cantSave = computed(() => {
+  errorBag.value = {};
+  let retVal = false;
+  if (props.location.name.length < 3) {
+    errorBag.value.name = 'Název musí mít alespoň 3 znaky';
+    retVal = true;
+  }
+  return retVal;
+});
 
 const closeModalWith = (value) => {
   isOpen.value = false;
@@ -50,46 +62,16 @@ const closeModalWith = (value) => {
                 {{ props.location.id ? 'Úprava místa' : 'Nové místo' }}
               </DialogTitle>
 
-              <div class="flex flex-col gap-3">
-
-                <div class="flex flex-col gap-2">
-                  <div class="text-sm text-base-content">
-                    Zadejte název pod kterým bude místo uloženo
-                  </div>
-                  <div>
-                    <input v-model="props.location.name" type="text" placeholder="Zadejte název místa" class="input input-sm w-full"/>
-                  </div>
-                </div>
-
-                <div class="flex flex-col gap-2">
-                  <div class="text-sm text-base-content">
-                    Zvolte typ místa
-                  </div>
-                  <div>
-                    <select v-model="props.location.type" class="select select-sm w-full">
-                      <option value="CENTRAL" :selected="props.location.type === 'CENTRAL'">Centrála</option>
-                      <option value="NEST" :selected="props.location.type === 'NEST'">Hnízdo</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div class="flex flex-col gap-2">
-                  <div class="text-sm text-base-content">
-                    Zvolte lokaci
-                  </div>
-                  <div>
-                    <select v-model="props.location.location_group" class="select select-sm w-full">
-                      <option :value="null" :selected="props.location.locationGroup === null">Nepřiřazeno</option>
-                      <option v-if="props.locationGroups" v-for="locationGroup of props.locationGroups" :value="locationGroup" :selected="props.location.location_group?.id === locationGroup.id">{{ locationGroup.name }}</option>
-                    </select>
-                  </div>
-                </div>
-
+              <div class="flex flex-col">
+                <Input v-model="props.location.name" label="Název místa" placeholder="Zadejte název místa (alespoň 3 znaky" size="sm" :error="errorBag?.name"/>
+                <Select v-model="props.location.type" label="Zvolte typ místa" :options="[{value: 'CENTRAL', label: 'Centrála'}, {value: 'NEST', label: 'Hnízdo'}]" size="sm"/>
+                <Select v-model="props.location.location_group_id" label="Zvolte lokaci" option-label="name" option-key="id" :options="props.locationGroups" size="sm"/>
               </div>
 
-              <div class="flex items-center justify-end space-x-5">
-                <button class="underline" @click="closeModalWith('cancel')">Zrušit</button>
-                <button class="btn btn-sm btn-primary" @click="closeModalWith('confirm')" :disabled="canSave">Potvrdit</button>
+              <div class="flex items-center justify-end space-x-2">
+                <Button data-class="btn-ghost" label="Zrušit" size="sm" @click="closeModalWith('cancel')"/>
+                <Button v-if="props.location.id" icon="mdi-content-save" label="Uložit" size="sm" @click="closeModalWith('confirm')" :disabled="cantSave"/>
+                <Button v-else icon="mdi-map-marker-plus" label="Nastavit pozici" size="sm" @click="closeModalWith('confirm')" :disabled="cantSave"/>
               </div>
             </DialogPanel>
           </TransitionChild>

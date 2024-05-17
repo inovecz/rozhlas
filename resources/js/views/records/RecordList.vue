@@ -6,6 +6,10 @@ import {createConfirmDialog} from "vuejs-confirm-dialog";
 import ModalDialog from "../../components/modals/ModalDialog.vue";
 import {useToast} from "vue-toastification";
 import {useDataTables} from "../../utils/datatablesTrait.js";
+import Box from "../../components/custom/Box.vue";
+import Select from "../../components/forms/Select.vue";
+import Input from "../../components/forms/Input.vue";
+import Button from "../../components/forms/Button.vue";
 
 const records = ref([]);
 const playingId = ref(null);
@@ -13,7 +17,7 @@ const recordsCache = [];
 const typeFilter = reactive({value: 'ALL'})
 const toast = useToast();
 
-const {fetchRecords, orderAsc, orderBy, orderColumn, pageLength, search} = useDataTables(fetchRecordings, 'created_at', 5);
+const {fetchRecords, orderAsc, orderBy, orderColumn, pageLength, search} = useDataTables(fetchRecordings, 'created_at', 5, false);
 
 onMounted(() => {
   fetchRecords();
@@ -111,9 +115,7 @@ function renameRecord(id) {
   const {reveal, onConfirm, onCancel} = createConfirmDialog(ModalDialog, {
     title: 'Přejmenování nahrávky',
     message: 'Zadejte nový název nahrávky:',
-    useInput: [
-      {label: '', default: records.value.data.filter(record => record.id === id)[0].name, placeholder: 'Název nahrávky'},
-    ],
+    useInput: records.value.data.filter(record => record.id === id)[0].name,
   });
   reveal();
   onConfirm((newName) => {
@@ -133,35 +135,20 @@ emitter.on('recordSaved', () => {
 </script>
 
 <template>
-  <div class="component-box">
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between">
-      <div class="text-xl text-primary mb-4 mt-3 px-1">
-        Seznam nahrávek
-      </div>
-      <div class="flex gap-4">
-        <div class="flex gap-2 items-center">
-          <span>Typ:</span>
-          <select v-model="typeFilter.value" class="select select-bordered select-sm">
-            <option value="ALL" selected>Vše</option>
-            <option value="COMMON">Běžné hlášení</option>
-            <option value="OPENING">Úvodní slovo</option>
-            <option value="CLOSING">Závěrečné slovo</option>
-            <option value="INTRO">Úvodní znělka</option>
-            <option value="OUTRO">Závěrečná znělka</option>
-            <option value="OTHER">Ostatní</option>
-          </select>
-        </div>
-        <label class="input input-bordered input-sm flex items-center gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="w-4 h-4 opacity-70">
-            <path fill-rule="evenodd" d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z" clip-rule="evenodd"/>
-          </svg>
-          <input v-model="search.value" type="text" class="grow" placeholder="Hledat"/>
-          <svg @click="() => {search.value = null}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-4 h-4 opacity-70 cursor-pointer">
-            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"></path>
-          </svg>
-        </label>
-      </div>
-    </div>
+  <Box label="Seznam nahrávek">
+    <template #header>
+      <Select v-model="typeFilter.value" :options="[
+        {value: 'ALL', label: 'Vše'},
+        {value: 'COMMON', label: 'Běžné hlášení'},
+        {value: 'OPENING', label: 'Úvodní slovo'},
+        {value: 'CLOSING', label: 'Závěrečné slovo'},
+        {value: 'INTRO', label: 'Úvodní znělka'},
+        {value: 'OUTRO', label: 'Závěrečná znělka'},
+        {value: 'OTHER', label: 'Ostatní'},
+      ]" data-class="select-bordered select-sm"/>
+      <Input v-model="search.value" icon="mdi-magnify" :eraseable="true" placeholder="Hledat" data-class="input-bordered input-sm"/>
+    </template>
+
     <div class="overflow-x-auto">
       <table class="table">
         <!-- head -->
@@ -170,45 +157,45 @@ emitter.on('recordSaved', () => {
             <th @click="orderBy('name')">
               <div class="flex items-center cursor-pointer">
                 Název
-                <span v-if="orderColumn === 'name'">
-                  <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
-                  <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
+                <span v-if="orderColumn.value === 'name'">
+                  <span v-if="orderAsc.value" class="mdi mdi-triangle-small-up text-lg"></span>
+                  <span v-if="!orderAsc.value" class="mdi mdi-triangle-small-down text-lg"></span>
                 </span>
               </div>
             </th>
             <th @click="orderBy('subtype')">
               <div class="flex items-center cursor-pointer">
                 Typ
-                <span v-if="orderColumn === 'subtype'">
-                  <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
-                  <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
+                <span v-if="orderColumn.value === 'subtype'">
+                  <span v-if="orderAsc.value" class="mdi mdi-triangle-small-up text-lg"></span>
+                  <span v-if="!orderAsc.value" class="mdi mdi-triangle-small-down text-lg"></span>
                 </span>
               </div>
             </th>
             <th @click="orderBy('created_at')">
               <div class="flex items-center cursor-pointer">
                 Nahráno
-                <span v-if="orderColumn === 'created_at'">
-                  <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
-                  <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
+                <span v-if="orderColumn.value === 'created_at'">
+                  <span v-if="orderAsc.value" class="mdi mdi-triangle-small-up text-lg"></span>
+                  <span v-if="!orderAsc.value" class="mdi mdi-triangle-small-down text-lg"></span>
                 </span>
               </div>
             </th>
             <th @click="orderBy('size')">
               <div class="flex items-center cursor-pointer">
                 Velikost
-                <span v-if="orderColumn === 'size'">
-                  <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
-                  <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
+                <span v-if="orderColumn.value === 'size'">
+                  <span v-if="orderAsc.value" class="mdi mdi-triangle-small-up text-lg"></span>
+                  <span v-if="!orderAsc.value" class="mdi mdi-triangle-small-down text-lg"></span>
                 </span>
               </div>
             </th>
             <th @click="orderBy('metadata->duration')">
               <div class="flex items-center cursor-pointer">
                 Délka
-                <span v-if="orderColumn === 'metadata->duration'">
-                  <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
-                  <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
+                <span v-if="orderColumn.value === 'metadata->duration'">
+                  <span v-if="orderAsc.value" class="mdi mdi-triangle-small-up text-lg"></span>
+                  <span v-if="!orderAsc.value" class="mdi mdi-triangle-small-down text-lg"></span>
                 </span>
               </div>
             </th>
@@ -266,7 +253,8 @@ emitter.on('recordSaved', () => {
         </div>
       </div>
     </div>
-  </div>
+
+  </Box>
 </template>
 
 <style scoped>

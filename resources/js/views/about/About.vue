@@ -1,4 +1,7 @@
 <script setup>
+import PageContent from "../../components/custom/PageContent.vue";
+import Box from "../../components/custom/Box.vue";
+
 const centralData = {
   version: '1.4.5',
   hardwareVersion: 2,
@@ -10,50 +13,53 @@ const centralData = {
 </script>
 
 <template>
-  <div class="px-5 py-5">
-    <h1 class="text-3xl mb-3">O aplikaci</h1>
+  <PageContent label="O aplikaci">
     <p>
       Aplikace slouží k ovládání a nastavení rozhlasové ústředny Sarah IV.
     </p>
-    <h3 class="text-xl my-3 font-bold">Informace o ústředně:</h3>
-    <table class="table">
-      <tr>
-        <td>Verze programu:</td>
-        <td>{{ centralData.version }}</td>
-      </tr>
-      <tr>
-        <td>Verze hardware:</td>
-        <td>{{ centralData.hardwareVersion }}</td>
-      </tr>
-      <tr>
-        <td>Verze webserveru:</td>
-        <td>{{ centralData.webServerVersion }}</td>
-      </tr>
-      <tr>
-        <td>Verze webaplikace:</td>
-        <td>{{ centralData.webAppVersion }}</td>
-      </tr>
-      <tr>
-        <td>Sériové číslo:</td>
-        <td>{{ centralData.serialNumber }}</td>
-      </tr>
-      <tr>
-        <td>U-číslo:</td>
-        <td>{{ centralData.uNumber }}</td>
-      </tr>
-    </table>
-    <h3 class="text-xl my-3 font-bold">Kontaktní údaje:</h3>
-    <a href="www.rozhlasybartek.cz" target="_blank" class="block text-primary cursor-pointer hover:underline">Bártek Rozhlasy s.r.o.</a>
-    <p class="mt-2">
-      <span class="font-bold">Provozovna č.1, korespondenční adresa</span><br/>
-      Podlesí 12<br/>
-      757 01 Valašské Meziříčí Česká republika
-    </p>
-    <p class="mt-2">
-      <span class="font-bold">Sídlo společnosti, fakturační adresa</span><br/>
-      Vyšehradská, 1349/2<br/>
-      Nové město<br/>
-      128 00 Praha 2 Česká republika
-    </p>
-  </div>
+
+    <Box label="Informace o ústředně">
+      <table class="table">
+        <tr>
+          <td>Verze programu:</td>
+          <td>{{ centralData.version }}</td>
+        </tr>
+        <tr>
+          <td>Verze hardware:</td>
+          <td>{{ centralData.hardwareVersion }}</td>
+        </tr>
+        <tr>
+          <td>Verze webserveru:</td>
+          <td>{{ centralData.webServerVersion }}</td>
+        </tr>
+        <tr>
+          <td>Verze webaplikace:</td>
+          <td>{{ centralData.webAppVersion }}</td>
+        </tr>
+        <tr>
+          <td>Sériové číslo:</td>
+          <td>{{ centralData.serialNumber }}</td>
+        </tr>
+        <tr>
+          <td>U-číslo:</td>
+          <td>{{ centralData.uNumber }}</td>
+        </tr>
+      </table>
+    </Box>
+
+    <Box label="Kontaktní údaje">
+      <a href="https://www.rozhlasybartek.cz" target="_blank" class="block text-primary cursor-pointer hover:underline">Bártek Rozhlasy s.r.o.</a>
+      <p class="mt-2">
+        <span class="font-bold">Provozovna č.1, korespondenční adresa</span><br/>
+        Podlesí 12<br/>
+        757 01 Valašské Meziříčí Česká republika
+      </p>
+      <p class="mt-2">
+        <span class="font-bold">Sídlo společnosti, fakturační adresa</span><br/>
+        Vyšehradská, 1349/2<br/>
+        Nové město<br/>
+        128 00 Praha 2 Česká republika
+      </p>
+    </Box>
+  </PageContent>
 </template>

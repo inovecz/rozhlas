@@ -1,16 +1,13 @@
 <script setup>
 import UserList from "./UserList.vue";
+import PageContent from "../../components/custom/PageContent.vue";
 </script>
 
 <template>
-  <div class="px-5 py-5">
-    <h1 class="text-3xl mb-3 text-primary">Uživatelé</h1>
-    <div class="content flex flex-col space-y-4">
-      <UserList/>
-    </div>
-  </div>
+  <PageContent label="Uživatelé">
+    <UserList/>
+  </PageContent>
 </template>
 
 <style scoped>
-
 </style>

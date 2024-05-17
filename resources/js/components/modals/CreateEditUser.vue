@@ -1,17 +1,23 @@
 <script setup>
 import {computed, ref} from 'vue'
 import {Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot,} from '@headlessui/vue'
+import Button from "../forms/Button.vue";
+import Input from "../forms/Input.vue";
 
+const errorBag = ref({});
 const isOpen = ref(true)
 const props = defineProps(['user']);
 const emit = defineEmits(['confirm', 'cancel']);
 
 const cantSave = computed(() => {
+  errorBag.value = {};
   let retVal = false;
   if (props.user.username.length < 3) {
+    errorBag.value.username = 'Jméno musí mít alespoň 3 znaky';
     retVal = true;
   }
   if (props.user.id === null && (!props.user.password || props.user.password?.length < 5)) {
+    errorBag.value.password = 'Heslo musí mít alespoň 5 znaků';
     retVal = true;
   }
   return retVal;
@@ -59,36 +65,14 @@ const closeModalWith = (value) => {
                 {{ props.user.id ? 'Úprava uživatele' : 'Nový uživatel' }}
               </DialogTitle>
 
-              <div class="flex flex-col gap-3">
-
-                <div class="flex flex-col gap-2">
-                  <div class="text-sm text-base-content">
-                    Uživatelské jméno
-                  </div>
-                  <div>
-                    <input v-model="props.user.username" type="text" placeholder="Zadejte jméno uživatele (min. 3 znaky)" class="input input-sm w-full"/>
-                  </div>
-                </div>
-
-                <div class="flex flex-col gap-2">
-                  <div class="text-sm text-base-content">
-                    Heslo
-                  </div>
-                  <div>
-                    <label class="form-control w-full">
-                      <input v-model="props.user.password" type="text" :placeholder="props.user.id ? 'Změňte heslo uživatele' : 'Zadejte heslo uživatele (min. 5 znaků)'" class="input input-sm w-full"/>
-                      <div class="label">
-                        <span v-if="props.user.id" class="label-text-alt">Vyplnit pouze při změně hesla</span>
-                      </div>
-                    </label>
-                  </div>
-                </div>
-
+              <div class="flex flex-col">
+                <Input v-model="props.user.username" label="Uživatelské jméno" placeholder="Zadejte jméno uživatele" :error="errorBag?.name" size="sm"/>
+                <Input v-model="props.user.password" :label="'Heslo' + (props.user.id ? ' (Vyplnit pouze při změně hesla)' : '')" :placeholder="props.user.id ? 'Změňte heslo uživatele' : 'Zadejte heslo uživatele (min. 5 znaků)'" :error="errorBag?.password" size="sm"/>
               </div>
 
-              <div class="flex items-center justify-end space-x-5">
-                <button class="underline" @click="closeModalWith('cancel')">Zrušit</button>
-                <button class="btn btn-sm btn-primary" @click="closeModalWith('confirm')" :disabled="cantSave">Potvrdit</button>
+              <div class="flex items-center justify-end space-x-2">
+                <Button data-class="btn-ghost" label="Zrušit" size="sm" @click="closeModalWith('cancel')"/>
+                <Button icon="mdi-content-save" label="Uložit" size="sm" @click="closeModalWith('confirm')" :disabled="cantSave"/>
               </div>
             </DialogPanel>
           </TransitionChild>

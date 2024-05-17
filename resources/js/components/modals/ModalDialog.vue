@@ -1,6 +1,8 @@
 <script setup>
 import {ref} from 'vue'
 import {Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot} from '@headlessui/vue'
+import Button from "../forms/Button.vue";
+import Input from "../forms/Input.vue";
 
 const isOpen = ref(true)
 const props = defineProps({
@@ -65,22 +67,13 @@ function openModal() {
                 {{ title }}
               </DialogTitle>
 
-              <div class="flex flex-col gap-3">
-
-                <div class="flex flex-col gap-2">
-                  <div class="text-sm text-base-content">
-                    {{ message }}
-                  </div>
-                  <div v-if="inputValue">
-                    <input ref="modalInput" v-model="inputValue" type="text" placeholder="" class="input input-sm w-full"/>
-                  </div>
-                </div>
-
+              <div class="flex flex-col">
+                <Input v-if="props.useInput" :label="message" v-model="inputValue" size="sm"/>
               </div>
 
-              <div class="flex items-center justify-end space-x-5">
-                <button class="underline" @click="closeModalWith('cancel')">Zrušit</button>
-                <button class="btn btn-sm btn-primary" @click="closeModalWith('confirm')">Potvrdit</button>
+              <div class="flex items-center justify-end space-x-2">
+                <Button data-class="btn-ghost" label="Zrušit" size="sm" @click="closeModalWith('cancel')"/>
+                <Button icon="mdi-check-bold" label="Potvrdit" size="sm" @click="closeModalWith('confirm')"/>
               </div>
             </DialogPanel>
           </TransitionChild>
