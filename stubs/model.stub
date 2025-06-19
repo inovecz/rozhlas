@@ -1,0 +1,48 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ namespace }};
+
+class {{ class }} extends Model
+{
+    // <editor-fold desc="Region: STATE DEFINITION">
+    protected $guarded = ['id', 'created_at', 'updated_at'];
+
+    protected function casts(): array
+    {
+        return [
+            //
+        ];
+    }
+    // </editor-fold desc="Region: STATE DEFINITION">
+
+    // <editor-fold desc="Region: BOOT">
+    protected static function boot()
+    {
+        parent::boot();
+        static::creating(static function ($model) {
+            // $existingAttribute = $model->attribut
+            // saveAttribute = $model->setAttribute('required_objects', $value)
+        });
+    }
+    // </editor-fold desc="Region: BOOT">
+
+    // <editor-fold desc="Region: RELATIONS">
+    // </editor-fold desc="Region: RELATIONS">
+
+    // <editor-fold desc="Region: GETTERS">
+    // </editor-fold desc="Region: GETTERS">
+
+    // <editor-fold desc="Region: COMPUTED GETTERS">
+    // </editor-fold desc="Region: COMPUTED GETTERS">
+
+    // <editor-fold desc="Region: ARRAY GETTERS">
+    // </editor-fold desc="Region: ARRAY GETTERS">
+
+    // <editor-fold desc="Region: FUNCTIONS">
+    // </editor-fold desc="Region: FUNCTIONS">
+
+    // <editor-fold desc="Region: SCOPES">
+    // </editor-fold desc="Region: SCOPES">
+}

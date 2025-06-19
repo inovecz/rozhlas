@@ -1,32 +1,26 @@
+<script setup>
+
+const props = defineProps({
+  to: {
+    type: String,
+    required: true,
+    default: "LiveBroadcast"
+  }
+});
+</script>
+
 <template>
   <router-link
       :to="{ name: to }"
-      class="flex items-center gap-2 px-3 py-2 hover:bg-light-gold transition duration-200 cursor-pointer"
+      class="flex items-center justify-between gap-2 px-3 py-2 hover:bg-primary hover:text-primary-content transition duration-200 cursor-pointer border-b-2 border-b-base-300"
   >
     <slot></slot>
   </router-link>
 </template>
 
-<script>
-export default {
-  props: {
-    to: {
-      required: true,
-      type: String,
-      default: "LiveBroadcast",
-    },
-  },
-  computed: {
-    routeName() {
-      return this.$route.name;
-    },
-  },
-};
-</script>
-
 <style scoped>
 .router-link-active,
 .router-link-exact-active {
-  background: #4c4c54;
+  @apply bg-slate-600;
 }
 </style>

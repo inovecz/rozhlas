@@ -12,8 +12,19 @@ export default {
             fontFamily: {
                 sans: ['Figtree', ...defaultTheme.fontFamily.sans],
             },
+            fontSize: {
+                xxs: ['0.625rem', {lineHeight: '0.75rem'}],
+            }
         },
     },
-    plugins: [],
+    variants: {
+        textOpacity: ['group-disabled'],
+    },
+    plugins: [
+        require("daisyui")
+    ],
+    daisyui: {
+        themes: ["light", "dark", "night"],
+    },
 }
 

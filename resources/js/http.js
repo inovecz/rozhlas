@@ -7,7 +7,7 @@ window.axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
 let baseUrl;
 
 if (window.location.host.includes('rozhlas.lan')) {
-    baseUrl = 'http://rozhlas.lan/api';
+    baseUrl = 'http://rozhlas.lan:8000/api';
 } else {
     baseUrl = 'https://production-url.cz/api';
 }

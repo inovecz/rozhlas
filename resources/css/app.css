@@ -1,3 +1,19 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer components {
+    .component-box {
+        @apply border border-secondary/50 rounded-md px-5 py-3;
+    }
+}
+
+.multiselect.error .multiselect__tags {
+    @apply border-error;
+}
+
+a:not([href*='domain.com']):not([href^='#']):not([href^='/']):after {
+    /* Set the `content` property */
+    content: ' \F03CC';
+    font-family: 'Material Design Icons';
+}

@@ -1,12 +1,65 @@
-<template>
-  <div class="px-5 py-5">
-    <h1 class="text-3xl mb-3">About Page</h1>
-    <p>
-      Lorem ipsum dolor sit, amet consectetur adipisicing elit. Iure nihil nam labore deleniti ratione eius consectetur vel illo nemo reiciendis ullam, incidunt quam doloribus praesentium id, corrupti rem. Ullam dolores, non voluptate quis maxime ducimus temporibus repudiandae nihil quasi? Similique, accusamus eos sunt fugit tempora sit necessitatibus vero placeat corrupti voluptatem pariatur aliquid debitis corporis iusto. Suscipit, sunt! Reprehenderit aut at magnam, corrupti sunt eos! Laboriosam, optio! Reprehenderit atque nisi consectetur assumenda porro, magnam soluta molestias! Quisquam possimus impedit nemo deserunt, neque explicabo recusandae doloremque. Deleniti voluptatem officia fugiat praesentium labore. Laudantium facere sapiente modi magnam incidunt, qui, excepturi ipsam eum at repudiandae perspiciatis fuga necessitatibus, temporibus tempore ea laborum expedita dolore. Beatae optio tenetur asperiores id aliquid delectus maiores consequatur nostrum cum consequuntur necessitatibus velit aspernatur sit natus, vel fugit libero? Aliquam, dignissimos tenetur pariatur beatae et nihil optio quae possimus officiis voluptatum, at odio soluta. Reiciendis reprehenderit doloribus eum amet ut libero laborum, ullam assumenda, mollitia sunt numquam pariatur commodi voluptatibus asperiores hic quis veniam alias corporis nulla corrupti odio officia atque. Quas architecto ad aut minus fuga obcaecati corporis accusantium iure eligendi. Accusantium atque, nulla laborum ab temporibus mollitia aliquid iste accusamus repudiandae provident necessitatibus voluptates, unde fuga voluptate illum vel officia omnis. Laboriosam numquam quasi voluptatum rerum placeat eveniet sint, maxime, amet veritatis nobis quaerat consequuntur ullam! Eaque, vitae dolorem alias veniam tempore mollitia doloribus laudantium maiores omnis, necessitatibus commodi! Similique dolore maxime cum corporis esse eos, corrupti tempore velit maiores quos officia laborum? Ipsa, quidem!
-    </p>
-  </div>
-</template>
-
 <script setup>
+import PageContent from "../../components/custom/PageContent.vue";
+import Box from "../../components/custom/Box.vue";
 
+const centralData = {
+  version: '1.4.5',
+  hardwareVersion: 2,
+  webServerVersion: '1.10.0',
+  webAppVersion: '1.10.2',
+  serialNumber: 'Devel2',
+  uNumber: 'UAADQ 17701'
+}
 </script>
+
+<template>
+  <PageContent label="O aplikaci">
+    <p>
+      Aplikace slouží k ovládání a nastavení rozhlasové ústředny Sarah IV.
+    </p>
+
+    <Box label="Informace o ústředně">
+      <table class="table">
+        <tr>
+          <td>Verze programu:</td>
+          <td>{{ centralData.version }}</td>
+        </tr>
+        <tr>
+          <td>Verze hardware:</td>
+          <td>{{ centralData.hardwareVersion }}</td>
+        </tr>
+        <tr>
+          <td>Verze webserveru:</td>
+          <td>{{ centralData.webServerVersion }}</td>
+        </tr>
+        <tr>
+          <td>Verze webaplikace:</td>
+          <td>{{ centralData.webAppVersion }}</td>
+        </tr>
+        <tr>
+          <td>Sériové číslo:</td>
+          <td>{{ centralData.serialNumber }}</td>
+        </tr>
+        <tr>
+          <td>U-číslo:</td>
+          <td>{{ centralData.uNumber }}</td>
+        </tr>
+      </table>
+    </Box>
+
+    <Box label="Kontaktní údaje">
+      <a href="https://www.rozhlasybartek.cz" target="_blank" class="block text-primary cursor-pointer hover:underline">Bártek Rozhlasy s.r.o.</a>
+      <p class="mt-2">
+        <span class="font-bold">Provozovna č.1, korespondenční adresa</span><br/>
+        Podlesí 12<br/>
+        757 01 Valašské Meziříčí Česká republika
+      </p>
+      <p class="mt-2">
+        <span class="font-bold">Sídlo společnosti, fakturační adresa</span><br/>
+        Vyšehradská, 1349/2<br/>
+        Nové město<br/>
+        128 00 Praha 2 Česká republika
+      </p>
+    </Box>
+  </PageContent>
+</template>
