@@ -44,24 +44,29 @@ export const getPermissions = () => {
     });
 };
 
-export const getAudioInputDevices = () => {
-    return new Promise((resolve, reject) => {
-        navigator.mediaDevices.enumerateDevices().then(devices => {
-            resolve(devices.filter(device => device.kind === 'audioinput').map(({deviceId, label}) => ({id: deviceId, label})));
-        }).catch(err => {
-            reject(err);
-        });
-    });
+export const getAudioInputDevices = async () => {
+    try {
+        // Request mic access before listing devices
+        await navigator.mediaDevices.getUserMedia({audio: true});
+
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        return devices.filter(device => device.kind === "audioinput").map(({deviceId, label}) => ({id: deviceId, label}));
+    } catch (err) {
+        console.error("Error while fetching audio inputs:", err);
+        throw err;
+    }
 }
 
-export const getAudioOutputDevices = () => {
-    return new Promise((resolve, reject) => {
-        navigator.mediaDevices.enumerateDevices().then(devices => {
-            resolve(devices.filter(device => device.kind === 'audiooutput').map(({deviceId, label}) => ({id: deviceId, label})));
-        }).catch(err => {
-            reject(err);
-        });
-    });
+export const getAudioOutputDevices = async () => {
+    try {
+        // Request mic access before listing devices, to ensure labels are available
+        await navigator.mediaDevices.getUserMedia({audio: true});
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        return devices.filter(device => device.kind === "audiooutput").map(({deviceId, label}) => ({id: deviceId, label}));
+    } catch (err) {
+        console.error("Error while fetching audio outputs:", err);
+        throw err;
+    }
 }
 
 export const durationToTime = (duration) => {
