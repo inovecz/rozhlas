@@ -3,6 +3,7 @@
 import {ref} from "vue";
 import PageContent from "../../components/custom/PageContent.vue";
 import Box from "../../components/custom/Box.vue";
+import LiveBroadcastService from "../../services/LiveBroadcastService.js";
 
 const recording = ref(false);
 
@@ -38,6 +39,13 @@ const startRecording = () => {
         },
         function () { }
     );
+
+    LiveBroadcastService.startBroadcast().then(response => {
+
+    }).catch(error => {
+      console.error(error);
+      stopRecording();
+    });
   }
 }
 
@@ -45,6 +53,12 @@ const stopRecording = () => {
   recording.value = false;
   microphone.disconnect();
   aCtx.close();
+
+  LiveBroadcastService.stopBroadcast().then(response => {
+
+  }).catch(error => {
+    console.error(error);
+  });
 }
 
 </script>

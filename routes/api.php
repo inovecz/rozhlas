@@ -11,6 +11,7 @@ use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\JsvvAlarmController;
+use App\Http\Controllers\LiveBroadcastController;
 
 Route::group(['prefix' => 'auth', 'middleware' => ['api', 'auth:api']], static function () {
     Route::post('/login', [AuthController::class, 'login'])->withoutMiddleware(['auth:api']);
@@ -48,6 +49,11 @@ Route::group(['middleware' => ['api']], static function () {
         Route::get('/all', [JsvvAlarmController::class, 'getAll']);
         Route::get('/audios', [JsvvAlarmController::class, 'getAudios']);
         Route::post('/audios', [JsvvAlarmController::class, 'saveAudios']);
+    });
+
+    Route::group(['prefix' => 'live-broadcast'], static function () {
+        Route::get('/start', [LiveBroadcastController::class, 'start']);
+        Route::get('/stop', [LiveBroadcastController::class, 'stop']);
     });
 
     Route::group(['prefix' => 'locations'], static function () {
