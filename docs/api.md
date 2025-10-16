@@ -7,13 +7,13 @@
   {
     "source": "mic|recording|gsm|radio|jsvv",
     "route": [1, 2, 3],
-    "zones": [22],
+    "locations": [1,2],
     "options": {}
   }
   ```
 - `POST /api/live-broadcast/stop` – stop active stream (`{"reason":"..."}` optional).
 - `GET /api/live-broadcast/status` – returns current session, Modbus status, device info.
-- `POST /api/live-broadcast/playlist` – enqueue recordings (`recordings` array with ids, duration, gain, gap), plus `route`, `zones`, `options`.
+- `POST /api/live-broadcast/playlist` – enqueue recordings (`recordings` array with ids, duration, gain, gap), plus `route`, `locations`, `options`.
 - `POST /api/live-broadcast/playlist/{id}/cancel` – cancel playlist.
 - `GET /api/live-broadcast/sources` – list available audio sources.
 

@@ -18,14 +18,14 @@ onMounted(() => {
 
 function fetchFMSettings() {
   SettingsService.fetchFMSettings().then(response => {
-    fmSettings.value = response;
+    fmSettings.value.frequency = response.frequency ?? '';
   }).catch(error => {
     console.error(error);
   });
 }
 
 function saveFMSettings() {
-  SettingsService.saveFMSettings(fmSettings.value).then(() => {
+  SettingsService.saveFMSettings({frequency: fmSettings.value.frequency}).then(() => {
     toast.success('Nastavení FM rádia bylo úspěšně uloženo');
   }).catch(error => {
     console.error(error);

@@ -25,6 +25,8 @@ class LiveBroadcastApiController extends Controller
             'route.*' => ['integer'],
             'zones' => ['sometimes', 'array'],
             'zones.*' => ['integer'],
+            'locations' => ['sometimes', 'array'],
+            'locations.*' => ['integer'],
             'options' => ['sometimes', 'array'],
         ]);
 
@@ -33,6 +35,9 @@ class LiveBroadcastApiController extends Controller
         }
 
         $payload = $validator->validated();
+        $locations = Arr::get($payload, 'locations', Arr::get($payload, 'zones', []));
+        $payload['locations'] = $locations;
+        $payload['zones'] = $locations;
         $session = $this->orchestrator->start($payload);
 
         return response()->json(['session' => $session]);
@@ -48,7 +53,7 @@ class LiveBroadcastApiController extends Controller
 
     public function status(): JsonResponse
     {
-        return response()->json($this->orchestrator->getStatus());
+        return response()->json($this->orchestrator->getStatusDetails());
     }
 
     public function playlist(Request $request): JsonResponse
@@ -63,6 +68,8 @@ class LiveBroadcastApiController extends Controller
             'route.*' => ['integer'],
             'zones' => ['sometimes', 'array'],
             'zones.*' => ['integer'],
+            'locations' => ['sometimes', 'array'],
+            'locations.*' => ['integer'],
             'options' => ['sometimes', 'array'],
         ]);
 
@@ -71,10 +78,11 @@ class LiveBroadcastApiController extends Controller
         }
 
         $payload = $validator->validated();
+        $locations = Arr::get($payload, 'locations', Arr::get($payload, 'zones', []));
         $playlist = $this->orchestrator->enqueuePlaylist(
             Arr::get($payload, 'recordings'),
             Arr::get($payload, 'route', []),
-            Arr::get($payload, 'zones', []),
+            $locations,
             Arr::get($payload, 'options', []),
         );
 

@@ -10,6 +10,7 @@ use App\Models\BroadcastPlaylist;
 use App\Models\BroadcastPlaylistItem;
 use App\Models\BroadcastSession;
 use App\Models\StreamTelemetryEntry;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
@@ -29,15 +30,15 @@ class StreamOrchestrator extends Service
         }
 
         $route = Arr::get($payload, 'route', []);
-        $zones = Arr::get($payload, 'zones', []);
+        $locations = Arr::get($payload, 'locations', Arr::get($payload, 'zones', []));
         $options = Arr::get($payload, 'options', []);
 
-        $response = $this->client->startStream(route: $route, zones: $zones);
+        $response = $this->client->startStream(route: $route, zones: $locations);
 
         $session = BroadcastSession::create([
             'source' => Arr::get($payload, 'source', 'unknown'),
             'route' => $route,
-            'zones' => $zones,
+            'zones' => $locations,
             'options' => $options,
             'status' => 'running',
             'started_at' => now(),
@@ -85,42 +86,42 @@ class StreamOrchestrator extends Service
         return $session->fresh()->toArray();
     }
 
-    public function getStatus(): array
+    public function getStatusDetails(): array
     {
         $session = BroadcastSession::query()->latest('created_at')->first();
         $status = $this->client->getStatusRegisters();
         $device = $this->client->getDeviceInfo();
 
-        return [
+        $details = [
             'session' => $session?->toArray(),
             'status' => $status,
             'device' => $device,
         ];
+
+        if (isset($details['session']['zones'])) {
+            $details['session']['locations'] = $details['session']['zones'];
+        }
+
+        return $details;
     }
 
     public function listSources(): array
     {
-        $sources = [
-            ['id' => 'mic', 'label' => 'Live Microphone'],
-            ['id' => 'recording', 'label' => 'Recorded Playlist'],
-            ['id' => 'gsm', 'label' => 'GSM Module'],
-            ['id' => 'radio', 'label' => 'FM Radio'],
-            ['id' => 'jsvv', 'label' => 'JSVV Automation'],
+        return [
+            ['id' => 'microphone', 'label' => 'Mikrofon'],
+            ['id' => 'system_audio', 'label' => 'Soubor z počítače'],
+            ['id' => 'fm_radio', 'label' => 'FM rádio'],
+            ['id' => 'recorded_playlist', 'label' => 'Seznam nahrávek'],
+            ['id' => 'uploaded_file', 'label' => 'Nahraný soubor'],
         ];
-
-        if (config('broadcast.alza_mixer')) {
-            $sources[] = ['id' => 'mixer', 'label' => 'Alza Mixer Bridge'];
-        }
-
-        return $sources;
     }
 
-    public function enqueuePlaylist(array $items, array $route, array $zones, array $options = []): array
+    public function enqueuePlaylist(array $items, array $route, array $locations, array $options = []): array
     {
-        return DB::transaction(function () use ($items, $route, $zones, $options): array {
+        return DB::transaction(function () use ($items, $route, $locations, $options): array {
             $playlist = BroadcastPlaylist::create([
                 'route' => $route,
-                'zones' => $zones,
+                'zones' => $locations,
                 'options' => $options,
                 'status' => 'queued',
             ]);
@@ -202,5 +203,10 @@ class StreamOrchestrator extends Service
             ->limit(500)
             ->get()
             ->toArray();
+    }
+
+    public function getResponse(): JsonResponse
+    {
+        return response()->json($this->getStatusDetails());
     }
 }

@@ -2,6 +2,7 @@
 
 import {onMounted, ref} from "vue";
 import JsvvAlarmService from "../../services/JsvvAlarmService.js";
+import JsvvSequenceService from "../../services/JsvvSequenceService.js";
 import {createConfirmDialog} from "vuejs-confirm-dialog";
 import ModalDialog from "../../components/modals/ModalDialog.vue";
 import {useToast} from "vue-toastification";
@@ -30,16 +31,62 @@ function editJsvvAlarm(id) {
   router.push({name: 'EditJSVV', params: {id}});
 }
 
+function buildSequenceItems(alarm) {
+  const rawSequence = alarm.sequence_json || alarm.sequence;
+  if (Array.isArray(rawSequence)) {
+    return rawSequence.map(item => ({
+      slot: Number(item.slot ?? item),
+      category: item.category ?? 'siren',
+      voice: item.voice ?? undefined,
+      repeat: item.repeat ?? 1,
+    }));
+  }
+  if (typeof rawSequence === 'string') {
+    try {
+      const parsed = JSON.parse(rawSequence);
+      if (Array.isArray(parsed)) {
+        return parsed.map(item => ({
+          slot: Number(item.slot ?? item),
+          category: item.category ?? 'siren',
+          voice: item.voice ?? undefined,
+          repeat: item.repeat ?? 1,
+        }));
+      }
+    } catch (e) {
+      // fallback below
+    }
+  }
+  return [{
+    slot: Number(alarm.slot ?? alarm.id ?? 1),
+    category: 'siren',
+    repeat: 1,
+  }];
+}
+
 function sendAlarm(id) {
   const foundJsvvAlarm = jsvvAlarms.value.find(jsvvAlarm => jsvvAlarm.id === id);
-  const {reveal, onConfirm, onCancel} = createConfirmDialog(ModalDialog, {
+  const {reveal, onConfirm} = createConfirmDialog(ModalDialog, {
     title: foundJsvvAlarm.name,
     message: 'Alarm bude odeslán do ústředny.'
   });
   reveal();
-  onConfirm(() => {
-    // Odeslani alarmu
-    toast.success('Alarm byl odeslán do ústředny.')
+  onConfirm(async () => {
+    try {
+      const items = buildSequenceItems(foundJsvvAlarm);
+      const sequence = await JsvvSequenceService.planSequence(items, {
+        priority: foundJsvvAlarm.priority ?? 'P2',
+        zones: foundJsvvAlarm.zones ?? [],
+      });
+      const sequenceId = sequence?.id ?? sequence?.sequence?.id;
+      if (!sequenceId) {
+        throw new Error('Sequence ID missing');
+      }
+      await JsvvSequenceService.triggerSequence(sequenceId);
+      toast.success('Alarm byl odeslán do ústředny.');
+    } catch (error) {
+      console.error(error);
+      toast.error('Nepodařilo se odeslat alarm');
+    }
   });
 }
 </script>
