@@ -17,9 +17,11 @@ class LiveBroadcastService extends Service
         //exec('python3 '.storage_path('scripts/live_broadcast.py').' --start > /dev/null 2>&1 &', $output, $returnVar);
 
         // Run script and wait for it to finish
-        exec('python3 '.storage_path('scripts/live_broadcast.py').' --start', $output, $returnVar);
+        // exec('python3 '.storage_path('scripts/live_broadcast.py').' --start', $output, $returnVar);
+        exec('python3 "' . base_path('../bezdratovy-rozhlas-test-modbus/examples.py') . '" start-stream',$output, $returnVar);
 
-        return $returnVar !== 0 ? false : $output;
+        return $output;
+        // return $returnVar !== 0 ? false : $output;
     }
 
     public function stopBroadcast(): array|false
@@ -31,7 +33,8 @@ class LiveBroadcastService extends Service
         //exec('python3 '.storage_path('scripts/live_broadcast.py').' --stop > /dev/null 2>&1 &', $output, $returnVar);
 
         // Run script and wait for it to finish
-        exec('python3 '.storage_path('scripts/live_broadcast.py').' --stop', $output, $returnVar);
+        // exec('python3 '.storage_path('scripts/live_broadcast.py').' --stop', $output, $returnVar);
+        exec('python3 "' . base_path('../bezdratovy-rozhlas-test-modbus/examples.py') . '" stop-stream',$output, $returnVar);
 
         return $returnVar !== 0 ? false : $output;
     }

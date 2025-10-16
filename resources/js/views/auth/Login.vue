@@ -21,7 +21,7 @@ const bgStyle = computed(() => {
 const login = () => {
   AuthService.login(username.value, password.value).then(response => {
     localStorage.setItem('token', response.access_token);
-    router.push('/live-broadcast')
+    router.push('/recordings')
   }).catch(() => {
     toast.error('Přihlášení se nezdařilo');
   });
