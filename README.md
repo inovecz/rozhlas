@@ -1,5 +1,12 @@
 # Bezdratový rozhlas
 
+## Backend services
+
+- For API endpoints see `docs/api.md`.
+- Daemon management guide: `docs/daemons.md`.
+- Supervisor configs: `supervisor/*.conf` for GSM/JSVV listeners and queue workers.
+- Seeder `BroadcastSeeder` seeds demo broadcast/JSVV/GSM data; run `php artisan migrate --seed`.
+
 ## Instalace
 
 1. SHELL: composer install
@@ -124,7 +131,7 @@
 
 ### Nastavení
 
-#### FM rádio
+####  FM rádio (hardware: MINI TRAGBARER DIGITALER USB 2.0 TV STICK DVB-T + DAB + FM RTL2832U + R820T2 UNTERSTÜTZUNG SDR TUNER RECEIVER)
 
 - Nastavení frekvence FM rádia
 - Kliknutím na tlačítko "Uložit" dojde k uložení nově nastavené frekvence
@@ -225,7 +232,7 @@
 
 #### GSM
 
-- Nastavení GSM brány pro odesílání SMS
+- Nastavení GSM brány (hardware: Waveshare SIM7600G-H-PCIE) pro odesílání SMS
 
 ### O aplikaci
 

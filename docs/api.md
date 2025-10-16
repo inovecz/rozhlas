@@ -33,7 +33,7 @@
 - `DELETE /api/gsm/whitelist/{id}` – remove.
 - `POST /api/gsm/pin/verify` – verify PIN (`sessionId`, `pin`).
 
-## FM Radio
+## Fm Radio (receiver: MINI TRAGBARER DIGITALER USB 2.0 TV STICK DVB-T + DAB + FM RTL2832U + R820T2 UNTERSTÜTZUNG SDR TUNER RECEIVER)
 
 - `GET /api/fm/frequency` – current frequency.
 - `POST /api/fm/frequency` – set new frequency (`frequency`).

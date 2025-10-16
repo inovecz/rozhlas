@@ -15,7 +15,7 @@ The script writes PID files and logs to `storage/logs/daemons`. Override
 settings via environment variables:
 
 - `PYTHON_BINARY` – path to Python interpreter
-- `GSM_WEBHOOK` – backend endpoint for GSM events (default `http://127.0.0.1/api/gsm/events`)
+- `GSM_WEBHOOK` – backend endpoint for GSM events (default `http://127.0.0.1/api/gsm/events (Waveshare SIM7600G-H-PCIE)`)
 - `JSVV_WEBHOOK` – backend endpoint for JSVV events (default `http://127.0.0.1/api/jsvv/events`)
 
 ## Production
@@ -30,7 +30,7 @@ files = /var/www/rozhlas/supervisor/*.conf
 [environment]
 PYTHON_BINARY=/usr/bin/python3
 PROJECT_ROOT=/var/www/rozhlas
-GSM_WEBHOOK=https://app.example.cz/api/gsm/events
+GSM_WEBHOOK=https://app.example.cz/api/gsm/events (Waveshare SIM7600G-H-PCIE)
 JSVV_WEBHOOK=https://app.example.cz/api/jsvv/events
 ```
 
