@@ -4,39 +4,65 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Libraries\PythonClient;
 use Illuminate\Http\JsonResponse;
 
 class LiveBroadcastService extends Service
 {
+    private PythonClient $pythonClient;
+
+    public function __construct(?PythonClient $pythonClient = null)
+    {
+        parent::__construct();
+        $this->pythonClient = $pythonClient ?? new PythonClient();
+    }
+
     public function startBroadcast(): array|false
     {
-        $output = [];
-        $returnVar = 0;
+        $result = $this->pythonClient->startStream();
 
-        // Run script in background
-        //exec('python3 '.storage_path('scripts/live_broadcast.py').' --start > /dev/null 2>&1 &', $output, $returnVar);
+        if (!$result['success']) {
+            $this->setStatus('NOK', 'live_broadcast.start_failed', 500, [
+                'exitCode' => $result['exitCode'],
+                'stderr' => $result['stderr'],
+                'stdout' => $result['stdout'],
+                'json' => $result['json'],
+            ]);
 
-        // Run script and wait for it to finish
-        // exec('python3 '.storage_path('scripts/live_broadcast.py').' --start', $output, $returnVar);
-        exec('python3 "' . base_path('../bezdratovy-rozhlas-test-modbus/examples.py') . '" start-stream',$output, $returnVar);
+            return false;
+        }
 
-        return $output;
-        // return $returnVar !== 0 ? false : $output;
+        $payload = $this->buildSuccessPayload($result);
+
+        $this->setStatus('OK', 'live_broadcast.started', 200, [
+            'payload' => $payload,
+        ]);
+
+        return $payload;
     }
 
     public function stopBroadcast(): array|false
     {
-        $output = [];
-        $returnVar = 0;
+        $result = $this->pythonClient->stopStream();
 
-        // Run script in background
-        //exec('python3 '.storage_path('scripts/live_broadcast.py').' --stop > /dev/null 2>&1 &', $output, $returnVar);
+        if (!$result['success']) {
+            $this->setStatus('NOK', 'live_broadcast.stop_failed', 500, [
+                'exitCode' => $result['exitCode'],
+                'stderr' => $result['stderr'],
+                'stdout' => $result['stdout'],
+                'json' => $result['json'],
+            ]);
 
-        // Run script and wait for it to finish
-        // exec('python3 '.storage_path('scripts/live_broadcast.py').' --stop', $output, $returnVar);
-        exec('python3 "' . base_path('../bezdratovy-rozhlas-test-modbus/examples.py') . '" stop-stream',$output, $returnVar);
+            return false;
+        }
 
-        return $returnVar !== 0 ? false : $output;
+        $payload = $this->buildSuccessPayload($result);
+
+        $this->setStatus('OK', 'live_broadcast.stopped', 200, [
+            'payload' => $payload,
+        ]);
+
+        return $payload;
     }
 
     public function getResponse(): JsonResponse
@@ -46,5 +72,27 @@ class LiveBroadcastService extends Service
             'NOK' => $this->setResponseMessage('response.nok', 400),
             default => $this->notSpecifiedError(),
         };
+    }
+
+    /**
+     * Normalize Python client output to a consistent array payload.
+     *
+     * @param array{json: mixed, stdout: array<int, string>} $result
+     */
+    private function buildSuccessPayload(array $result): array
+    {
+        if (isset($result['json']) && is_array($result['json'])) {
+            if (isset($result['json']['data']) && is_array($result['json']['data'])) {
+                return $result['json']['data'];
+            }
+
+            return $result['json'];
+        }
+
+        if (!empty($result['stdout'])) {
+            return ['stdout' => $result['stdout']];
+        }
+
+        return ['stdout' => []];
     }
 }
