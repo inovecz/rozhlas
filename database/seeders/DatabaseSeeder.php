@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\User;
+use Database\Seeders\BroadcastSeeder;
 use Illuminate\Database\Seeder;
 
 // use Illuminate\Database\Console\Seeds\WithoutModelEvents;
@@ -26,6 +27,7 @@ class DatabaseSeeder extends Seeder
             ContactSeeder::class,
             MessageSeeder::class,
             JsvvSeeder::class,
+            BroadcastSeeder::class,
         ]);
     }
 }

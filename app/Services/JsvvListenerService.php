@@ -6,6 +6,7 @@ namespace App\Services;
 
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Http\JsonResponse;
 
 class JsvvListenerService extends Service
 {
@@ -41,4 +42,13 @@ class JsvvListenerService extends Service
             }
         }
     }
+
+    public function getResponse(): JsonResponse
+    {
+        return match ($this->getStatus()) {
+            'SAVED' => $this->setResponseMessage('response.saved'),
+            default => $this->notSpecifiedError(),
+        };
+    }
+
 }
