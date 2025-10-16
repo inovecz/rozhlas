@@ -22,7 +22,10 @@ CRC_INITIAL_VALUE = 0x0000
 
 DEFAULT_DEDUP_WINDOW_SECONDS = 180.0
 
-AUDIO_ASSET_SUBDIR = "assets/jsvv/verbal-informations"
+AUDIO_ASSET_DIRS = {
+    "verbal": "assets/jsvv/verbal-informations",
+    "siren": "assets/jsvv/sirens-signals",
+}
 
 
 ParserFunc = Callable[[str], object]

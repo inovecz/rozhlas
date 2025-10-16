@@ -140,15 +140,16 @@ class JSVVClient:
         settings: SerialSettings,
         *,
         dedup_window: float = constants.DEFAULT_DEDUP_WINDOW_SECONDS,
-        audio_root: Path | None = None,
+        audio_root: Path | dict[str, Path] | None = None,
     ) -> None:
         self.settings = settings
         self._serial: Any | None = None
         self._connected = False
         self._dedup_window = dedup_window
         self._recent: MutableMapping[str, float] = {}
-        self._audio_root = self._resolve_audio_root(audio_root)
-        self._verbal_index = self._load_verbal_index(self._audio_root)
+        self._audio_roots = self._resolve_audio_roots(audio_root)
+        self._verbal_index = self._load_asset_index(self._audio_roots["verbal"], kind="verbal")
+        self._siren_index = self._load_asset_index(self._audio_roots["siren"], kind="siren")
 
     # ------------------------------------------------------------------
     # Connection management
@@ -282,6 +283,12 @@ class JSVVClient:
             return any_key
         raise JSVVError(f"No audio asset found for slot {slot}")
 
+    def get_siren_asset(self, signal_type: int) -> Path:
+        key = (signal_type, "siren")
+        if key in self._siren_index:
+            return self._siren_index[key]
+        raise JSVVError(f"No siren signal asset found for type {signal_type}")
+
     # ------------------------------------------------------------------
     # Static helpers
     # ------------------------------------------------------------------
@@ -397,14 +404,27 @@ class JSVVClient:
         return parsed
 
     @staticmethod
-    def _resolve_audio_root(audio_root: Path | None) -> Path:
-        if audio_root is not None:
-            return audio_root
+    def _resolve_audio_roots(overrides: Path | dict[str, Path] | None) -> dict[str, Path]:
         base = Path(__file__).resolve().parents[2]
-        return base / constants.AUDIO_ASSET_SUBDIR
+        default_roots = {key: base / Path(rel) for key, rel in constants.AUDIO_ASSET_DIRS.items()}
+        if isinstance(overrides, dict):
+            resolved: dict[str, Path] = {}
+            for key, rel in constants.AUDIO_ASSET_DIRS.items():
+                if key in overrides:
+                    resolved[key] = overrides[key]
+                else:
+                    resolved[key] = base / Path(rel)
+            return resolved
+        if isinstance(overrides, Path):
+            base_root = overrides
+            category_names = {key: Path(rel).name for key, rel in constants.AUDIO_ASSET_DIRS.items()}
+            if overrides.name in category_names.values():
+                base_root = overrides.parent
+            return {key: base_root / name for key, name in category_names.items()}
+        return default_roots
 
     @staticmethod
-    def _load_verbal_index(root: Path) -> MutableMapping[tuple[int, str], Path]:
+    def _load_asset_index(root: Path, *, kind: str) -> MutableMapping[tuple[int, str], Path]:
         index: MutableMapping[tuple[int, str], Path] = {}
         if not root.exists():
             return index
@@ -412,9 +432,10 @@ class JSVVClient:
             slot = JSVVClient._extract_slot(path.stem)
             if slot is None:
                 continue
-            voice = JSVVClient._extract_voice(path.stem)
-            if voice is None:
-                voice = "male"
+            if kind == "siren":
+                index[(slot, "siren")] = path
+                continue
+            voice = JSVVClient._extract_voice(path.stem) or "male"
             index[(slot, voice)] = path
         return index
 

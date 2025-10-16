@@ -46,9 +46,12 @@ def parse_args() -> argparse.Namespace:
     build_cmd.add_argument("params", nargs="*", help="Optional parameters")
     build_cmd.add_argument("--no-crc", action="store_true", help="Build frame without CRC")
 
-    audio_cmd = sub.add_parser("verbal-info", help="Locate on-disk audio asset for a slot")
+    audio_cmd = sub.add_parser("verbal-info", help="Locate on-disk verbal asset for a slot")
     audio_cmd.add_argument("slot", type=int, help="Slot number (1-20)")
     audio_cmd.add_argument("--voice", default="male", help="Voice preference (male/female)")
+
+    siren_cmd = sub.add_parser("siren-info", help="Locate on-disk siren signal asset")
+    siren_cmd.add_argument("signal", type=int, help="Signal type identifier")
 
     return parser.parse_args()
 
@@ -105,6 +108,17 @@ def run_verbal(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_siren(args: argparse.Namespace) -> int:
+    client = JSVVClient.from_defaults()
+    try:
+        path = client.get_siren_asset(args.signal)
+    except JSVVError as exc:
+        print(f"Unable to resolve siren signal: {exc}")
+        return 1
+    print(str(path))
+    return 0
+
+
 def main() -> None:
     args = parse_args()
     if args.command == "parse-frame":
@@ -113,6 +127,8 @@ def main() -> None:
         raise SystemExit(run_build(args))
     if args.command == "verbal-info":
         raise SystemExit(run_verbal(args))
+    if args.command == "siren-info":
+        raise SystemExit(run_siren(args))
     raise SystemExit(0)
 
 

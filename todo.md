@@ -153,3 +153,54 @@
   - Pre-flight checks: verify python scripts executable, serial port accessible, audio source ready.  
   - Implement retries with backoff for recoverable errors; trigger alerts for unrecoverable failures.  
   - Document runbooks for operators (how to recover from common faults).
+
+## THINGS TO DO
+
+- `/api/live-broadcast/start` (POST)  
+  Parameters: `source` (string; enum mic|recording|gsm|radio|jsvv), `route` (int[]), `zones` (int[]), `options` (object with source-specific fields).  
+  Starts live broadcast orchestration using Modbus start stream and selected audio source.
+- `/api/live-broadcast/stop` (POST)  
+  Parameters: optional `reason` (string).  
+  Stops active stream, releases Modbus control, updates session log.
+- `/api/live-broadcast/status` (GET)  
+  Parameters: none; query string may support `includeTelemetry` (bool).  
+  Returns current session info, Modbus status/error registers, active source details.
+- `/api/live-broadcast/playlist` (POST)  
+  Parameters: `recordings` (array of `{id:int, gain?:float, gapMs?:int}`), `route`, `zones`, `options`.  
+  Validates and enqueues a recording playback session; responds with job id.
+- `/api/live-broadcast/playlist/{id}/cancel` (POST)  
+  Parameters: none.  
+  Cancels in-progress recording broadcast and stops stream safely.
+- `/api/live-broadcast/sources` (GET)  
+  Parameters: none.  
+  Lists available audio inputs/outputs based on environment (dev vs production mixer).
+- `/api/jsvv/sequences` (POST)  
+  Parameters: `items` (array of `{slot:int, category:'verbal'|'siren', voice?:string, repeat?:int}`), `priority`, `zones`, `holdSeconds`.  
+  Plans manual JSVV playback, returns resolved assets and estimated timeline.
+- `/api/jsvv/sequences/{id}/trigger` (POST)  
+  Parameters: none (sequence id from previous plan).  
+  Executes planned sequence, coordinating Modbus and asset playback.
+- `/api/jsvv/assets` (GET)  
+  Parameters: optional `category`, `slot`, `voice`.  
+  Returns cached siren/verbal asset metadata for UI selectors.
+- `/api/jsvv/events` (POST)  
+  Parameters: event payload from JSVV listener daemon (MID, params, priority, duplicate flag).  
+  Backend dispatcher endpoint for incoming KPPS frames.
+- `/api/gsm/events` (POST)  
+  Parameters: GSM listener event `{state, caller, sessionId, metadata}`.  
+  Initiates whitelist/PIN verification and triggers GSM stream orchestration.
+- `/api/gsm/whitelist` (CRUD)  
+  Parameters vary by method (`POST/PUT` expect `{number, label, priority}`).  
+  Admin endpoints to manage GSM caller permissions.
+- `/api/gsm/pin/verify` (POST)  
+  Parameters: `sessionId`, `pin`.  
+  Validates DTMF PIN and authorises GSM-triggered broadcast.
+- `/api/fm/frequency` (GET/POST)  
+  GET returns current frequency and metadata; POST accepts `{frequency:int, gain?:float}`.  
+  Allows manual tuning of RTL-SDR radio source.
+- `/api/manual-control/events` (POST)  
+  Parameters: decoded command payload from future manual panel listener.  
+  Placeholder endpoint ready for vendor protocol integration.
+- `/api/stream/telemetry` (GET)  
+  Parameters: optional `since` timestamp.  
+  Provides aggregated stream metrics (status history, errors, mixer levels) for dashboards.

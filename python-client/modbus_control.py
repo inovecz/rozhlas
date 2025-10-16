@@ -82,6 +82,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("status", help="Read TxControl, Status and Error registers for quick diagnostics")
 
+    sub.add_parser("defaults", help="Return default serial settings and register constants")
+
     probe_cmd = sub.add_parser("probe", help="Verify the Modbus device responds on the configured address")
     probe_cmd.add_argument(
         "--register",
@@ -107,6 +109,32 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Sequence of values to write (decimal or 0x prefixed)",
     )
+
+    read_freq_cmd = sub.add_parser("read-frequency", help="Read current RF frequency register")
+    read_freq_cmd.add_argument("--unit-id", type=int, help="Optional unit id override")
+
+    set_freq_cmd = sub.add_parser("set-frequency", help="Write RF frequency register")
+    set_freq_cmd.add_argument("--value", type=int_from_string, required=True, help="Target frequency value")
+    set_freq_cmd.add_argument("--unit-id", type=int, help="Optional unit id override")
+
+    route_cmd = sub.add_parser("set-route", help="Populate hop route registers without starting stream")
+    route_cmd.add_argument(
+        "--addresses",
+        type=int_from_string,
+        nargs="*",
+        help="Route hop addresses; omit to clear",
+    )
+
+    zones_cmd = sub.add_parser("set-zones", help="Populate destination zone registers without starting stream")
+    zones_cmd.add_argument(
+        "--zones",
+        type=int_from_string,
+        nargs="*",
+        help="Destination zones; omit to clear",
+    )
+
+    read_route_cmd = sub.add_parser("read-route", help="Return configured hop route and zones")
+    read_route_cmd.add_argument("--unit-id", type=int, help="Optional unit id override")
 
     read_block_cmd = sub.add_parser(
         "read-block",
@@ -281,6 +309,104 @@ def command_write_registers(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def command_read_frequency(args: argparse.Namespace) -> dict[str, Any]:
+    settings, unit_id = resolve_serial_settings(args)
+    with ModbusAudioClient(settings=settings, unit_id=unit_id) as client:
+        value = client.read_frequency()
+
+    return {
+        "port": settings.port,
+        "unitId": unit_id,
+        "frequency": value,
+    }
+
+
+def command_set_frequency(args: argparse.Namespace) -> dict[str, Any]:
+    settings, unit_id = resolve_serial_settings(args)
+    value = args.value
+    with ModbusAudioClient(settings=settings, unit_id=unit_id) as client:
+        client.write_frequency(value=value)
+
+    return {
+        "port": settings.port,
+        "unitId": unit_id,
+        "frequency": value,
+    }
+
+
+def command_set_route(args: argparse.Namespace) -> dict[str, Any]:
+    settings, unit_id = resolve_serial_settings(args)
+    addresses = list(args.addresses) if args.addresses else []
+    with ModbusAudioClient(settings=settings, unit_id=unit_id) as client:
+        client.configure_route(addresses)
+
+    return {
+        "port": settings.port,
+        "unitId": unit_id,
+        "route": addresses,
+        "count": len(addresses),
+    }
+
+
+def command_set_zones(args: argparse.Namespace) -> dict[str, Any]:
+    settings, unit_id = resolve_serial_settings(args)
+    zones = list(args.zones) if args.zones else []
+    with ModbusAudioClient(settings=settings, unit_id=unit_id) as client:
+        client.set_destination_zones(zones)
+
+    return {
+        "port": settings.port,
+        "unitId": unit_id,
+        "zones": zones,
+        "count": len(zones),
+    }
+
+
+def command_read_route(args: argparse.Namespace) -> dict[str, Any]:
+    settings, unit_id = resolve_serial_settings(args)
+    with ModbusAudioClient(settings=settings, unit_id=unit_id) as client:
+        info = client.get_device_info()
+
+    route = info.get("configured_route")
+    zones = info.get("destination_zones")
+    return {
+        "port": settings.port,
+        "unitId": unit_id,
+        "route": route,
+        "zones": zones,
+    }
+
+
+def command_defaults(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "serial": {
+            "port": constants.DEFAULT_SERIAL_PORT,
+            "baudrate": constants.DEFAULT_BAUDRATE,
+            "parity": constants.DEFAULT_PARITY,
+            "stopbits": constants.DEFAULT_STOPBITS,
+            "bytesize": constants.DEFAULT_BYTESIZE,
+            "timeout": constants.DEFAULT_TIMEOUT,
+            "unitId": constants.DEFAULT_UNIT_ID,
+        },
+        "registers": {
+            "txControl": constants.TX_CONTROL,
+            "rxControl": constants.RX_CONTROL,
+            "status": constants.STATUS_REGISTER,
+            "error": constants.ERROR_REGISTER,
+            "frequency": constants.FREQUENCY_REGISTER,
+            "destZoneBase": constants.RF_DEST_ZONE_BASE,
+            "addrRamBase": constants.ADDR_RAM_BASE,
+        },
+        "limits": {
+            "maxRouteEntries": constants.MAX_ADDR_ENTRIES,
+            "maxDestinationZones": constants.MAX_DEST_ZONES,
+            "defaultFrequency": constants.DEFAULT_FREQUENCY,
+            "defaultRoute": list(constants.DEFAULT_ROUTE),
+            "defaultZones": list(constants.DEFAULT_DESTINATION_ZONES),
+        },
+    }
+
+
 def _resolve_descriptor(name: str) -> constants.RegisterDescriptor:
     target = name.strip().lower()
     for descriptor in constants.DOCUMENTED_REGISTERS:
@@ -350,6 +476,18 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any]:
         return command_write_register(args)
     if args.command == "write-registers":
         return command_write_registers(args)
+    if args.command == "read-frequency":
+        return command_read_frequency(args)
+    if args.command == "set-frequency":
+        return command_set_frequency(args)
+    if args.command == "set-route":
+        return command_set_route(args)
+    if args.command == "set-zones":
+        return command_set_zones(args)
+    if args.command == "read-route":
+        return command_read_route(args)
+    if args.command == "defaults":
+        return command_defaults(args)
     if args.command == "read-block":
         return command_read_block(args)
     if args.command == "write-block":
