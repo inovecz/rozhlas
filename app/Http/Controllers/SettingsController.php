@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Enums\SmtpTypeEnum;
+use App\Services\VolumeManager;
 use App\Settings\FMSettings;
 use App\Settings\SmtpSettings;
 use App\Settings\JsvvSettings;
@@ -15,6 +16,7 @@ use App\Http\Requests\FMSettingsRequest;
 use App\Http\Requests\SmtpSettingsRequest;
 use App\Http\Requests\JsvvSettingsRequest;
 use App\Http\Requests\TwoWayCommSettingsRequest;
+use App\Http\Requests\VolumeSettingsRequest;
 
 class SettingsController extends Controller
 {
@@ -126,5 +128,20 @@ class SettingsController extends Controller
         }
         $jsvvSettings->save();
         return $this->success();
+    }
+
+    public function getVolumeSettings(VolumeManager $volumeManager): JsonResponse
+    {
+        return $this->success([
+            'groups' => $volumeManager->listGroups(),
+        ]);
+    }
+
+    public function saveVolumeSettings(VolumeSettingsRequest $request, VolumeManager $volumeManager): JsonResponse
+    {
+        $groups = $volumeManager->updateGroups($request->input('groups', []));
+        return $this->success([
+            'groups' => $groups,
+        ]);
     }
 }

@@ -704,10 +704,6 @@ class PythonClient
             }
 
             if (is_array($value)) {
-                if ($value === []) {
-                    continue;
-                }
-
                 $arguments[] = $flag;
                 foreach ($value as $item) {
                     $arguments[] = (string) $item;

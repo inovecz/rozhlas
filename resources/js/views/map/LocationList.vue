@@ -9,6 +9,17 @@ import {locationStore} from "../../store/locationStore.js";
 import Box from "../../components/custom/Box.vue";
 import Input from "../../components/forms/Input.vue";
 
+const componentLabels = {
+  RECEIVER: 'Přijímač',
+  CHARGER: 'Nabíječ',
+  BIDIRECTIONAL: 'Obousměr',
+  ECOTECH: 'Ekotechnika',
+  CURRENT_LOOP: 'Proudová smyčka',
+  BAT_REP_TEST: 'BAT+REP Test',
+  DIGITAL_INTERFACE: 'Digitální interface',
+  DIGITAL_BIDIRECTIONAL: 'Digitální obousměr',
+};
+
 const locations = ref([]);
 const locationGroups = ref([]);
 let orderColumn = 'id';
@@ -90,6 +101,7 @@ function editLocation(id) {
   reveal();
   onConfirm((updatedLocation) => {
     delete updatedLocation.location_group;
+    delete updatedLocation.assigned_location_groups;
     LocationService.updateRecords(updatedLocation).then(() => {
       toast.success('Záznam byl úspěšně upraven');
       emitter.emit('refetchLocations');
@@ -149,9 +161,31 @@ function deleteLocation(id) {
                 </span>
               </div>
             </th>
+            <th @click="orderBy('modbus_address')">
+              <div class="flex items-center cursor-pointer underline">
+                Modbus adresa
+                <span v-if="orderColumn === 'modbus_address'">
+                  <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
+                  <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
+                </span>
+              </div>
+            </th>
+            <th>Adresa obousměru</th>
+            <th>Privátní adresa</th>
             <th>
               <div class="flex items-center">
                 Pozice
+              </div>
+            </th>
+            <th>Součásti</th>
+            <th>Další lokality</th>
+            <th @click="orderBy('status')">
+              <div class="flex items-center cursor-pointer underline">
+                Stav
+                <span v-if="orderColumn === 'status'">
+                  <span v-if="orderAsc" class="mdi mdi-triangle-small-up text-lg"></span>
+                  <span v-if="!orderAsc" class="mdi mdi-triangle-small-down text-lg"></span>
+                </span>
               </div>
             </th>
             <th @click="orderBy('is_active')">
@@ -180,9 +214,41 @@ function deleteLocation(id) {
               {{ location.type === 'CENTRAL' ? 'Centrála' : 'Hnízdo' }}
             </td>
             <td>
+              {{ typeof location.modbus_address === 'number' ? location.modbus_address : (location.modbus_address ?? '-') }}
+            </td>
+            <td>
+              {{ typeof location.bidirectional_address === 'number' ? location.bidirectional_address : (location.bidirectional_address ?? '-') }}
+            </td>
+            <td>
+              {{ typeof location.private_receiver_address === 'number' ? location.private_receiver_address : (location.private_receiver_address ?? '-') }}
+            </td>
+            <td>
               <span class="text-xs spacing">
                 {{ location.latitude.toFixed(8) }}<br/>{{ location.longitude.toFixed(8) }}
               </span>
+            </td>
+            <td class="text-xs">
+              <template v-if="Array.isArray(location.components) && location.components.length">
+                {{ location.components.map(component => componentLabels[component] ?? component).join(', ') }}
+              </template>
+              <template v-else>—</template>
+            </td>
+            <td class="text-xs">
+              <template v-if="Array.isArray(location.assigned_location_groups) && location.assigned_location_groups.length">
+                {{ location.assigned_location_groups.map(group => group.name).join(', ') }}
+              </template>
+              <template v-else>—</template>
+            </td>
+            <td>
+              <div class="flex items-center gap-2">
+                <span class="mdi mdi-circle text-xs" :class="{
+                  'text-green-500': location.status === 'OK',
+                  'text-orange-500': location.status === 'WARNING',
+                  'text-red-500': location.status === 'ERROR',
+                  'text-blue-500': location.status === 'UNKNOWN'
+                }"></span>
+                <span class="text-sm">{{ location.status_label ?? location.status ?? 'Neznámé' }}</span>
+              </div>
             </td>
             <td>
               {{ location.is_active ? 'Ano' : 'Ne' }}

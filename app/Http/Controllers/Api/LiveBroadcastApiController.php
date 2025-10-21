@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Exceptions\BroadcastLockedException;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\VolumeLevelRequest;
 use App\Services\StreamOrchestrator;
+use App\Services\VolumeManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -23,10 +26,12 @@ class LiveBroadcastApiController extends Controller
             'source' => ['required', 'string'],
             'route' => ['sometimes', 'array'],
             'route.*' => ['integer'],
-            'zones' => ['sometimes', 'array'],
-            'zones.*' => ['integer'],
             'locations' => ['sometimes', 'array'],
             'locations.*' => ['integer'],
+            'zones' => ['sometimes', 'array'],
+            'zones.*' => ['integer'],
+            'nests' => ['sometimes', 'array'],
+            'nests.*' => ['integer'],
             'options' => ['sometimes', 'array'],
         ]);
 
@@ -36,9 +41,18 @@ class LiveBroadcastApiController extends Controller
 
         $payload = $validator->validated();
         $locations = Arr::get($payload, 'locations', Arr::get($payload, 'zones', []));
+        $nests = Arr::get($payload, 'nests', []);
         $payload['locations'] = $locations;
         $payload['zones'] = $locations;
-        $session = $this->orchestrator->start($payload);
+        $payload['nests'] = $nests;
+        try {
+            $session = $this->orchestrator->start($payload);
+        } catch (BroadcastLockedException $exception) {
+            return response()->json([
+                'status' => 'jsvv_active',
+                'message' => 'Nelze spustit vysílání: probíhá poplach JSVV.',
+            ], 409);
+        }
 
         return response()->json(['session' => $session]);
     }
@@ -64,12 +78,14 @@ class LiveBroadcastApiController extends Controller
             'recordings.*.durationSeconds' => ['sometimes', 'integer', 'min:1'],
             'recordings.*.gain' => ['sometimes', 'numeric'],
             'recordings.*.gapMs' => ['sometimes', 'integer', 'min:0'],
+            'locations' => ['sometimes', 'array'],
+            'locations.*' => ['integer'],
             'route' => ['sometimes', 'array'],
             'route.*' => ['integer'],
             'zones' => ['sometimes', 'array'],
             'zones.*' => ['integer'],
-            'locations' => ['sometimes', 'array'],
-            'locations.*' => ['integer'],
+            'nests' => ['sometimes', 'array'],
+            'nests.*' => ['integer'],
             'options' => ['sometimes', 'array'],
         ]);
 
@@ -79,12 +95,16 @@ class LiveBroadcastApiController extends Controller
 
         $payload = $validator->validated();
         $locations = Arr::get($payload, 'locations', Arr::get($payload, 'zones', []));
-        $playlist = $this->orchestrator->enqueuePlaylist(
-            Arr::get($payload, 'recordings'),
-            Arr::get($payload, 'route', []),
-            $locations,
-            Arr::get($payload, 'options', []),
-        );
+        $route = Arr::get($payload, 'route', []);
+        $nests = Arr::get($payload, 'nests', []);
+
+        $playlist = $this->orchestrator->enqueuePlaylist([
+            'recordings' => Arr::get($payload, 'recordings', []),
+            'route' => $route,
+            'locations' => $locations,
+            'nests' => $nests,
+            'options' => Arr::get($payload, 'options', []),
+        ]);
 
         return response()->json(['playlist' => $playlist]);
     }
@@ -98,5 +118,35 @@ class LiveBroadcastApiController extends Controller
     public function sources(): JsonResponse
     {
         return response()->json(['sources' => $this->orchestrator->listSources()]);
+    }
+
+    public function getVolumeLevels(VolumeManager $volumeManager): JsonResponse
+    {
+        return response()->json([
+            'groups' => $volumeManager->listGroups(),
+            'sourceChannels' => config('volume.source_channels', []),
+        ]);
+    }
+
+    public function updateVolumeLevel(VolumeLevelRequest $request, VolumeManager $volumeManager): JsonResponse
+    {
+        $item = $volumeManager->updateLevel(
+            $request->input('group'),
+            $request->input('id'),
+            (float) $request->input('value'),
+        );
+
+        return response()->json(['item' => $item]);
+    }
+
+    public function applyRuntimeVolumeLevel(VolumeLevelRequest $request, VolumeManager $volumeManager): JsonResponse
+    {
+        $item = $volumeManager->applyRuntimeLevel(
+            $request->input('group'),
+            $request->input('id'),
+            (float) $request->input('value'),
+        );
+
+        return response()->json(['item' => $item]);
     }
 }

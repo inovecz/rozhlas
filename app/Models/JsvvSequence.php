@@ -20,17 +20,22 @@ class JsvvSequence extends Model
         'options',
         'priority',
         'status',
+        'queued_at',
         'created_at',
         'triggered_at',
         'completed_at',
+        'failed_at',
+        'error_message',
     ];
 
     protected $casts = [
         'items' => 'array',
         'options' => 'array',
+        'queued_at' => 'datetime',
         'created_at' => 'datetime',
         'triggered_at' => 'datetime',
         'completed_at' => 'datetime',
+        'failed_at' => 'datetime',
     ];
 
     protected static function booted(): void

@@ -4,42 +4,116 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Exceptions\BroadcastLockedException;
 use App\Jobs\ProcessRecordingPlaylist;
 use App\Libraries\PythonClient;
 use App\Models\BroadcastPlaylist;
 use App\Models\BroadcastPlaylistItem;
 use App\Models\BroadcastSession;
+use App\Models\Location;
+use App\Models\LocationGroup;
+use App\Models\Schedule;
 use App\Models\StreamTelemetryEntry;
+use App\Services\Mixer\MixerController;
+use App\Services\VolumeManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
+use Throwable;
 
 class StreamOrchestrator extends Service
 {
-    public function __construct(private readonly PythonClient $client = new PythonClient())
-    {
+    private const MAX_DEST_ZONES = 5;
+    private const JSVV_ACTIVE_LOCK_KEY = 'jsvv:sequence:active';
+
+    public function __construct(
+        private readonly PythonClient $client = new PythonClient(),
+        private readonly MixerController $mixer = new MixerController(),
+    ) {
         parent::__construct();
     }
 
     public function start(array $payload): array
     {
-        $active = BroadcastSession::query()->where('status', 'running')->latest('started_at')->first();
-        if ($active !== null) {
-            return $active->toArray();
+        $manualRoute = $this->normalizeNumericArray(Arr::get($payload, 'route', []));
+        $locationGroupIds = $this->normalizeNumericArray(
+            Arr::get($payload, 'locations', Arr::get($payload, 'zones', [])),
+        );
+        $nestIds = $this->normalizeNumericArray(Arr::get($payload, 'nests', []));
+        $options = Arr::get($payload, 'options', []);
+        $source = (string) Arr::get($payload, 'source', 'unknown');
+
+        $targets = $this->resolveTargets($locationGroupIds, $nestIds);
+        $route = $manualRoute;
+        $zones = $targets['zones'];
+        $augmentedOptions = $this->augmentOptions($options, $manualRoute, $locationGroupIds, $nestIds, $targets);
+        if ($source !== 'jsvv' && Cache::has(self::JSVV_ACTIVE_LOCK_KEY)) {
+            throw new BroadcastLockedException('JSVV sequence is currently running');
         }
 
-        $route = Arr::get($payload, 'route', []);
-        $locations = Arr::get($payload, 'locations', Arr::get($payload, 'zones', []));
-        $options = Arr::get($payload, 'options', []);
+        $active = BroadcastSession::query()
+            ->where('status', 'running')
+            ->latest('started_at')
+            ->first();
 
-        $response = $this->client->startStream(route: $route, zones: $locations);
+        if ($active !== null) {
+            $this->mixer->activatePreset($source, [
+                'options' => $augmentedOptions,
+                'route' => $route,
+                'zones' => $zones,
+                'session_id' => $active->id,
+            ]);
+
+            $this->applySourceVolume($source);
+
+            $response = $this->client->startStream(
+                $route !== [] ? $route : null,
+                $zones,
+            );
+
+            $active->update([
+                'source' => $source,
+                'route' => $route,
+                'zones' => $zones,
+                'options' => $augmentedOptions,
+                'python_response' => $response,
+            ]);
+
+            $this->recordTelemetry([
+                'type' => 'stream_updated',
+                'session_id' => $active->id,
+                'payload' => [
+                    'source' => $source,
+                    'route' => $route,
+                    'zones' => $zones,
+                ],
+            ]);
+
+            return $active->fresh()->toArray();
+        }
+
+        $this->mixer->activatePreset($source, [
+            'options' => $augmentedOptions,
+            'route' => $route,
+            'zones' => $zones,
+        ]);
+
+        $this->applySourceVolume($source);
+
+        $response = $this->client->startStream(
+            $route !== [] ? $route : null,
+            $zones,
+        );
 
         $session = BroadcastSession::create([
-            'source' => Arr::get($payload, 'source', 'unknown'),
+            'source' => $source,
             'route' => $route,
-            'zones' => $locations,
-            'options' => $options,
+            'zones' => $zones,
+            'options' => $augmentedOptions,
             'status' => 'running',
             'started_at' => now(),
             'python_response' => $response,
@@ -50,6 +124,8 @@ class StreamOrchestrator extends Service
             'session_id' => $session->id,
             'payload' => [
                 'source' => $session->source,
+                'route' => $route,
+                'zones' => $zones,
             ],
         ]);
 
@@ -58,7 +134,11 @@ class StreamOrchestrator extends Service
 
     public function stop(?string $reason = null): array
     {
-        $session = BroadcastSession::query()->where('status', 'running')->latest('started_at')->first();
+        $session = BroadcastSession::query()
+            ->where('status', 'running')
+            ->latest('started_at')
+            ->first();
+
         if ($session === null) {
             return [
                 'status' => 'idle',
@@ -73,6 +153,11 @@ class StreamOrchestrator extends Service
             'stopped_at' => now(),
             'stop_reason' => $reason,
             'python_response' => $response,
+        ]);
+
+        $this->mixer->reset([
+            'session_id' => $session->id,
+            'reason' => $reason,
         ]);
 
         $this->recordTelemetry([
@@ -98,9 +183,36 @@ class StreamOrchestrator extends Service
             'device' => $device,
         ];
 
-        if (isset($details['session']['zones'])) {
-            $details['session']['locations'] = $details['session']['zones'];
+        if ($details['session'] !== null) {
+            /** @var array<string, mixed> $sessionArray */
+            $sessionArray = $details['session'];
+            $selection = Arr::get($sessionArray, 'options._selection', []);
+            $resolved = Arr::get($sessionArray, 'options._resolved', [
+                'route' => $sessionArray['route'] ?? [],
+                'zones' => $sessionArray['zones'] ?? [],
+            ]);
+            $labels = Arr::get($sessionArray, 'options._labels', []);
+
+            $sessionArray['locations'] = Arr::get($selection, 'locations', []);
+            $sessionArray['nests'] = Arr::get($selection, 'nests', []);
+            $sessionArray['requestedRoute'] = Arr::get($selection, 'route', $sessionArray['route'] ?? []);
+            $sessionArray['applied'] = $resolved;
+            $sessionArray['labels'] = $labels;
+
+            $details['session'] = $sessionArray;
         }
+
+        $nextSchedule = Schedule::query()
+            ->whereNull('processed_at')
+            ->where('scheduled_at', '>=', now())
+            ->orderBy('scheduled_at')
+            ->first();
+
+        $details['next_schedule'] = $nextSchedule ? [
+            'id' => $nextSchedule->getId(),
+            'title' => $nextSchedule->getTitle(),
+            'scheduled_at' => $nextSchedule->getScheduledAt()?->toIso8601String(),
+        ] : null;
 
         return $details;
     }
@@ -109,20 +221,37 @@ class StreamOrchestrator extends Service
     {
         return [
             ['id' => 'microphone', 'label' => 'Mikrofon'],
-            ['id' => 'system_audio', 'label' => 'Soubor z počítače'],
-            ['id' => 'fm_radio', 'label' => 'FM rádio'],
-            ['id' => 'recorded_playlist', 'label' => 'Seznam nahrávek'],
-            ['id' => 'uploaded_file', 'label' => 'Nahraný soubor'],
+            ['id' => 'central_file', 'label' => 'Soubor v ústředně'],
+            ['id' => 'pc_webrtc', 'label' => 'Vstup z PC (WebRTC)'],
+            ['id' => 'input_2', 'label' => 'Vstup 2'],
+            ['id' => 'input_3', 'label' => 'Vstup 3'],
+            ['id' => 'input_4', 'label' => 'Vstup 4'],
+            ['id' => 'input_5', 'label' => 'Vstup 5'],
+            ['id' => 'input_6', 'label' => 'Vstup 6'],
+            ['id' => 'input_7', 'label' => 'Vstup 7'],
+            ['id' => 'input_8', 'label' => 'Vstup 8'],
+            ['id' => 'fm_radio', 'label' => 'FM Rádio'],
+            ['id' => 'control_box', 'label' => 'Control box'],
         ];
     }
 
-    public function enqueuePlaylist(array $items, array $route, array $locations, array $options = []): array
+    public function enqueuePlaylist(array $payload): array
     {
-        return DB::transaction(function () use ($items, $route, $locations, $options): array {
+        return DB::transaction(function () use ($payload): array {
+            $items = Arr::get($payload, 'recordings', []);
+            $manualRoute = $this->normalizeNumericArray(Arr::get($payload, 'route', []));
+            $locationGroupIds = $this->normalizeNumericArray(
+                Arr::get($payload, 'locations', Arr::get($payload, 'zones', [])),
+            );
+            $nestIds = $this->normalizeNumericArray(Arr::get($payload, 'nests', []));
+            $options = Arr::get($payload, 'options', []);
+
+            $targets = $this->resolveTargets($locationGroupIds, $nestIds);
+
             $playlist = BroadcastPlaylist::create([
-                'route' => $route,
-                'zones' => $locations,
-                'options' => $options,
+                'route' => $manualRoute,
+                'zones' => $targets['zones'],
+                'options' => $this->augmentOptions($options, $manualRoute, $locationGroupIds, $nestIds, $targets),
                 'status' => 'queued',
             ]);
 
@@ -143,7 +272,11 @@ class StreamOrchestrator extends Service
             $this->recordTelemetry([
                 'type' => 'playlist_queued',
                 'playlist_id' => $playlist->id,
-                'payload' => ['count' => count($items)],
+                'payload' => [
+                    'count' => count($items),
+                    'route' => $manualRoute,
+                    'zones' => $targets['zones'],
+                ],
             ]);
 
             return $playlist->load('items')->toArray();
@@ -198,7 +331,7 @@ class StreamOrchestrator extends Service
     public function telemetry(?string $since = null): array
     {
         return StreamTelemetryEntry::query()
-            ->when($since, fn ($query) => $query->where('recorded_at', '>=', $since))
+            ->when($since, static fn ($query) => $query->where('recorded_at', '>=', $since))
             ->latest('recorded_at')
             ->limit(500)
             ->get()
@@ -208,5 +341,303 @@ class StreamOrchestrator extends Service
     public function getResponse(): JsonResponse
     {
         return response()->json($this->getStatusDetails());
+    }
+
+    /**
+     * @param array<int, mixed>|mixed $values
+     * @return array<int, int>
+     */
+    private function normalizeNumericArray(mixed $values): array
+    {
+        $values = Arr::wrap($values);
+        $result = [];
+
+        foreach ($values as $value) {
+            if (is_numeric($value)) {
+                $result[] = (int) $value;
+            }
+        }
+
+        $result = array_values(array_unique($result));
+
+        return $result;
+    }
+
+    /**
+     * Resolve requested locations and nests into Modbus zone addresses.
+     *
+     * @param array<int, int> $locationGroupIds
+     * @param array<int, int> $nestIds
+     * @return array{
+     *     zones: array<int, int>,
+     *     locationAddresses: array<int, int>,
+     *     nestAddresses: array<int, int>,
+     *     groupSummaries: array<int, array{id: int, name: string}>,
+     *     nestSummaries: array<int, array{id: int, name: string, modbus_address: int}>,
+     *     missingGroups: array<int, int>,
+     *     missingLocationIds: array<int, int>,
+     *     missingNests: array<int, int>
+     * }
+     */
+    private function resolveTargets(array $locationGroupIds, array $nestIds): array
+    {
+        /** @var Collection<int, LocationGroup> $groups */
+        $groups = $locationGroupIds !== []
+            ? LocationGroup::query()->whereIn('id', $locationGroupIds)->get(['id', 'name', 'modbus_group_address'])
+            : collect();
+
+        $groupSummaries = $groups
+            ->map(static fn (LocationGroup $group) => [
+                'id' => (int) $group->id,
+                'name' => $group->getName(),
+                'modbus_group_address' => $group->getModbusGroupAddress(),
+            ])
+            ->values()
+            ->all();
+
+        $resolvedGroupIds = $groups->pluck('id')->map(static fn ($id) => (int) $id)->all();
+        $missingGroups = array_values(array_diff($locationGroupIds, $resolvedGroupIds));
+
+        $groupAddressMap = $groups
+            ->filter(static fn (LocationGroup $group) => $group->getModbusGroupAddress() !== null)
+            ->mapWithKeys(static fn (LocationGroup $group) => [
+                (int) $group->id => (int) $group->getModbusGroupAddress(),
+            ])
+            ->all();
+        $groupAddresses = array_values(array_unique(array_values($groupAddressMap)));
+
+        $groupsWithoutAddress = $groups
+            ->filter(static fn (LocationGroup $group) => $group->getModbusGroupAddress() === null)
+            ->map(static fn (LocationGroup $group) => (int) $group->id)
+            ->all();
+
+        /** @var Collection<int, Location> $groupLocations */
+        $groupLocations = $locationGroupIds !== []
+            ? Location::query()
+                ->whereIn('location_group_id', $locationGroupIds)
+                ->where('type', 'NEST')
+                ->get(['id', 'name', 'modbus_address', 'location_group_id'])
+            : collect();
+
+        /** @var Collection<int, Location> $nestRecords */
+        $nestRecords = $nestIds !== []
+            ? Location::query()
+                ->whereIn('id', $nestIds)
+                ->where('type', 'NEST')
+                ->get(['id', 'name', 'modbus_address', 'location_group_id'])
+            : collect();
+
+        $locationAddresses = $groupLocations
+            ->filter(static function (Location $location) use ($groupAddressMap) {
+                $groupId = $location->location_group_id !== null ? (int) $location->location_group_id : null;
+                if ($groupId === null || !array_key_exists($groupId, $groupAddressMap)) {
+                    return $location->getModbusAddress() !== null;
+                }
+
+                // Group has a shared address; we can rely on it instead of individual ones.
+                return false;
+            })
+            ->map(static fn (Location $location) => (int) $location->getModbusAddress())
+            ->unique()
+            ->values()
+            ->all();
+        sort($locationAddresses);
+
+        $nestSummaries = $nestRecords
+            ->filter(static fn (Location $location) => $location->getModbusAddress() !== null)
+            ->unique('id')
+            ->map(static fn (Location $location) => [
+                'id' => (int) $location->getId(),
+                'name' => $location->getName(),
+                'modbus_address' => (int) $location->getModbusAddress(),
+                'location_group_id' => $location->location_group_id !== null
+                    ? (int) $location->location_group_id
+                    : null,
+            ])
+            ->values()
+            ->all();
+
+        $nestAddresses = collect($nestSummaries)
+            ->filter(static function (array $summary) use ($groupAddressMap, $locationGroupIds) {
+                if ($summary['location_group_id'] === null) {
+                    return true;
+                }
+                if (!in_array($summary['location_group_id'], $locationGroupIds, true)) {
+                    return true;
+                }
+
+                return !array_key_exists($summary['location_group_id'], $groupAddressMap);
+            })
+            ->pluck('modbus_address')
+            ->map(static fn ($address) => (int) $address)
+            ->unique()
+            ->values()
+            ->all();
+        sort($nestAddresses);
+
+        $missingLocationIds = $groupLocations
+            ->filter(static fn (Location $location) => $location->getModbusAddress() === null)
+            ->filter(static function (Location $location) use ($groupAddressMap) {
+                $groupId = $location->location_group_id !== null ? (int) $location->location_group_id : null;
+                if ($groupId === null) {
+                    return true;
+                }
+
+                return !array_key_exists($groupId, $groupAddressMap);
+            })
+            ->map(static fn (Location $location) => (int) $location->getId())
+            ->unique()
+            ->values()
+            ->all();
+
+        $resolvedNestIds = $nestRecords
+            ->filter(static fn (Location $location) => $location->getModbusAddress() !== null)
+            ->map(static fn (Location $location) => (int) $location->getId())
+            ->all();
+
+        $missingNestIds = array_values(
+            array_unique(
+                array_merge(
+                    array_diff($nestIds, $resolvedNestIds),
+                    $nestRecords
+                        ->filter(static fn (Location $location) => $location->getModbusAddress() === null)
+                        ->map(static fn (Location $location) => (int) $location->getId())
+                        ->all(),
+                ),
+            ),
+        );
+
+        if ($missingGroups !== []) {
+            Log::warning('Some location groups were not found while resolving broadcast targets.', [
+                'location_group_ids' => $missingGroups,
+            ]);
+        }
+
+        if ($missingLocationIds !== []) {
+            Log::warning('Some locations are missing a Modbus address.', [
+                'location_ids' => $missingLocationIds,
+            ]);
+        }
+
+        if ($missingNestIds !== []) {
+            Log::warning('Some selected nests are missing or lack a Modbus address.', [
+                'nest_ids' => $missingNestIds,
+            ]);
+        }
+
+        $zones = array_values(array_unique(array_merge($groupAddresses, $locationAddresses, $nestAddresses)));
+        $zoneOverflow = [];
+
+        if (count($zones) > self::MAX_DEST_ZONES) {
+            $zoneOverflow = array_slice($zones, self::MAX_DEST_ZONES);
+            $zones = array_slice($zones, 0, self::MAX_DEST_ZONES);
+
+            Log::warning('Resolved destination zones exceed hardware capacity; truncating to supported range.', [
+                'max_zones' => self::MAX_DEST_ZONES,
+                'applied' => $zones,
+                'overflow' => $zoneOverflow,
+            ]);
+        }
+
+        return [
+            'zones' => $zones,
+            'locationAddresses' => $locationAddresses,
+            'nestAddresses' => $nestAddresses,
+            'groupSummaries' => $groupSummaries,
+            'nestSummaries' => $nestSummaries,
+            'missingGroups' => $missingGroups,
+            'missingLocationIds' => $missingLocationIds,
+            'missingNests' => $missingNestIds,
+            'zoneOverflow' => $zoneOverflow,
+            'groupAddresses' => $groupAddresses,
+            'groupsWithoutAddress' => $groupsWithoutAddress,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @param array<int, int> $manualRoute
+     * @param array<int, int> $locationGroupIds
+     * @param array<int, int> $nestIds
+     * @param array<string, mixed> $targets
+     * @return array<string, mixed>
+     */
+    private function augmentOptions(
+        array $options,
+        array $manualRoute,
+        array $locationGroupIds,
+        array $nestIds,
+        array $targets,
+    ): array {
+        $options['_selection'] = [
+            'route' => $manualRoute,
+            'locations' => $locationGroupIds,
+            'nests' => $nestIds,
+        ];
+
+        $options['_resolved'] = [
+            'route' => $manualRoute,
+            'zones' => $targets['zones'],
+            'locationAddresses' => $targets['locationAddresses'],
+            'nestAddresses' => $targets['nestAddresses'],
+            'groupAddresses' => $targets['groupAddresses'],
+        ];
+
+        $options['_labels'] = [
+            'locations' => $targets['groupSummaries'],
+            'nests' => $targets['nestSummaries'],
+        ];
+
+        $missing = array_filter([
+            'location_groups' => $targets['missingGroups'],
+            'locations' => $targets['missingLocationIds'],
+            'nests' => $targets['missingNests'],
+            'zones_overflow' => $targets['zoneOverflow'],
+            'location_groups_missing_address' => $targets['groupsWithoutAddress'],
+        ], static fn (array $entries) => $entries !== []);
+
+        if ($missing !== []) {
+            $options['_missing'] = $missing;
+        }
+
+        return $options;
+    }
+
+    private function applySourceVolume(string $source): void
+    {
+        $channelMap = config('volume.source_channels', []);
+        $channel = $channelMap[$source] ?? null;
+        if ($channel === null) {
+            return;
+        }
+
+        try {
+            /** @var VolumeManager $volumeManager */
+            $volumeManager = app(VolumeManager::class);
+            $config = config('volume', []);
+            $groupId = null;
+            foreach ($config as $candidateId => $definition) {
+                if (!is_array($definition) || !isset($definition['items']) || !is_array($definition['items'])) {
+                    continue;
+                }
+                if (array_key_exists((string) $channel, $definition['items'])) {
+                    $groupId = (string) $candidateId;
+                    break;
+                }
+            }
+
+            if ($groupId === null) {
+                return;
+            }
+
+            $value = $volumeManager->getCurrentLevel($groupId, (string) $channel);
+            $volumeManager->applyRuntimeLevel($groupId, (string) $channel, $value);
+        } catch (Throwable $exception) {
+            Log::warning('Unable to apply runtime input volume.', [
+                'source' => $source,
+                'channel' => $channel,
+                'exception' => $exception->getMessage(),
+            ]);
+        }
     }
 }

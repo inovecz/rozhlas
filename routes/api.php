@@ -68,6 +68,9 @@ Route::group(['middleware' => ['api']], static function () {
         Route::post('/playlist', [LiveBroadcastApiController::class, 'playlist']);
         Route::post('/playlist/{playlistId}/cancel', [LiveBroadcastApiController::class, 'cancelPlaylist']);
         Route::get('/sources', [LiveBroadcastApiController::class, 'sources']);
+        Route::get('/volume', [LiveBroadcastApiController::class, 'getVolumeLevels']);
+        Route::post('/volume', [LiveBroadcastApiController::class, 'updateVolumeLevel']);
+        Route::post('/volume/runtime', [LiveBroadcastApiController::class, 'applyRuntimeVolumeLevel']);
     });
 
     Route::group(['prefix' => 'jsvv'], static function () {
@@ -156,6 +159,10 @@ Route::group(['middleware' => ['api']], static function () {
         Route::group(['prefix' => 'jsvv'], static function () {
             Route::post('/', [SettingsController::class, 'saveJsvvSettings']);
             Route::get('/', [SettingsController::class, 'getJsvvSettings']);
+        });
+        Route::group(['prefix' => 'volume'], static function () {
+            Route::get('/', [SettingsController::class, 'getVolumeSettings']);
+            Route::post('/', [SettingsController::class, 'saveVolumeSettings']);
         });
     });
 

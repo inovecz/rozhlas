@@ -1,6 +1,6 @@
 <script setup>
 import {useRoute} from "vue-router";
-import {computed, onMounted, ref} from "vue";
+import {computed, onMounted, ref, watch} from "vue";
 import {useToast} from "vue-toastification";
 import JsvvAlarmService from "../../services/JsvvAlarmService.js";
 import VueMultiselect from "vue-multiselect";
@@ -11,12 +11,15 @@ import Input from "../../components/forms/Input.vue";
 import Select from "../../components/forms/Select.vue";
 import CustomFormControl from "../../components/forms/CustomFormControl.vue";
 import Button from "../../components/forms/Button.vue";
+import {JSVV_BUTTON_DEFAULTS} from "../../constants/jsvvDefaults.js";
 
 const route = useRoute();
 const toast = useToast();
 const editingJsvvAlarmId = ref(route.params.id);
 const audioGroupOptions = ref([]);
 const selectedSequenceItems = ref([]);
+const defaultSequenceMap = new Map(JSVV_BUTTON_DEFAULTS.map(({button, sequence}) => [button, sequence.toUpperCase()]));
+const defaultButtonsSet = new Set(JSVV_BUTTON_DEFAULTS.map(({button}) => button));
 const errorBag = ref({});
 const jsvvAlarm = ref({
   id: null,
@@ -26,26 +29,34 @@ const jsvvAlarm = ref({
   sequence: null
 });
 
+const audioBySymbol = computed(() => {
+  const map = new Map();
+  audioGroupOptions.value.forEach((group) => {
+    group.audios.forEach((audio) => {
+      map.set(audio.symbol, audio);
+    });
+  });
+  return map;
+});
+
 onMounted(() => {
   getJsvvAudios();
 })
 
+watch(() => jsvvAlarm.value.button, (newButton, previousButton) => {
+  syncMobileButtonDefault(newButton);
+  applyDefaultSequenceIfEligible(newButton, previousButton);
+});
+
+watch(() => jsvvAlarm.value.mobile_button, (newButton, previousButton) => {
+  syncButtonWithMobile(newButton);
+  applyDefaultSequenceIfEligible(newButton, previousButton);
+});
+
 function getJsvvAlarm() {
   JsvvAlarmService.getJsvvAlarm(editingJsvvAlarmId.value).then(response => {
     jsvvAlarm.value = response.data;
-    if (jsvvAlarm.value.sequence) {
-      const sequenceSymbols = jsvvAlarm.value.sequence.split('');
-      const selectedItems = [];
-      sequenceSymbols.forEach(symbol => {
-        audioGroupOptions.value.forEach(group => {
-          const foundAudio = group.audios.find(audio => audio.symbol === symbol);
-          if (foundAudio) {
-            selectedItems.push(foundAudio);
-          }
-        });
-      });
-      selectedSequenceItems.value = selectedItems;
-    }
+    applySequence(jsvvAlarm.value.sequence);
   }).catch(error => {
     console.error(error);
     toast.error('Nepodařilo se načíst data');
@@ -70,6 +81,9 @@ function getJsvvAudios() {
     audioGroupOptions.value = audioGroups;
     if (editingJsvvAlarmId.value) {
       getJsvvAlarm();
+    } else {
+      applyDefaultSequenceIfEligible(jsvvAlarm.value.button, null);
+      applyDefaultSequenceIfEligible(jsvvAlarm.value.mobile_button, null);
     }
   }).catch(error => {
     console.error(error);
@@ -78,7 +92,8 @@ function getJsvvAudios() {
 }
 
 function saveJsvvAlarm() {
-  jsvvAlarm.value.sequence = selectedSequenceItems.value.map(item => item.symbol).join('');
+  const sequenceString = getCurrentSequenceString();
+  jsvvAlarm.value.sequence = sequenceString || null;
   JsvvAlarmService.saveJsvvAlarm(jsvvAlarm.value).then(() => {
     toast.success('Alarm byl úspěšně upraven');
     router.push({name: 'JSVV'});
@@ -100,6 +115,78 @@ const cantSave = computed(() => {
   }
   return retVal;
 });
+
+function buildItemsFromSequence(sequence) {
+  if (!sequence) {
+    return [];
+  }
+  return sequence
+      .toString()
+      .toUpperCase()
+      .split('')
+      .filter((symbol) => symbol.length > 0)
+      .map((symbol) => audioBySymbol.value.get(symbol))
+      .filter(Boolean);
+}
+
+function applySequence(sequence) {
+  selectedSequenceItems.value = buildItemsFromSequence(sequence);
+}
+
+function getCurrentSequenceString() {
+  return selectedSequenceItems.value.map((item) => item.symbol).join('').toUpperCase();
+}
+
+function applyDefaultSequenceIfEligible(newButton, previousButton) {
+  const buttonNumber = Number(newButton);
+  if (!Number.isFinite(buttonNumber) || !defaultButtonsSet.has(buttonNumber)) {
+    return;
+  }
+  if (audioBySymbol.value.size === 0) {
+    return;
+  }
+  const targetSequence = defaultSequenceMap.get(buttonNumber);
+  if (!targetSequence) {
+    return;
+  }
+  const currentSequence = getCurrentSequenceString();
+  const previousSequence = Number.isFinite(Number(previousButton))
+      ? (defaultSequenceMap.get(Number(previousButton)) ?? '')
+      : '';
+  const shouldApply =
+      currentSequence.length === 0 ||
+      currentSequence === previousSequence;
+  if (!shouldApply) {
+    return;
+  }
+  applySequence(targetSequence);
+}
+
+function syncMobileButtonDefault(newButton) {
+  if (jsvvAlarm.value.id) {
+    return;
+  }
+  const parsed = Number(newButton);
+  if (!Number.isFinite(parsed)) {
+    return;
+  }
+  if (jsvvAlarm.value.mobile_button == null) {
+    jsvvAlarm.value.mobile_button = parsed;
+  }
+}
+
+function syncButtonWithMobile(newMobile) {
+  if (jsvvAlarm.value.id) {
+    return;
+  }
+  const parsed = Number(newMobile);
+  if (!Number.isFinite(parsed)) {
+    return;
+  }
+  if (jsvvAlarm.value.button == null) {
+    jsvvAlarm.value.button = parsed;
+  }
+}
 </script>
 
 <template>

@@ -4,7 +4,7 @@
 
 @layer components {
     .component-box {
-        @apply border border-secondary/50 rounded-md px-5 py-3;
+        @apply border border-gray-200 dark:border-gray-700 rounded-md px-5 py-3 bg-base-100;
     }
 }
 

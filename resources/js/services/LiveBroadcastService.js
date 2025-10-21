@@ -1,7 +1,16 @@
 const normaliseStreamPayload = (payload = {}) => ({
-    source: payload.source ?? 'mic',
+    source: payload.source ?? 'microphone',
     route: payload.route ?? [],
     locations: payload.locations ?? payload.zones ?? [],
+    nests: payload.nests ?? [],
+    options: payload.options ?? {},
+});
+
+const normalisePlaylistPayload = (payload = {}) => ({
+    recordings: payload.recordings ?? [],
+    route: payload.route ?? [],
+    locations: payload.locations ?? payload.zones ?? [],
+    nests: payload.nests ?? [],
     options: payload.options ?? {},
 });
 
@@ -23,7 +32,7 @@ export default {
     },
 
     enqueuePlaylist(payload) {
-        return http.post('live-broadcast/playlist', payload).then(response => response.data);
+        return http.post('live-broadcast/playlist', normalisePlaylistPayload(payload)).then(response => response.data);
     },
 
     cancelPlaylist(id) {

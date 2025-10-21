@@ -11,6 +11,7 @@ return [
         \App\Settings\FMSettings::class,
         \App\Settings\TwoWayCommSettings::class,
         \App\Settings\JsvvSettings::class,
+        \App\Settings\VolumeSettings::class,
     ],
 
     /*

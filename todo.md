@@ -204,3 +204,74 @@
 - `/api/stream/telemetry` (GET)  
   Parameters: optional `since` timestamp.  
   Provides aggregated stream metrics (status history, errors, mixer levels) for dashboards.
+
+
+
+## PROJECT COMPLETION CHECKLIST
+
+**Přímé hlášení**  
+- Dokončit panel se všemi zdroji: mikrofon, soubor z počítače, FM rádio, seznam nahrávek, další vstupy dle ústředny.  
+- Umožnit volbu/změnu vstupu a hlasitosti během vysílání, zobrazovat detailní stav vysílání (zdroj, lokality, uživatel).  
+- Vynutit výběr minimálně jedné lokality/hnízda (oddělené seznamy, multi-select).  
+- Zajistit plnou podporu přímého hlášení z mobilu a Control boxu (PIN, priority).
+
+**Záznam**  
+- Umožnit záznam ze stejných vstupů jako přímé hlášení, blokovat při aktivním vysílání.  
+- Automaticky ukládat do `recordings/<rok>`, zobrazit „Poslední záznamy“ s přehráním, přejmenováním, přesunem, mazáním.  
+- Varovat při mazání sdílených nahrávek ovlivňujících Historii hlášení.
+
+**Poplachy JSVV**  
+- Vykreslit předdefinovaná tlačítka, potvrzení před odesláním do ústředny.  
+- Implementovat „Vlastní poplach JSVV“ a „Výpis záznamů JSVV“, logování poplachů.  
+- Respektovat priority (přerušení nižších hlášení).
+
+**Plánování úkolů**  
+- Kompletní agenda úkolů (vytváření, úpravy, rušení, spuštění, archív).  
+- Dodržet oprávnění (prohlížení, plánování, přímé hlášení).  
+- Napojit na Modbus start/stop, harmonogram podle manuálu.
+
+**Historie hlášení**  
+- Zobrazovat všechna hlášení s detailem (lokality, soubory, přehrání/stahování).  
+- Filtrovat dle typu/názvu, respektovat sdílení souborů.
+
+**Zprávy (SMS/E-mail)**  
+- Inbox/outbox, filtrování, odpovědi, odesílání s frontou a logy doručení.  
+- Správa šablon/kanálů podle manuálu.
+
+**Kontakty a Skupiny**  
+- CRUD rozhraní, přiřazení kanálů a skupin, filtrování.  
+- Napojit na modul Zprávy a GSM automat.
+
+**Soubory**  
+- Správce souborů se stromem složek, upload/download/přesun/mazání, integrace se záznamy.  
+- Zobrazit metadata dle manuálu.
+
+**Info / Aktivní alarmy / Protokoly / O aplikaci**  
+- Dashboard s kontakty, logy, aktivními výstrahami.  
+- Přehled protokolů s filtrováním a exportem.
+
+**Mapa**  
+- Zobrazit hnízda/centrály na mapě, editace poloh, stavy senzorů, filtry.  
+- Respektovat lokality a skupiny.
+
+**Nastavení**  
+- Uživatelé: správa účtů, rolí (Operátor/Administrátor/Servisní technik), PIN pro Control box, reset hesel, pravidla hierarchie.  
+- GSM: whitelist čísel, SIM PIN/kredit, hlasový automat (lokality, texty), režimy přístupu.  
+- Další servisní parametry dle manuálu (mapa, systém, soubory).
+
+**Role a oprávnění**  
+- Implementovat/validovat všechna oprávnění zmíněná v manuálu napříč moduly.
+
+**FTP export Historie**  
+- Realizovat export (XML CentralInfo.xml, FTP upload) podle přílohy manuálu.
+
+**Technické požadavky**  
+- Zajistit WebRTC audio, HTTPS, podporované prohlížeče (Chrome 60+, Firefox 55+), detekci nepodporovaných.
+
+**Stavový panel**  
+- Pravý panel se stavy ústředny: připojení, vysílání (typ, zdroj, lokality, uživatel), přehrávač, GSM síla/signál/SMS.  
+- Logování událostí do protokolů a Historie.
+
+**Dokumentace a nápověda**  
+- Dokončit nápovědu v aplikaci, zajistit dostupnost aktuálního manuálu.  
+- Aktualizovat README/dev docs podle výsledného stavu (audio pipeline, GSM/FM hardware, API, workers, troubleshooting).

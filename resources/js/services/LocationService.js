@@ -88,6 +88,18 @@ export default {
         });
     },
 
+    fetchNests() {
+        return http.post('locations/list', {
+            paginate: false,
+            filter: [
+                {column: 'type', value: 'NEST'},
+            ],
+            order: [
+                {column: 'name', dir: 'asc'},
+            ],
+        }).then(response => response.data?.data ?? response.data ?? []);
+    },
+
     updateRecords(locations) {
         return new Promise((resolve, reject) => {
             http.post('locations/save',

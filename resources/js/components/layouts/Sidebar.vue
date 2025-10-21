@@ -73,6 +73,11 @@ const sidebarItems = ref([
         to: 'FMSettings',
         active: 'settings/fm'
       }, {
+        name: 'Nastavení hlasitosti',
+        icon: 'mdi-volume-high',
+        to: 'VolumeSettings',
+        active: 'settings/volume'
+      }, {
         name: 'Kontakty',
         icon: 'mdi-card-account-mail',
         to: 'Contacts',
@@ -132,11 +137,11 @@ const sidebarItems = ref([
       <nav class="relative mb-24">
         <div v-for="item in sidebarItems" :key="item.name">
           <SidebarItem :to="item.to"
-                       :class="{['router-link-active router-link-exact-active text-primary-content']: $route.path.match(item.active) === true, 'dropdown': !showSideBar && item.submenu}">
+                       :class="{['router-link-active router-link-exact-active text-primary']: $route.path.match(item.active) === true, 'dropdown': !showSideBar && item.submenu}">
             <ul v-if="item.submenu" class="dropdown-menu min-w-max absolute right-0 translate-x-full bg-base-300 text-base-content hidden">
               <li v-for="subItem in item.submenu" :key="subItem.name" class="">
                 <SidebarItem :to="subItem.to"
-                             :class="{['router-link-active router-link-exact-active text-primary-content']: $route.path.match(subItem.active) === true}">
+                             :class="{['router-link-active router-link-exact-active text-primary']: $route.path.match(subItem.active) === true}">
                   <div class="flex items-center sidebar-item">
                     <div :class="['mdi', subItem.icon, 'text-xl', 'mr-3']"></div>
                     <div>{{ subItem.name }}</div>
@@ -160,7 +165,7 @@ const sidebarItems = ref([
             <div v-if="item.submenu && item.submenuVisible" :class="[showSideBar ? 'ml-8 border-l-2 border-slate-600' : '']">
               <div v-for="subItem in item.submenu" :key="subItem.name">
                 <SidebarItem :to="subItem.to"
-                             :class="{['router-link-active router-link-exact-active text-primary-content']: $route.path.match(subItem.active) === true}">
+                             :class="{['router-link-active router-link-exact-active text-primary']: $route.path.match(subItem.active) === true}">
                   <div class="flex items-center sidebar-item" :class="[showSideBar ? 'block' : 'hidden']">
                     <div :class="['mdi', subItem.icon, 'text-xl', 'mr-3']"></div>
                     <div>{{ subItem.name }}</div>

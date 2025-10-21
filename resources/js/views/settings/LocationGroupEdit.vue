@@ -44,10 +44,12 @@ const timingList = [
 const locationGroup = ref({
   id: null,
   name: '',
+  is_hidden: false,
   subtone_type: 'NONE',
   subtone_data: {listen: [], record: []},
   init_audio: null,
   exit_audio: null,
+  modbus_group_address: null,
   // timing is an object with keys from timingList array and values start: 0, end:0
   timing: timingList.reduce((acc, timingRecord) => {
     acc[timingRecord.name] = {start: null, end: null};
@@ -148,6 +150,11 @@ function saveLocationGroup() {
     <Box label="Nastavení lokality">
       <Input v-model="locationGroup.name" label="Název lokality:" placeholder="Zadejte název (min. 3 znaky)" :error="errorBag?.name"/>
       <Checkbox v-model="locationGroup.is_hidden" label="Skrytá lokalita"/>
+      <Input v-model="locationGroup.modbus_group_address"
+             label="Skupinová Modbus adresa"
+             type="number"
+             placeholder="Např. 101"
+             data-class="input-bordered input-sm"/>
       <Select v-model="locationGroup.subtone_type" label="Typ subtónu:" :options="subtoneTypes"/>
 
       <CustomFormControl label="Nastavení subtónu">

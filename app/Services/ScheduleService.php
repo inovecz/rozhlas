@@ -14,21 +14,31 @@ class ScheduleService extends Service
 {
     public function savePost(ScheduleSaveRequest $request, Schedule $schedule = null): string
     {
+        $isRepeating = $request->boolean('is_repeating');
+
+        $repeatData = [
+            'repeat_count' => $isRepeating ? $request->input('repeat_count') : null,
+            'repeat_interval_value' => $isRepeating ? $request->input('repeat_interval_value') : null,
+            'repeat_interval_unit' => $isRepeating ? $request->input('repeat_interval_unit') : null,
+            'repeat_interval_meta' => $isRepeating ? $request->input('repeat_interval_meta') : null,
+        ];
+
         $data = [
             'title' => $request->input('title'),
             'scheduled_at' => Carbon::parse($request->input('scheduled_at')),
-            'is_repeating' => $request->input('is_repeating'),
+            'is_repeating' => $isRepeating,
             'intro_id' => $request->input('intro_id'),
             'opening_id' => $request->input('opening_id'),
             'common_ids' => $request->input('common_ids'),
             'outro_id' => $request->input('outro_id'),
             'closing_id' => $request->input('closing_id'),
+            ...$repeatData,
         ];
 
         return $this->save($data, $schedule);
     }
 
-    /** @param  array{title: string, scheduled_at: Carbon, is_repeating: bool, intro_id?: int, opening_id?: int, common_ids: array<int, int>, outro_id?: int, closing_id: int}  $data */
+    /** @param  array{title: string, scheduled_at: Carbon, is_repeating: bool, intro_id?: int, opening_id?: int, common_ids: array<int, int>, outro_id?: int, closing_id: int, repeat_count?: int|null, repeat_interval_value?: int|null, repeat_interval_unit?: string|null, repeat_interval_meta?: array|null}  $data */
     public function save(array $data, Schedule $schedule = null): string
     {
         if (!$schedule) {

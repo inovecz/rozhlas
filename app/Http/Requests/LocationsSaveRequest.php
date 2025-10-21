@@ -30,6 +30,14 @@ class LocationsSaveRequest extends FormRequest
                 '*.longitude' => 'required|numeric',
                 '*.latitude' => 'required|numeric',
                 '*.is_active' => 'sometimes|boolean',
+                '*.modbus_address' => 'nullable|integer|min:0|max:65535',
+                '*.bidirectional_address' => 'nullable|integer|min:0|max:65535',
+                '*.private_receiver_address' => 'nullable|integer|min:0|max:65535',
+                '*.components' => 'nullable|array',
+                '*.components.*' => 'string',
+                '*.status' => 'nullable|string|in:OK,WARNING,ERROR,UNKNOWN',
+                '*.location_group_ids' => 'nullable|array',
+                '*.location_group_ids.*' => 'integer|exists:location_groups,id',
             ];
         }
         return [
@@ -40,6 +48,14 @@ class LocationsSaveRequest extends FormRequest
             'longitude' => 'required|numeric',
             'latitude' => 'required|numeric',
             'is_active' => 'sometimes|boolean',
+            'modbus_address' => 'nullable|integer|min:0|max:65535',
+            'bidirectional_address' => 'nullable|integer|min:0|max:65535',
+            'private_receiver_address' => 'nullable|integer|min:0|max:65535',
+            'components' => 'nullable|array',
+            'components.*' => 'string',
+            'status' => 'nullable|string|in:OK,WARNING,ERROR,UNKNOWN',
+            'location_group_ids' => 'nullable|array',
+            'location_group_ids.*' => 'integer|exists:location_groups,id',
         ];
     }
 
@@ -54,6 +70,12 @@ class LocationsSaveRequest extends FormRequest
                 '*.longitude' => 'trim|digit',
                 '*.latitude' => 'trim|digit',
                 '*.is_active' => 'trim|cast:boolean',
+                '*.modbus_address' => 'trim|digit',
+                '*.bidirectional_address' => 'trim|digit',
+                '*.private_receiver_address' => 'trim|digit',
+                '*.components' => 'cast:json',
+                '*.status' => 'trim|uppercase',
+                '*.location_group_ids.*' => 'trim|digit',
             ];
         }
         return [
@@ -63,6 +85,12 @@ class LocationsSaveRequest extends FormRequest
             'longitude' => 'trim|digit',
             'latitude' => 'trim|digit',
             'is_active' => 'trim|cast:boolean',
+            'modbus_address' => 'trim|digit',
+            'bidirectional_address' => 'trim|digit',
+            'private_receiver_address' => 'trim|digit',
+            'components' => 'cast:json',
+            'status' => 'trim|uppercase',
+            'location_group_ids.*' => 'trim|digit',
         ];
     }
 }

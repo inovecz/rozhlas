@@ -82,5 +82,5 @@ abstract class Service
         return $this->setResponseMessage('global.not_specified_error', 400);
     }
 
-    public abstract function getResponse(): JsonResponse;
+    // public abstract function getResponse(): JsonResponse;
 }

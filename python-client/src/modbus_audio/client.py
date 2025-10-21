@@ -159,9 +159,14 @@ class ModbusAudioClient:
     def start_stream(self, zones: Iterable[int] | None = None) -> None:
         """Start audio streaming by writing ``2`` into TxControl (0x4035)."""
 
-        zone_values = list(zones) if zones is not None else list(constants.DEFAULT_DESTINATION_ZONES)
-        if zone_values:
-            self.set_destination_zones(zone_values)
+        if zones is None:
+            zone_values = list(constants.DEFAULT_DESTINATION_ZONES)
+        else:
+            zone_values = list(zones)
+
+        # Always push the provided zone set so empty selections clear previous
+        # configuration instead of reusing stale registers.
+        self.set_destination_zones(zone_values)
         # Some firmware revisions only honour TxControl writes when issued via
         # function code 16 (write multiple registers), even for a single word.
         self.write_registers(constants.TX_CONTROL, (2,))

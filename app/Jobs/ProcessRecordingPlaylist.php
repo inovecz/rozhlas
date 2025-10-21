@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
+use App\Exceptions\BroadcastLockedException;
 use App\Models\BroadcastPlaylist;
 use App\Models\StreamTelemetryEntry;
 use App\Services\StreamOrchestrator;
@@ -36,22 +37,38 @@ class ProcessRecordingPlaylist implements ShouldQueue
             return;
         }
 
+        $selection = Arr::get($playlist->options ?? [], '_selection', []);
+
+        try {
+            $orchestrator->start([
+                'source' => 'recorded_playlist',
+                'route' => Arr::get($selection, 'route', $playlist->route ?? []),
+                'locations' => Arr::get($selection, 'locations', []),
+                'nests' => Arr::get($selection, 'nests', []),
+                'options' => $playlist->options ?? [],
+            ]);
+        } catch (BroadcastLockedException $exception) {
+            $playlist->update([
+                'status' => 'queued',
+                'started_at' => null,
+            ]);
+            $this->release(10);
+            return;
+        }
+
         $playlist->update([
             'status' => 'running',
             'started_at' => now(),
-        ]);
-
-        $orchestrator->start([
-            'source' => 'recording',
-            'route' => $playlist->route ?? [],
-            'zones' => $playlist->zones ?? [],
-            'options' => $playlist->options ?? [],
         ]);
 
         foreach ($playlist->items()->orderBy('position')->get() as $item) {
             $freshPlaylist = $playlist->fresh();
             if ($freshPlaylist->status === 'cancelled') {
                 $orchestrator->stop('playlist_cancelled');
+                return;
+            }
+
+            if ($freshPlaylist->status === 'queued') {
                 return;
             }
 

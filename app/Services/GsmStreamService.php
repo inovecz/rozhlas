@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Exceptions\BroadcastLockedException;
 use App\Libraries\PythonClient;
 use App\Models\GsmCallSession;
 use App\Models\GsmPinVerification;
@@ -53,12 +54,23 @@ class GsmStreamService extends Service
             $session->save();
 
             if ($session->authorised) {
-                $this->orchestrator->start([
-                    'source' => 'gsm',
-                    'route' => Arr::get($session->metadata, 'route', []),
-                    'zones' => Arr::get($session->metadata, 'zones', []),
-                    'options' => ['caller' => $caller],
-                ]);
+                try {
+                    $this->orchestrator->start([
+                        'source' => 'gsm',
+                        'route' => Arr::get($session->metadata, 'route', []),
+                        'zones' => Arr::get($session->metadata, 'zones', []),
+                        'options' => ['caller' => $caller],
+                    ]);
+                } catch (BroadcastLockedException $exception) {
+                    Log::warning('GSM stream blocked by active JSVV sequence', [
+                        'caller' => $caller,
+                        'session_id' => $session->id,
+                    ]);
+                    $session->status = 'rejected';
+                    $session->ended_at = now();
+                    $session->save();
+                    $this->clearPendingPins($session);
+                }
             }
             return;
         }

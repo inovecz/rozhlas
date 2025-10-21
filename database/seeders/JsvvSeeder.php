@@ -22,225 +22,119 @@ class JsvvSeeder extends Seeder
         ]);
         DB::table('jsvv_alarms')->truncate();
         DB::table('jsvv_audio')->truncate();
-        DB::table('jsvv_audio')->insert([
-            [
-                'symbol' => '1',
-                'name' => 'Kolísavý tón',
+
+        $timestamp = now();
+
+        $sirens = [
+            ['symbol' => '1', 'name' => 'Kolísavý tón'],
+            ['symbol' => '2', 'name' => 'Trvalý tón'],
+            ['symbol' => '3', 'name' => 'Rezerva'],
+            ['symbol' => '4', 'name' => 'Požární poplach'],
+        ];
+
+        $gongs = [
+            ['symbol' => '8', 'name' => 'Gong č. 1'],
+            ['symbol' => '9', 'name' => 'Gong č. 2'],
+        ];
+
+        $verbals = [
+            ['symbol' => 'A', 'name' => 'Zkouška sirén'],
+            ['symbol' => 'B', 'name' => 'Všeobecná výstraha'],
+            ['symbol' => 'C', 'name' => 'Zátopová vlna'],
+            ['symbol' => 'D', 'name' => 'Chemická havárie'],
+            ['symbol' => 'E', 'name' => 'Radiační havárie'],
+            ['symbol' => 'F', 'name' => 'Konec poplachu'],
+            ['symbol' => 'G', 'name' => 'Požární poplach'],
+            ['symbol' => 'U', 'name' => 'Proběhne zkouška'],
+            ['symbol' => 'V', 'name' => 'Proběhne zkouška (A)'],
+            ['symbol' => 'X', 'name' => 'Proběhne zkouška (N)'],
+            ['symbol' => 'Y', 'name' => 'Proběhne zkouška (R)'],
+        ];
+
+        $audioSources = [
+            ['symbol' => 'I', 'name' => 'Externí audio', 'type' => JsvvAudioTypeEnum::SOURCE, 'source' => JsvvAudioSourceEnum::FM],
+            ['symbol' => 'J', 'name' => 'Externí modulace', 'type' => JsvvAudioTypeEnum::SOURCE, 'source' => JsvvAudioSourceEnum::INPUT_4],
+            ['symbol' => 'K', 'name' => 'Rezerva 1', 'type' => JsvvAudioTypeEnum::SOURCE, 'source' => JsvvAudioSourceEnum::INPUT_2],
+            ['symbol' => 'L', 'name' => 'Rezerva 3', 'type' => JsvvAudioTypeEnum::SOURCE, 'source' => JsvvAudioSourceEnum::INPUT_3],
+            ['symbol' => 'M', 'name' => 'Mikrofon', 'type' => JsvvAudioTypeEnum::SOURCE, 'source' => JsvvAudioSourceEnum::INPUT_1],
+        ];
+
+        $audioSilence = [
+            ['symbol' => 'P', 'name' => 'Ticho pro P'],
+            ['symbol' => 'Q', 'name' => 'Ticho pro Q'],
+            ['symbol' => 'R', 'name' => 'Ticho pro R'],
+            ['symbol' => 'S', 'name' => 'Ticho pro S'],
+            ['symbol' => 'T', 'name' => 'Ticho pro T'],
+        ];
+
+        $audios = [];
+
+        foreach ($sirens as $audio) {
+            $audios[] = [
+                'symbol' => $audio['symbol'],
+                'name' => $audio['name'],
                 'group' => JsvvAudioGroupEnum::SIREN,
                 'type' => JsvvAudioTypeEnum::FILE,
                 'source' => null,
                 'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => '2',
-                'name' => 'Trvalý tón',
-                'group' => JsvvAudioGroupEnum::SIREN,
-                'type' => JsvvAudioTypeEnum::FILE,
-                'source' => null,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => '3',
-                'name' => 'Rezerva',
-                'group' => JsvvAudioGroupEnum::SIREN,
-                'type' => JsvvAudioTypeEnum::FILE,
-                'source' => null,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => '4',
-                'name' => 'Požární poplach',
-                'group' => JsvvAudioGroupEnum::SIREN,
-                'type' => JsvvAudioTypeEnum::FILE,
-                'source' => null,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => '8',
-                'name' => 'Gong č.1',
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ];
+        }
+
+        foreach ($gongs as $audio) {
+            $audios[] = [
+                'symbol' => $audio['symbol'],
+                'name' => $audio['name'],
                 'group' => JsvvAudioGroupEnum::GONG,
                 'type' => JsvvAudioTypeEnum::FILE,
                 'source' => null,
                 'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => '9',
-                'name' => 'Gong č.2',
-                'group' => JsvvAudioGroupEnum::GONG,
-                'type' => JsvvAudioTypeEnum::FILE,
-                'source' => null,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'A',
-                'name' => 'Zkouška sirén',
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ];
+        }
+
+        foreach ($verbals as $audio) {
+            $audios[] = [
+                'symbol' => $audio['symbol'],
+                'name' => $audio['name'],
                 'group' => JsvvAudioGroupEnum::VERBAL,
                 'type' => JsvvAudioTypeEnum::FILE,
                 'source' => null,
                 'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'B',
-                'name' => 'Všeobecná výstraha',
-                'group' => JsvvAudioGroupEnum::VERBAL,
-                'type' => JsvvAudioTypeEnum::FILE,
-                'source' => null,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'C',
-                'name' => 'Zátopová vlna',
-                'group' => JsvvAudioGroupEnum::VERBAL,
-                'type' => JsvvAudioTypeEnum::FILE,
-                'source' => null,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'D',
-                'name' => 'Chemická havárie',
-                'group' => JsvvAudioGroupEnum::VERBAL,
-                'type' => JsvvAudioTypeEnum::FILE,
-                'source' => null,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'E',
-                'name' => 'Radiační havárie',
-                'group' => JsvvAudioGroupEnum::VERBAL,
-                'type' => JsvvAudioTypeEnum::FILE,
-                'source' => null,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'F',
-                'name' => 'Konec poplachu',
-                'group' => JsvvAudioGroupEnum::VERBAL,
-                'type' => JsvvAudioTypeEnum::FILE,
-                'source' => null,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'G',
-                'name' => 'Požární poplach',
-                'group' => JsvvAudioGroupEnum::VERBAL,
-                'type' => JsvvAudioTypeEnum::FILE,
-                'source' => null,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'I',
-                'name' => 'Externí audio',
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ];
+        }
+
+        foreach ($audioSources as $audio) {
+            $audios[] = [
+                'symbol' => $audio['symbol'],
+                'name' => $audio['name'],
                 'group' => JsvvAudioGroupEnum::AUDIO,
-                'type' => JsvvAudioTypeEnum::SOURCE,
-                'source' => JsvvAudioSourceEnum::FM,
+                'type' => $audio['type'],
+                'source' => $audio['source'],
                 'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'J',
-                'name' => 'Externí modulace',
-                'group' => JsvvAudioGroupEnum::AUDIO,
-                'type' => JsvvAudioTypeEnum::SOURCE,
-                'source' => JsvvAudioSourceEnum::INPUT_4,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'K',
-                'name' => 'Rezerva 1',
-                'group' => JsvvAudioGroupEnum::AUDIO,
-                'type' => JsvvAudioTypeEnum::SOURCE,
-                'source' => JsvvAudioSourceEnum::INPUT_2,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'L',
-                'name' => 'Rezerva 2',
-                'group' => JsvvAudioGroupEnum::AUDIO,
-                'type' => JsvvAudioTypeEnum::SOURCE,
-                'source' => JsvvAudioSourceEnum::INPUT_3,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'M',
-                'name' => 'Mikrofon',
-                'group' => JsvvAudioGroupEnum::AUDIO,
-                'type' => JsvvAudioTypeEnum::SOURCE,
-                'source' => JsvvAudioSourceEnum::INPUT_1,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'P',
-                'name' => 'Ticho pro P',
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ];
+        }
+
+        foreach ($audioSilence as $audio) {
+            $audios[] = [
+                'symbol' => $audio['symbol'],
+                'name' => $audio['name'],
                 'group' => JsvvAudioGroupEnum::AUDIO,
                 'type' => JsvvAudioTypeEnum::FILE,
                 'source' => null,
                 'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'Q',
-                'name' => 'Ticho pro Q',
-                'group' => JsvvAudioGroupEnum::AUDIO,
-                'type' => JsvvAudioTypeEnum::FILE,
-                'source' => null,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'R',
-                'name' => 'Ticho pro R',
-                'group' => JsvvAudioGroupEnum::AUDIO,
-                'type' => JsvvAudioTypeEnum::FILE,
-                'source' => null,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'S',
-                'name' => 'Ticho pro S',
-                'group' => JsvvAudioGroupEnum::AUDIO,
-                'type' => JsvvAudioTypeEnum::FILE,
-                'source' => null,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'T',
-                'name' => 'Ticho pro T',
-                'group' => JsvvAudioGroupEnum::AUDIO,
-                'type' => JsvvAudioTypeEnum::FILE,
-                'source' => null,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'U',
-                'name' => 'Proběhne zkouška',
-                'group' => JsvvAudioGroupEnum::VERBAL,
-                'type' => JsvvAudioTypeEnum::FILE,
-                'source' => null,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'V',
-                'name' => 'Proběhne zkouška (A)',
-                'group' => JsvvAudioGroupEnum::VERBAL,
-                'type' => JsvvAudioTypeEnum::FILE,
-                'source' => null,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'X',
-                'name' => 'Proběhne zkouška (N)',
-                'group' => JsvvAudioGroupEnum::VERBAL,
-                'type' => JsvvAudioTypeEnum::FILE,
-                'source' => null,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ], [
-                'symbol' => 'Y',
-                'name' => 'Proběhne zkouška (R)',
-                'group' => JsvvAudioGroupEnum::VERBAL,
-                'type' => JsvvAudioTypeEnum::FILE,
-                'source' => null,
-                'file_id' => null,
-                'created_at' => now(), 'updated_at' => now(),
-            ],
-        ]);
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ];
+        }
+
+        DB::table('jsvv_audio')->insert($audios);
         DB::table('jsvv_alarms')->insert([
             [
                 'name' => 'Zkouška sirén',
