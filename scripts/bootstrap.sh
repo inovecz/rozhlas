@@ -15,6 +15,33 @@ detect_package_manager() {
   fi
 }
 
+
+set_env_value() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  if [ ! -f "$file" ]; then
+    return
+  fi
+  python3 - "$file" "$key" "$value" <<'PYEOF'
+import sys
+from pathlib import Path
+file = Path(sys.argv[1])
+key = sys.argv[2]
+value = sys.argv[3]
+lines = file.read_text().splitlines()
+found = False
+for i, line in enumerate(lines):
+    if line.startswith(key + "="):
+        lines[i] = f"{key}={value}"
+        found = True
+        break
+if not found:
+    lines.append(f"{key}={value}")
+file.write_text("\n".join(lines) + "\n")
+PYEOF
+}
+
 install_packages() {
   local manager="$1"; shift
   local packages=("$@")
@@ -96,6 +123,14 @@ ensure_runtime_tooling() {
 
 ensure_runtime_tooling
 
+# Ensure SQLite database exists
+SQLITE_DB="$ROOT_DIR/database/database.sqlite"
+mkdir -p "$(dirname "$SQLITE_DB")"
+if [ ! -f "$SQLITE_DB" ]; then
+  echo "Creating SQLite database at $SQLITE_DB"
+  touch "$SQLITE_DB"
+fi
+
 # ---------------------------------------------------------------------------
 # Composer (composer.phar)
 # ---------------------------------------------------------------------------
@@ -130,6 +165,13 @@ fi
 
 echo "Ensuring main scripts are executable..."
 chmod +x "$ROOT_DIR/run.sh" "$ROOT_DIR/scripts/install.sh"
+
+PYTHON_VALUE=".venv/bin/python3"
+if [[ "$OS" == "Windows_NT" || "$OSTYPE" == msys* || "$OSTYPE" == cygwin* ]]; then
+  PYTHON_VALUE=".venv\\Scripts\\python.exe"
+fi
+set_env_value "$ROOT_DIR/.env" "PYTHON_BINARY" "$PYTHON_VALUE"
+set_env_value "$ROOT_DIR/.env.example" "PYTHON_BINARY" "$PYTHON_VALUE"
 
 echo "\nBootstrap completed. Next step:"
 echo "  php artisan app:install"

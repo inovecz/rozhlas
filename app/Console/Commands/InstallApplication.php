@@ -38,13 +38,18 @@ class InstallApplication extends Command
         $this->components->info('Clearing application cache');
         $this->clearApplicationCache(ignoreMissingTable: true);
 
-        $this->ensureSqliteDatabaseExists();
+        $pythonBinary = $this->determinePythonBinary();
+        $this->setEnvValue('PYTHON_BINARY', $pythonBinary);
+        config(['app.python_binary' => $pythonBinary]);
 
         $this->components->info('Running database migrations...');
         $this->call('migrate', ['--force' => true]);
 
         $this->components->info('Seeding baseline data...');
         $this->call('db:seed', ['--force' => true]);
+
+        $this->components->info('Generating application key...');
+        $this->call('key:generate', ['--force' => true]);
 
         if (config('app.env') === 'production') {
             $this->components->info('Building frontend assets (npm run build)...');
@@ -76,7 +81,10 @@ class InstallApplication extends Command
         $this->components->twoColumnDetail('Password', $password);
         $this->components->twoColumnDetail('Modbus port', $modbusPort);
         $this->components->twoColumnDetail('Modbus unit id', (string) $modbusUnitId);
+        $this->components->twoColumnDetail('Python binary', $pythonBinary);
         $this->components->twoColumnDetail('Start command', './run.sh (development)');
+
+        $this->info('To launch the application run ./run.sh (use chmod +x run.sh if required).');
 
         $this->line('');
         $this->warn('Store these credentials securely. You can change the password after logging in.');
@@ -159,32 +167,6 @@ class InstallApplication extends Command
         file_put_contents($envPath, $contents);
     }
 
-    private function ensureSqliteDatabaseExists(): void
-    {
-        if (config('database.default') !== 'sqlite') {
-            return;
-        }
-
-        $databasePath = config('database.connections.sqlite.database');
-        if ($databasePath === null || $databasePath === '' || $databasePath === ':memory:') {
-            return;
-        }
-
-        $isAbsolute = Str::startsWith($databasePath, ['/','\\']) || preg_match('/^[A-Za-z]:\\\\/', $databasePath) === 1;
-        if (!$isAbsolute) {
-            $databasePath = base_path($databasePath);
-        }
-
-        $directory = dirname($databasePath);
-        if (!is_dir($directory)) {
-            mkdir($directory, 0755, true);
-        }
-
-        if (!file_exists($databasePath)) {
-            touch($databasePath);
-            $this->components->info(sprintf('Created SQLite database at %s', $databasePath));
-        }
-    }
 
     private function clearApplicationCache(bool $ignoreMissingTable = false): void
     {
@@ -244,5 +226,27 @@ class InstallApplication extends Command
         if (!$process->isSuccessful()) {
             throw new \RuntimeException('npm run build failed: ' . $process->getErrorOutput());
         }
+    }
+
+    private function determinePythonBinary(): string
+    {
+        $current = env('PYTHON_BINARY');
+        if (!empty($current)) {
+            return $current;
+        }
+
+        if (PHP_OS_FAMILY !== 'Windows') {
+            $unixVenv = base_path('.venv/bin/python3');
+            if (file_exists($unixVenv)) {
+                return $unixVenv;
+            }
+        } else {
+            $windowsVenv = base_path('.venv') . '\\Scripts\\python.exe';
+            if (file_exists($windowsVenv)) {
+                return $windowsVenv;
+            }
+        }
+
+        return 'python3';
     }
 }
