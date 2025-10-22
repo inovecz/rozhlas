@@ -51,6 +51,11 @@ class PythonClient
         return $this->runModbus('stop-stream', [], $timeout);
     }
 
+    public function readAlarmBuffer(?float $timeout = null): array
+    {
+        return $this->runModbus('read-alarms', [], $timeout);
+    }
+
     public function getDeviceInfo(): array
     {
         return $this->runModbus('device-info');
@@ -585,7 +590,9 @@ class PythonClient
         $scriptPath = $this->resolveScriptPath($script);
         $command = array_merge([$this->pythonBinary, $scriptPath], $arguments);
 
-        $process = new Process($command, $this->scriptsRoot, null, null, $timeout);
+        $environment = $this->buildProcessEnvironment();
+
+        $process = new Process($command, $this->scriptsRoot, $environment, null, $timeout);
         $process->run();
 
         $stdout = $process->getOutput();
@@ -704,6 +711,9 @@ class PythonClient
             }
 
             if (is_array($value)) {
+                if ($value === []) {
+                    continue;
+                }
                 $arguments[] = $flag;
                 foreach ($value as $item) {
                     $arguments[] = (string) $item;
@@ -716,5 +726,25 @@ class PythonClient
         }
 
         return $arguments;
+    }
+
+    private function buildProcessEnvironment(): array
+    {
+        $base = array_merge($_ENV ?? [], $_SERVER ?? []);
+
+        $modbus = config('modbus', []);
+
+        $overrides = array_filter([
+            'MODBUS_PORT' => $modbus['port'] ?? null,
+            'MODBUS_METHOD' => $modbus['method'] ?? null,
+            'MODBUS_BAUDRATE' => $modbus['baudrate'] ?? null,
+            'MODBUS_PARITY' => $modbus['parity'] ?? null,
+            'MODBUS_STOPBITS' => $modbus['stopbits'] ?? null,
+            'MODBUS_BYTESIZE' => $modbus['bytesize'] ?? null,
+            'MODBUS_TIMEOUT' => $modbus['timeout'] ?? null,
+            'MODBUS_UNIT_ID' => $modbus['unit_id'] ?? null,
+        ], static fn ($value) => $value !== null && $value !== '');
+
+        return array_merge($base, $overrides);
     }
 }

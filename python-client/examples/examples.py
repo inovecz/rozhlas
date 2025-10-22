@@ -35,6 +35,7 @@ from modbus_audio.constants import TX_CONTROL
 from jsvv import JSVVClient
 
 
+DEMO_ROUTE = list(constants.DEFAULT_ROUTE)
 DEMO_ZONES = list(constants.DEFAULT_DESTINATION_ZONES)
 DEMO_FREQUENCY = constants.DEFAULT_FREQUENCY
 PRETTY_PRINT_INSPECT = True
@@ -110,7 +111,7 @@ def read_tx_control_value() -> int:
 
 def start_streaming(zones: Iterable[int] | None = None) -> None:
     with build_client() as client:
-        client.start_stream(zones=zones if zones is not None else DEMO_ZONES)
+        client.start_stream(DEMO_ROUTE, zones=zones if zones is not None else DEMO_ZONES)
 
 
 def stop_streaming() -> None:
@@ -139,7 +140,7 @@ def run_verbal_asset(
     print(f"Audio asset: {asset_path}")
     try:
         with build_client() as modbus_client:
-            modbus_client.start_stream(zones=zones)
+            modbus_client.start_stream(DEMO_ROUTE, zones=zones if zones is not None else DEMO_ZONES)
             try:
                 if player_command and asset_path:
                     try:

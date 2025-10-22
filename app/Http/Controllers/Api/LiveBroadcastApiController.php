@@ -13,6 +13,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Validator;
+use InvalidArgumentException;
 
 class LiveBroadcastApiController extends Controller
 {
@@ -52,6 +53,11 @@ class LiveBroadcastApiController extends Controller
                 'status' => 'jsvv_active',
                 'message' => 'Nelze spustit vysílání: probíhá poplach JSVV.',
             ], 409);
+        } catch (InvalidArgumentException $exception) {
+            return response()->json([
+                'status' => 'invalid_request',
+                'message' => $exception->getMessage(),
+            ], 422);
         }
 
         return response()->json(['session' => $session]);

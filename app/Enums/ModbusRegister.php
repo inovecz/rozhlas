@@ -28,6 +28,9 @@ enum ModbusRegister: string
     case FIRMWARE_DATE = 'firmware_date';
     case HARDWARE_VERSION = 'hardware_version';
     case INSTRUMENT_ID = 'instrument_id';
+    case ALARM_ADDRESS = 'alarm_address';
+    case ALARM_REPEAT = 'alarm_repeat';
+    case ALARM_DATA = 'alarm_data';
 
     public function address(): int
     {
@@ -35,6 +38,9 @@ enum ModbusRegister: string
             self::PROBE => 0x0000,
             self::ROUTE_COUNT_RAM => 0x0000,
             self::ROUTE_RAM => 0x0001,
+            self::ALARM_ADDRESS => 0x3000,
+            self::ALARM_REPEAT => 0x3001,
+            self::ALARM_DATA => 0x3002,
             self::ROUTE_COUNT_FLASH => 0x4025,
             self::ROUTE_FLASH => 0x4026,
             self::DESTINATION_ZONES => 0x4030,
@@ -63,6 +69,7 @@ enum ModbusRegister: string
             self::SERIAL_NUMBER => 3,
             self::FIRMWARE_DATE => 2,
             self::UNIT_NUMBER => 4,
+            self::ALARM_DATA => 8,
             default => 1,
         };
     }
@@ -78,6 +85,9 @@ enum ModbusRegister: string
             self::FIRMWARE_DATE => false,
             self::HARDWARE_VERSION => false,
             self::INSTRUMENT_ID => false,
+            self::ALARM_ADDRESS => false,
+            self::ALARM_REPEAT => false,
+            self::ALARM_DATA => false,
             default => true,
         };
     }
@@ -107,6 +117,9 @@ enum ModbusRegister: string
             self::FIRMWARE_DATE => 'Firmware build date registers',
             self::HARDWARE_VERSION => 'Hardware version register',
             self::INSTRUMENT_ID => 'Instrument identifier register',
+            self::ALARM_ADDRESS => 'Latest alarm source Modbus address (0x3000)',
+            self::ALARM_REPEAT => 'Alarm repeat counter (0x3001)',
+            self::ALARM_DATA => 'Alarm payload words (0x3002-0x3009)',
         };
     }
 }

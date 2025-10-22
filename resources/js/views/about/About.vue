@@ -15,7 +15,7 @@ const centralData = {
 <template>
   <PageContent label="O aplikaci">
     <p>
-      Aplikace slouží k ovládání a nastavení rozhlasové ústředny Sarah IV.
+      Aplikace slouží k ovládání a nastavení rozhlasové ústředny Sarah V.
     </p>
 
     <Box label="Informace o ústředně">

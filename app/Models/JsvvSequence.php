@@ -26,6 +26,8 @@ class JsvvSequence extends Model
         'completed_at',
         'failed_at',
         'error_message',
+        'estimated_duration_seconds',
+        'actual_duration_seconds',
     ];
 
     protected $casts = [
@@ -36,6 +38,8 @@ class JsvvSequence extends Model
         'triggered_at' => 'datetime',
         'completed_at' => 'datetime',
         'failed_at' => 'datetime',
+        'estimated_duration_seconds' => 'float',
+        'actual_duration_seconds' => 'float',
     ];
 
     protected static function booted(): void

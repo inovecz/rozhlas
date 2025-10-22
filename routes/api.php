@@ -13,6 +13,7 @@ use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\JsvvAlarmController;
 use App\Http\Controllers\LiveBroadcastController;
 use App\Http\Controllers\Api\FmController;
+use App\Http\Controllers\Api\ControlTabController;
 use App\Http\Controllers\Api\GsmController;
 use App\Http\Controllers\Api\JsvvEventController;
 use App\Http\Controllers\Api\JsvvSequenceController;
@@ -88,6 +89,7 @@ Route::group(['middleware' => ['api']], static function () {
         Route::delete('/whitelist/{id}', [GsmController::class, 'destroy']);
         Route::post('/pin/verify', [GsmController::class, 'verifyPin']);
     });
+    Route::post('/control-tab/events', [ControlTabController::class, 'handle']);
 
     Route::group(['prefix' => 'fm'], static function () {
         Route::get('/frequency', [FmController::class, 'show']);

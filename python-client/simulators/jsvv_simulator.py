@@ -24,7 +24,7 @@ if SRC_DIR.exists() and str(SRC_DIR) not in sys.path:
 from jsvv import JSVVClient, JSVVError  # noqa: E402
 from jsvv.simulator import JSVVSimulator, SCENARIOS, SimulationEvent  # noqa: E402
 
-from modbus_audio import ModbusAudioClient, ModbusAudioError, SerialSettings  # noqa: E402
+from modbus_audio import ModbusAudioClient, ModbusAudioError, SerialSettings, constants  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -134,7 +134,9 @@ class ModbusPlaybackBridge:
     def _handle_verbal(self, asset_path: str | None) -> None:
         self._ensure_connected()
         zones = self._zones if self._zones else None
-        self._client.start_stream(zones=zones)
+        route = getattr(self, "_route", None)
+        hop_addresses = list(route) if route else list(constants.DEFAULT_ROUTE)
+        self._client.start_stream(hop_addresses, zones=zones)
         try:
             if self._player_command and asset_path:
                 try:

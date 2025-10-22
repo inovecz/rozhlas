@@ -3,6 +3,10 @@
 declare(strict_types=1);
 
 return [
+    'default_route' => array_values(array_filter(array_map(
+        static fn ($value) => (int) trim($value),
+        explode(',', (string) env('BROADCAST_DEFAULT_ROUTE', '1,116,225')),
+    ))),
     'mixer' => [
         'enabled' => env('BROADCAST_MIXER_ENABLED', false),
         'binary' => env('BROADCAST_MIXER_BINARY', '/usr/local/bin/alza-mixer'),

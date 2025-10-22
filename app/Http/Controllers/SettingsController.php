@@ -102,6 +102,9 @@ class SettingsController extends Controller
             'allowSms' => $jsvvSettings->allowSms,
             'smsContacts' => $jsvvSettings->smsContacts,
             'smsMessage' => $jsvvSettings->smsMessage,
+            'allowAlarmSms' => $jsvvSettings->allowAlarmSms,
+            'alarmSmsContacts' => $jsvvSettings->alarmSmsContacts,
+            'alarmSmsMessage' => $jsvvSettings->alarmSmsMessage,
             'allowEmail' => $jsvvSettings->allowEmail,
             'emailContacts' => $jsvvSettings->emailContacts,
             'emailSubject' => $jsvvSettings->emailSubject,
@@ -119,6 +122,11 @@ class SettingsController extends Controller
             $jsvvSettings->allowSms = $request->input('allowSms');
             $jsvvSettings->smsContacts = $request->input('smsContacts');
             $jsvvSettings->smsMessage = $request->input('smsMessage');
+        }
+        if ($request->has('allowAlarmSms')) {
+            $jsvvSettings->allowAlarmSms = $request->input('allowAlarmSms');
+            $jsvvSettings->alarmSmsContacts = $request->input('alarmSmsContacts');
+            $jsvvSettings->alarmSmsMessage = $request->input('alarmSmsMessage');
         }
         if ($request->has('allowEmail')) {
             $jsvvSettings->allowEmail = $request->input('allowEmail');

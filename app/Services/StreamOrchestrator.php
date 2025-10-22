@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
+use InvalidArgumentException;
 use Throwable;
 
 class StreamOrchestrator extends Service
@@ -48,9 +49,12 @@ class StreamOrchestrator extends Service
         $source = (string) Arr::get($payload, 'source', 'unknown');
 
         $targets = $this->resolveTargets($locationGroupIds, $nestIds);
-        $route = $manualRoute;
+        $route = $this->resolveRoute($manualRoute, $targets);
         $zones = $targets['zones'];
         $augmentedOptions = $this->augmentOptions($options, $manualRoute, $locationGroupIds, $nestIds, $targets);
+        if ($zones === []) {
+            throw new InvalidArgumentException('Destination zones must be defined before starting broadcast.');
+        }
         if ($source !== 'jsvv' && Cache::has(self::JSVV_ACTIVE_LOCK_KEY)) {
             throw new BroadcastLockedException('JSVV sequence is currently running');
         }
@@ -601,6 +605,27 @@ class StreamOrchestrator extends Service
         }
 
         return $options;
+    }
+
+    /**
+     * Determine hop route to apply before starting broadcast.
+     *
+     * @param array<int, int> $manualRoute
+     * @param array<string, mixed> $targets
+     * @return array<int, int>
+     */
+    private function resolveRoute(array $manualRoute, array $targets): array
+    {
+        if ($manualRoute !== []) {
+            return array_values(array_unique($manualRoute));
+        }
+
+        $defaultRoute = config('broadcast.default_route', []);
+        if (is_array($defaultRoute) && $defaultRoute !== []) {
+            return array_values(array_unique(array_map(static fn ($value) => (int) $value, $defaultRoute)));
+        }
+
+        return [];
     }
 
     private function applySourceVolume(string $source): void

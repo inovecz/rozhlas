@@ -13,10 +13,16 @@ MAX_ADDR_ENTRIES = 5
 RF_DEST_ZONE_BASE = 0x4030
 MAX_DEST_ZONES = 5
 
+ALARM_BUFFER_BASE = 0x3000
+ALARM_BUFFER_DATA_BASE = 0x3002
+ALARM_BUFFER_WORDS = 10
+ALARM_DATA_WORDS = 8
+
 # Legacy documentation mentioned 0x5035 (TxControl) for transmitters. Current
 # hardware toggles streaming via register 0x4035 instead.
 TX_CONTROL = 0x4035
 RX_CONTROL = 0x4035
+LEGACY_TX_CONTROL = 0x5035
 
 STATUS_REGISTER = 0x4036
 ERROR_REGISTER = 0x4037
@@ -81,6 +87,7 @@ DEVICE_INFO_REGISTERS = {
     "status": RegisterBlock(STATUS_REGISTER),
     "error": RegisterBlock(ERROR_REGISTER),
     "ogg_bitrate": RegisterBlock(OGG_BITRATE),
+    "alarm_buffer": RegisterBlock(ALARM_BUFFER_BASE, ALARM_BUFFER_WORDS),
     "instrument_id": RegisterBlock(0xFFF3),
     "hardware_version": RegisterBlock(0xFFF4),
     "firmware_version": RegisterBlock(0xFFF5),
@@ -130,7 +137,9 @@ DOCUMENTED_REGISTERS: tuple[RegisterDescriptor, ...] = (
     RegisterDescriptor("Addr4Ram", RegisterBlock(0x0005)),
     RegisterDescriptor("SWRESET", RegisterBlock(0x0666), readable=False, description="Software reset"),
     RegisterDescriptor("RESET", RegisterBlock(0x0667), readable=False, description="Hardware reset"),
-    RegisterDescriptor("Buff0-9", RegisterBlock(0x3000, 10), description="Inbound RF buffer"),
+    RegisterDescriptor("AlarmAddress", RegisterBlock(ALARM_BUFFER_BASE), description="Modbus address of the alarm source"),
+    RegisterDescriptor("AlarmRepeat", RegisterBlock(ALARM_BUFFER_BASE + 1), description="Repeat counter (1-3)"),
+    RegisterDescriptor("AlarmData0-7", RegisterBlock(ALARM_BUFFER_DATA_BASE, ALARM_DATA_WORDS), description="Alarm payload words"),
     RegisterDescriptor("SerialNumber", RegisterBlock(SERIAL_NUMBER_BLOCK[0], SERIAL_NUMBER_BLOCK[1])),
     RegisterDescriptor("SlaveAddr", RegisterBlock(0x4003)),
     RegisterDescriptor("RFAddr0-4", RegisterBlock(0x4004, 5)),

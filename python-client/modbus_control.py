@@ -75,6 +75,11 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="*",
         help="Optional list of destination zones (defaults to library constants when omitted)",
     )
+    start_cmd.add_argument(
+        "--update-route",
+        action="store_true",
+        help="Reconfigure hop route registers before starting (defaults to skipping route programming)",
+    )
 
     sub.add_parser("stop-stream", help="Stop audio streaming by clearing TxControl")
 
@@ -136,6 +141,9 @@ def build_parser() -> argparse.ArgumentParser:
     read_route_cmd = sub.add_parser("read-route", help="Return configured hop route and zones")
     read_route_cmd.add_argument("--unit-id", type=int, help="Optional unit id override")
 
+    alarms_cmd = sub.add_parser("read-alarms", help="Read the alarm LIFO buffer (0x3000-0x3009)")
+    alarms_cmd.add_argument("--unit-id", type=int, help="Optional unit id override")
+
     read_block_cmd = sub.add_parser(
         "read-block",
         help="Read a documented register block by name (see modbus_audio.constants.DOCUMENTED_REGISTERS)",
@@ -189,14 +197,12 @@ def resolve_serial_settings(args: argparse.Namespace) -> tuple[SerialSettings, i
 
 def command_start_stream(args: argparse.Namespace) -> dict[str, Any]:
     settings, unit_id = resolve_serial_settings(args)
-    applied_route = list(args.route) if args.route else None
+    applied_route = list(args.route) if args.route is not None else list(constants.DEFAULT_ROUTE)
     zones = list(args.zones) if args.zones else None
     applied_zones = zones if zones is not None else list(constants.DEFAULT_DESTINATION_ZONES)
 
     with ModbusAudioClient(settings=settings, unit_id=unit_id) as client:
-        if applied_route is not None:
-            client.configure_route(applied_route)
-        client.start_stream(zones=zones)
+        client.start_stream(applied_route, zones=zones, configure_route=args.update_route)
 
     return {
         "port": settings.port,
@@ -214,6 +220,18 @@ def command_stop_stream(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "port": settings.port,
         "unitId": unit_id,
+    }
+
+
+def command_read_alarm_buffer(args: argparse.Namespace) -> dict[str, Any]:
+    settings, unit_id = resolve_serial_settings(args)
+    with ModbusAudioClient(settings=settings, unit_id=unit_id) as client:
+        alarm = client.read_alarm_buffer()
+
+    return {
+        "port": settings.port,
+        "unitId": unit_id,
+        "alarm": alarm,
     }
 
 
@@ -486,6 +504,8 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any]:
         return command_set_zones(args)
     if args.command == "read-route":
         return command_read_route(args)
+    if args.command == "read-alarms":
+        return command_read_alarm_buffer(args)
     if args.command == "defaults":
         return command_defaults(args)
     if args.command == "read-block":

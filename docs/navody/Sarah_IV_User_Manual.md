@@ -1,13 +1,13 @@
 # SARAH IV – Uživatelská dokumentace
 
-> Rekonstruovaná a rozšířená příručka na základě původního manuálu „Sarah_IV_User_Manual_1.8.0.docx“. Verze 1.8 (aktualizace 2025).
+> Rekonstruovaná a rozšířená příručka na základě původního manuálu „Sarah_V_User_Manual_1.8.0.docx“. Verze 1.8 (aktualizace 2025).
 
 ---
 
 ## 1. Přehled systému
 
-### 1.1 Co je Sarah IV
-Sarah IV je integrovaná ústředna pro obecní rozhlas, navržená pro kombinaci plánovaných, ručně spouštěných i automatických hlášení. Systém zahrnuje:
+### 1.1 Co je Sarah V
+Sarah V je integrovaná ústředna pro obecní rozhlas, navržená pro kombinaci plánovaných, ručně spouštěných i automatických hlášení. Systém zahrnuje:
 
 - **Řídicí jednotku (ústřednu)** umístěnou obvykle na radnici nebo v krizovém středisku.
 - **Venkovní hnízda** s reproduktory/sirénami, senzory (např. hladinoměry), případně obousměrnou komunikací.
@@ -194,6 +194,12 @@ Metadata obsahují délku, zdroj, poznámku i datum pořízení – díky tomu l
 
 ## 7. Modul Poplachy JSVV
 
+### 7.0 Jak backend přehrává poplachy
+- Každé spuštění poplachu vytvoří sekvenci (`jsvv/sequences`) a zařadí ji do fronty. Pokud běží jiný poplach, požadavek čeká na dokončení podle priority.
+- Výchozí režim `JSVV_SEQUENCE_MODE=local_stream` přehrává sekvenci přímo přes ústřednu – systém přepne mix na zdroj „JSVV“ a ostatní vysílání dočasně pozastaví.
+- Alternativní režim `JSVV_SEQUENCE_MODE=remote_trigger` pouze odešle rámce JSVV do přijímačů. Backend zároveň čeká na dohrání sekvence (využívá odhad délky) a až poté uvolní plánované playlisty a další zdroje.
+- Každé spuštění/ukončení je zaznamenáno do `stream_telemetry_entries` (typ `jsvv_sequence_started|completed|failed`) i do Laravel logu. Logy obsahují režim, odhadovanou a skutečnou délku a případné chyby.
+
 ### 7.1 Rychlá tlačítka
 - V horní části je sada osmi tlačítek s připravenými poplachy (viz tabulka níže). Každé tlačítko zobrazuje název, zkonfigurovanou sekvenci (např. `28A9`) a slovní popis jednotlivých kroků.
 - Pokud ještě neproběhlo ruční nastavení, aplikace použije výchozí sekvenci (fallback). Tím je zajištěno, že poplach lze spustit i na čistém systému.
@@ -257,10 +263,18 @@ Metadata obsahují délku, zdroj, poznámku i datum pořízení – díky tomu l
 - **Během poplachu** pravidelně informujte o tom, co se děje (např. „Hasiči jsou na místě, zůstaňte uvnitř“). Dlouhé ticho budí paniku.
 - **Po poplachu** vždy odešlete zprávu o ukončení. Občané získají jistotu, že mimořádná situace skončila.
 - **Interně** veďte protokol o tom, kdo poplach spustil, kdy, na jaké lokality a s jakým výsledkem. Usnadní to pozdější analýzu a případné revize postupů.
+- **Control Tab:** Pokud je k ústředně připojen ovládací panel, má stejné priority jako ručně spuštěné poplachy a prochází stejnou frontou. Tlačítka definovaná správcem (např. `Spusť vysílání`, `Zkouška sirén`, `Stop`) odesílají požadavky do systému, který je zpracuje podle aktuálního stavu. Stav fronty se promítá do notifikací na panelu (např. „Poplach byl zařazen do fronty.“). 
+- **Současné požadavky:** Systém nyní dokáže přijímat více poptávek za sebou – JSVV, Control Tab, GSM i plánovaná hlášení. Prioritu má JSVV, poté Control Tab / GSM, a nakonec playlisty. Přímé vysílání z webu se odmítne s hláškou, pokud již běží poplach JSVV.
 
 ---
 
 ## 8. Modul Nastavení JSVV
+
+### 8.0 Klíčové konfigurační parametry
+- **Režim přehrávání (`JSVV_SEQUENCE_MODE`)** – `local_stream` (výchozí) nebo `remote_trigger`. Změna probíhá v `.env`; po úpravě restartujte supervisorem spravované procesy (queue, `alarms:monitor`).
+- **Výchozí délky (`JSVV_DEFAULT_*`)** – hodnoty pro odhad verbálních hlášení, sirén i fallbacku. Backend je používá při plánování sekvence i při čekání v režimu remote trigger.
+- **Cache délek (`JSVV_DURATION_CACHE_SECONDS`)** – interval, po který se uloží změřené délky audio souborů.
+- **GoSMS přístup (`SMS_GOSMS_*`)** – Client ID/Secret, kanál a volitelný sender. Bez platných údajů se SMS neodešlou.
 
 ### 8.1 Tlačítka (desktop, mobil)
 - Každé tlačítko má pole pro sekvenci a volbu zvuků. Při otevření se načtou uložené hodnoty, případně fallback. Vedle pole je vždy zobrazen náhled slovního popisu.
@@ -276,6 +290,7 @@ Metadata obsahují délku, zdroj, poznámku i datum pořízení – díky tomu l
   - **File** – zvukový soubor (vybírá se z modálního okna, lze přehrát).
 - Po změně je nutné kliknout na „Uložit zvuky“, aby se aktualizace propsala do databáze.
 - Při volbě souboru se vypisuje délka audio stopy. Pokud je delší než doporučených 30 s, aplikace zobrazí upozornění.
+- Pokud délku souboru nelze zjistit, backend použije výchozí hodnoty definované v `.env` (verbální 12 s, siréna 60 s, fallback 10 s); po doplnění souboru se délka přepočítá a uloží do metadat.
 - Náhradní položky (Rezerva 1/3, Ticho pro P–T) lze ponechat bez souboru – slouží jako placeholdery pro budoucí integrace.
 - V případě potřeby lze přidat nouzový zvuk – např. znělku místního rozhlasu. Dočasně ho přiřaďte k symbolu Rezerva 3 a aktualizaci oznámte všem operátorům.
 
@@ -342,7 +357,31 @@ Metadata obsahují délku, zdroj, poznámku i datum pořízení – díky tomu l
 
 ---
 
-## 11. Doporučené kroky při krizové situaci
+## 11. Control Tab (externí ovládací panel)
+
+### 11.1 Přehled
+- Control Tab je hardwarový panel připojený přes UART, který zobrazuje stav ústředny a umožňuje spouštět akce (přímé vysílání, poplachy JSVV, zastavení).
+- Panel komunikuje s backendem pomocí protokolu popsaného v `docs/requirements_docs/Protokol pro komunikaci za pomoci Control Tabu.md`. Backend nyní dokáže zprávy přijmout, vyhodnotit a odpovědět na ně.
+- Každé stisknuté tlačítko je přeloženo na konkrétní akci podle konfigurace: nastavitelné v `config/control_tab.php` (mapování tlačítek a textových polí).
+
+### 11.2 Priorita a fronta
+- Požadavky z panelu se řadí stejně jako ostatní zdroje. Probíhající poplach JSVV má nejvyšší prioritu – pokud je aktivní, Control Tab dostane odpověď „vysílání nelze spustit“.
+- Při spouštění poplachu Control Tab obdrží informaci, zda byl poplach ihned spuštěn, nebo zařazen do fronty (např. když už běží jiný poplach).
+- Zastavení poplachu (tlačítko Stop) ukončí pouze aktuální JSVV sekvenci. Pokud běží živé vysílání z jiného zdroje, systém jej musí řešit samostatně.
+
+### 11.3 Zobrazovaná data
+- Textová pole panelu jsou generována backendem – např. stav ústředny, délka aktuálního hlášení, vybraná znělka.
+- Aktualizace probíhá na vyžádání panelu (`text_field_request`) i formou push zpráv (např. změna stavu poplachu).
+- Pokud Control Tab hlásí chybu CRC, backend odešle zprávu znovu; log se nachází v `storage/logs/control-tab.log` (pokud je zapnuto).
+
+### 11.4 Rekonfigurace tlačítek
+- Cestu `config/control_tab.php` lze upravit, např. pro mapování tlačítka „Zkouška sirén“ na jiné tlačítko JSVV.
+- Po změně konfigurace je nutné restartovat aplikaci nebo vyprázdnit cache (`php artisan config:clear`).
+- Konfigurace je oddělena pro budoucí podporu více panelů. Pokud nejsou některé položky vyplněny, použijí se výchozí hodnoty (ruce definované v `defaults`).
+
+---
+
+## 12. Doporučené kroky při krizové situaci
 1. **Ověřte poplach** – v modulu Poplachy JSVV zkontrolujte, zda jsou tlačítka připravena (sekvence). Pokud ne, otevřete Nastavení JSVV.
 2. **Aktivujte poplach** – vyberte odpovídající tlačítko (např. „2 Všeobecná výstraha“) a potvrďte dialog.
 3. **Doplňte informace** – spusťte živé hlášení (mikrofon) nebo naplánujte další úlohu pro opakování informací.
@@ -351,21 +390,24 @@ Metadata obsahují délku, zdroj, poznámku i datum pořízení – díky tomu l
 
 ---
 
-## 12. Technické poznámky
+## 13. Technické poznámky
 
-### 12.1 Audio směrování
+### 13.1 Audio směrování
 - Systém používá ALSA mixer. Každý zdroj (mikrofon, playlist, FM…) má vlastní kanál (`input_1`, `file_playback`, `pc_webrtc`, `fm_radio`, `control_box` atd.).
 - Změna hlasitosti u jednoho zdroje se nepromítá do ostatních.
 - Při restartu aplikace se poslední hodnoty načtou z LocalStorage a hned aplikují.
 
-### 12.2 API kanály
+### 13.2 API kanály
 - `jsvv-alarms/all`, `jsvv-alarms/audios` – konfigurace tlačítek a zvuků.
 - `jsvv/sequences` + `trigger` – naplánování a spuštění poplachové sekvence.
+- `control-tab/events` – rozhraní pro fyzický Control Tab (panel_loaded, button_pressed, text_field_request).
 - `locations/list` / `save` – práce s hnízdy (souřadnice, součásti, status).
 - `schedules/*` – plán vysílání (včetně kontroly kolizí a updatu).
+- `python-client/modbus_control.py read-alarms` – diagnostika alarmového LIFO bufferu (0x3000–0x3009).
 
-### 12.3 Odolnost a fallbacky
+### 13.3 Odolnost a fallbacky
 - Pokud není sekvence tlačítka uložena, modul Poplachy použije výchozí kombinaci (viz tabulka). Tato logika je v UI i backendu, takže poplach lze vyvolat i hned po instalaci.
+- LIFO buffer alarmů (registr 0x3000–0x3009) uchovává poslední přijaté hlášení z hnízd; po načtení se automaticky posune k dalšímu záznamu. Ústředna jej průběžně čte a případně nuluje.
 - V případě výpadku WebRTC lze použít „Soubor v ústředně“ nebo „Control Box“ (přes hardware).
 - Opakování v Plánu je zatím ukládáno, ale reálné spouštění více intervalů vyžaduje rozšíření backendu (plánovaný vývoj).
 
@@ -378,63 +420,63 @@ Metadata obsahují délku, zdroj, poznámku i datum pořízení – díky tomu l
 
 ---
 
-## 13. Info, Aktivní alarmy, Protokoly, O aplikaci
+## 14. Info, Aktivní alarmy, Protokoly, O aplikaci
 
-### 13.1 Info
+### 14.1 Info
 - Kontakty na podporu, verze firmware.
 - Statistiky: počet hlášení, poplachů, uptime.
 
-### 13.2 Aktivní alarmy
+### 14.2 Aktivní alarmy
 - Realtime seznam, možnost potvrdit/odmítat.
 - Prioritizace a odkaz na Detail.
 
-### 13.3 Protokoly
+### 14.3 Protokoly
 - Kompletní audit log (CRUD operace, hlášení, přihlášení).
 - Export CSV/JSON.
 
-### 13.4 O aplikaci
+### 14.4 O aplikaci
 - Informace o licenci, autoři, datum vydání.
 - Odkaz na dokumentaci a aktualizace.
 
 ---
 
-## 14. Mapa
+## 15. Mapa
 
-### 14.1 Zobrazení
+### 15.1 Zobrazení
 - Podpora více vrstev (OpenStreetMap, satelitní mapy).
 - Barevné indikátory podle stavu hnízda/senzoru.
 
-### 14.2 Editace
+### 15.2 Editace
 - Přetažením změnit polohu.
 - Formulář s detailními údaji (adresa, lokace, poznámka).
 
-### 14.3 Filtrace
+### 15.3 Filtrace
 - Podle lokality, skupiny, stavu (online/offline).
 
 ---
 
-## 15. Nastavení
+## 16. Nastavení
 
-### 15.1 Uživatelé
+### 16.1 Uživatelé
 - Přidat, upravit, mazat.
 - Nastavit role (Operátor, Administrátor, Servisní technik).
 - Reset hesla, vynucené změny při prvním přihlášení.
 - PIN pro Control Box (unikátní).
 - Audit: poslední přihlášení, IP adresa.
 
-### 15.2 GSM
+### 16.2 GSM
 - Whitelist telefonních čísel (režimy přístupu: pouze historie, přímé hlášení).
 - SIM PIN, USSD příkaz pro kontrolu kreditu.
 - Hlasový automat: přiřazení lokalit, textů, zpoždění.
 
-### 15.3 Další servisní nastavení
+### 16.3 Další servisní nastavení
 - Parametry ústředny (tóny, zpoždění, diagnostika).
 - Konfigurace mapy (API klíč, centrální pozice).
 - Správa systémových souborů (firmware, logy).
 
 ---
 
-## 16. Role a oprávnění
+## 17. Role a oprávnění
 
 | Role | Přístup | Poznámky |
 |------|---------|----------|
@@ -451,24 +493,25 @@ Individuální oprávnění (příklad):
 
 ---
 
-## 17. Přílohy a integrace
+## 18. Přílohy a integrace
 
-### 17.1 FTP export Historie
+### 18.1 FTP export Historie
 - Formát XML `CentralInfo.xml` obsahuje `<Broadcast>` elementy s atributy ID, typ, datum, čas, seznam `<File>`.
 - Automatický upload na FTP server (k dispozici scheduler/cron job).
 
-### 17.2 Interakce s daemony
+### 18.2 Interakce s daemony
 - `gsm_listener.py` přijímá události SIM7600G-H, posílá POST na `/api/gsm/events`.
 - `jsvv_listener.py` čte KPPS, generuje `/api/jsvv/events`.
 - Queue worker (Supervisor) běží `php artisan queue:work` pro nahrávky.
 
-### 17.3 Monitorování
+### 18.3 Monitorování
 - Liveness a readiness endpointy pro integraci s Prometheus/Nagios.
 - Logování do `storage/logs/` + externí syslog.
+- Ve složce `sims/` jsou simulační skripty (Control Tab, JSVV fronta, alarmový buffer) pro laboratorní ověření podle pokynů MV-GŘ HZS.
 
 ---
 
-## 18. Technické poznámky a doporučení
+## 19. Technické poznámky a doporučení
 
 - Při implementaci audio pipeline použijte FFmpeg/SoX pro mixing různých vstupů.
 - WebRTC vyžaduje STUN/TURN, pro intranet lze použít interní STUN server.
@@ -477,19 +520,19 @@ Individuální oprávnění (příklad):
 
 ---
 
-## 19. Údržba a troubleshooting
+## 20. Údržba a troubleshooting
 
-### 19.1 Zálohování
+### 20.1 Zálohování
 - Konfigurace Laravelu (soubor `.env`).
 - Databáze (MariaDB/PostgreSQL) – denní dump.
 - Audio soubory a logy.
 
-### 19.2 Diagnostika
+### 20.2 Diagnostika
 - `php artisan health:check` (pokud dostupné).
 - Logy v `storage/logs/laravel.log`, `queue-worker.log`, `gsm_listener.log`.
 - Monitor SMS signálu (AT příkaz `AT+CSQ`).
 
-### 19.3 Nejčastější problémy
+### 20.3 Nejčastější problémy
 | Problém | Příčina | Řešení |
 |---------|---------|--------|
 | Nelze spustit přímé hlášení | Nevybraná lokalita, chyba WebRTC | Zkontrolujte výběr lokality, povolení mikrofonu |
@@ -501,7 +544,7 @@ Individuální oprávnění (příklad):
 
 ## 20. Dokumentace a nápověda
 
-- Tento dokument je dostupný v `docs/navody/Sarah_IV_User_Manual.md` a lze exportovat do DOCX/PDF.
+- Tento dokument je dostupný v `docs/navody/Sarah_V_User_Manual.md` a lze exportovat do DOCX/PDF.
 - V aplikaci je tlačítko **Nápověda** s odkazy na tuto dokumentaci.
 - Aktualizace manuálu provádějte při každé nové verzi systému (upravte číslo verze a sekce).
 

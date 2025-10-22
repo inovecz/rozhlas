@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Services\JsvvMessageService;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Http\JsonResponse;
@@ -13,6 +14,7 @@ class JsvvListenerService extends Service
     public function __construct(
         private readonly JsvvSequenceService $sequenceService = new JsvvSequenceService(),
         private readonly StreamOrchestrator $orchestrator = new StreamOrchestrator(),
+        private readonly JsvvMessageService $messageService = new JsvvMessageService(),
     ) {
         parent::__construct();
     }
@@ -26,7 +28,16 @@ class JsvvListenerService extends Service
         $params = Arr::get($data, 'params', []);
         $priority = Arr::get($data, 'priority');
 
-        $this->sequenceService->recordEvent($data);
+        try {
+            $this->messageService->ingest($data + [
+                'rawMessage' => Arr::get($payload, 'raw', Arr::get($data, 'rawMessage')),
+            ]);
+        } catch (\Throwable $exception) {
+            Log::warning('Failed to ingest JSVV message from listener', [
+                'message' => $exception->getMessage(),
+                'payload' => $data,
+            ]);
+        }
 
         if ($command === 'STOP') {
             $this->orchestrator->stop('jsvv_stop_command');

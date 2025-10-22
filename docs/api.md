@@ -43,4 +43,9 @@
 - `POST /api/manual-control/events` – captures future manual panel events.
 - `GET /api/stream/telemetry` – list latest telemetry entries (`?since=ISO8601`).
 
+## Control Tab
+
+- `POST /api/control-tab/events` – zpracuje požadavky z Control Tabu (`panel_loaded`, `button_pressed`, `text_field_request`). Odezva obsahuje stav (`ok`, `queued`, `blocked`, ...), případně pozici ve frontě.
+- `python-client/modbus_control.py read-alarms` – servisní příkaz pro vyčtení alarmového LIFO bufferu (0x3000–0x3009) ve vysílači.
+
 See `docs/daemons.md` for daemon management and `supervisor/*.conf` for production configs.

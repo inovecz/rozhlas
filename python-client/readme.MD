@@ -58,7 +58,7 @@ with ModbusAudioClient.from_defaults() as client:
     client.write_frequency(constants.DEFAULT_FREQUENCY)
 
     # Start audio streaming towards the configured hop/receiver chain
-    client.start_stream(zones=constants.DEFAULT_DESTINATION_ZONES)
+    client.start_stream(constants.DEFAULT_ROUTE, zones=constants.DEFAULT_DESTINATION_ZONES)
 
     # Later on, stop the stream again
     client.stop_stream()
@@ -66,7 +66,7 @@ with ModbusAudioClient.from_defaults() as client:
 
 - `get_device_info()` returns a dictionary with the key configuration and identification registers (serial number, RF details, zones, firmware identifiers, and diagnostic flags).
 - `write_register(address, value)` updates any holding register on the device.
-- `start_stream(zones)` updates the destination zones (0x4030..0x4034) and sets `TxControl (0x4035)` to `2` (via Modbus FC16) which triggers audio playback on the remote receivers. Use `stop_stream()` to revert `TxControl` to `1`.
+- `start_stream(route, zones)` updates the routing table (0x0000..) and destination zones (0x4030..0x4034) before setting `TxControl (0x4035)` to `2` (via Modbus FC16) which triggers audio playback on the remote receivers. Use `stop_stream()` to revert `TxControl` to `1`.
 - `start_audio_stream(addresses, zones)` remains available when you need to program a hop chain as part of the same call.
 - Serial defaults (serial port, baudrate, parity, etc.) live in `modbus_audio.constants`; adjust them once and every helper (library, CLI, and the example script) will pick them up automatically.
 
@@ -83,7 +83,7 @@ with ModbusAudioClient.from_defaults() as client:
 - `configure_route(addresses)` → program the RAM hop table (`0x0000..0x0005`).
 - `set_destination_zones(zones)` → update `0x4030..0x4034`.
 - `start_audio_stream(addresses, zones=None)` / `stop_audio_stream()` → configure route/zones and toggle `TxControl (0x4035)` in one call.
-- `start_stream(zones=None)` / `stop_stream()` → toggle `TxControl (0x4035)` and (optionally) update zones while keeping the existing route.
+- `start_stream(route, zones=None)` / `stop_stream()` → configure the hop addresses and destination zones, then toggle `TxControl (0x4035)` to start/stop playback.
 - `dump_documented_registers()` → return a table covering every register listed in the vendor documentation, with read errors noted.
 - Streaming helpers always target the unit id configured on the client (default `1`).
 

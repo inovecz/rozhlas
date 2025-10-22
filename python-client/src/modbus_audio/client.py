@@ -156,8 +156,24 @@ class ModbusAudioClient:
         target = constants.DEFAULT_FREQUENCY if value is None else value
         self.write_register(constants.FREQUENCY_REGISTER, target, unit=unit)
 
-    def start_stream(self, zones: Iterable[int] | None = None) -> None:
-        """Start audio streaming by writing ``2`` into TxControl (0x4035)."""
+    def start_stream(
+        self,
+        hop_addresses: Iterable[int],
+        zones: Iterable[int] | None = None,
+        *,
+        configure_route: bool = False,
+    ) -> None:
+        """Configure destination zones and toggle TxControl.
+
+        Legacy behaviour configured the hop route before every start. Some
+        deployments keep the route static, so configuring it can fail on units
+        that expose the registers read-only. The ``configure_route`` flag lets
+        callers opt into that behaviour when needed.
+        """
+
+        addr_list = list(hop_addresses)
+        if configure_route and addr_list:
+            self.configure_route(addr_list)
 
         if zones is None:
             zone_values = list(constants.DEFAULT_DESTINATION_ZONES)
@@ -167,14 +183,23 @@ class ModbusAudioClient:
         # Always push the provided zone set so empty selections clear previous
         # configuration instead of reusing stale registers.
         self.set_destination_zones(zone_values)
-        # Some firmware revisions only honour TxControl writes when issued via
-        # function code 16 (write multiple registers), even for a single word.
-        self.write_registers(constants.TX_CONTROL, (2,))
+        self._write_tx_control(2)
 
     def stop_stream(self) -> None:
         """Stop audio streaming by writing ``1`` into TxControl (0x4035)."""
 
-        self.write_registers(constants.TX_CONTROL, (1,))
+        self._write_tx_control(1)
+
+    def _write_tx_control(self, value: int) -> None:
+        last_error: ModbusAudioError | None = None
+        for address in (constants.TX_CONTROL, constants.LEGACY_TX_CONTROL):
+            try:
+                self.write_registers(address, (value,))
+                return
+            except ModbusAudioError as exc:
+                last_error = exc
+        if last_error is not None:
+            raise last_error
 
     def write_register(self, address: int, value: int, unit: int | None = None) -> None:
         """Write a single holding register."""
@@ -244,12 +269,22 @@ class ModbusAudioClient:
         self.configure_route(hop_addresses)
         if zones is not None:
             self.set_destination_zones(zones)
-        self.write_registers(constants.TX_CONTROL, (2,))
+        self._write_tx_control(2)
 
     def stop_audio_stream(self) -> None:
         """Stop the audio stream by clearing ``TxControl`` (0x4035)."""
 
-        self.write_registers(constants.TX_CONTROL, (1,))
+        self._write_tx_control(1)
+
+    def read_alarm_buffer(self) -> dict[str, object]:
+        """Return latest alarm entry from the LIFO buffer (0x3000-0x3009)."""
+
+        words = self.read_registers(constants.ALARM_BUFFER_BASE, constants.ALARM_BUFFER_WORDS)
+        return {
+            'nest_address': words[0],
+            'repeat': words[1],
+            'data': words[2:],
+        }
 
     def dump_documented_registers(self) -> list[tuple[str, str, str, str]]:
         """Return a table of documented registers and their current values."""

@@ -12,6 +12,9 @@ use App\Models\BroadcastSession;
 use App\Models\JsvvEvent;
 use App\Models\JsvvSequence;
 use App\Models\JsvvSequenceItem;
+use App\Models\StreamTelemetryEntry;
+use App\Services\SmsNotificationService;
+use App\Settings\JsvvSettings;
 use App\Services\StreamOrchestrator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Arr;
@@ -30,6 +33,7 @@ class JsvvSequenceService extends Service
     public function __construct(
         private readonly PythonClient $client = new PythonClient(),
         private readonly StreamOrchestrator $orchestrator = new StreamOrchestrator(),
+        private readonly SmsNotificationService $smsService = new SmsNotificationService(),
     ) {
         parent::__construct();
     }
@@ -38,8 +42,9 @@ class JsvvSequenceService extends Service
     {
         $response = $this->client->planJsvvSequence($items, $options);
         $data = $response['json']['data'] ?? $response['json'] ?? [];
+        $resolvedSequence = Arr::get($data, 'sequence', []);
 
-        return DB::transaction(function () use ($data, $items, $options): array {
+        return DB::transaction(function () use ($data, $items, $options, $resolvedSequence): array {
             $sequence = JsvvSequence::create([
                 'items' => $items,
                 'options' => $options,
@@ -47,7 +52,27 @@ class JsvvSequenceService extends Service
                 'status' => 'planned',
             ]);
 
+            $totalEstimatedDuration = 0.0;
+
             foreach ($items as $index => $item) {
+                $resolved = $resolvedSequence[$index] ?? null;
+                if ($resolved === null) {
+                    Log::warning('JSVV sequence planning resolved metadata missing', [
+                        'sequence_id' => $sequence->id,
+                        'index' => $index,
+                        'item' => $item,
+                    ]);
+                }
+                $metadata = $this->buildSequenceItemMetadata($item, $resolved);
+                $repeat = (int) max(1, $item['repeat'] ?? 1);
+                $perItemDuration = $this->detectItemDurationSeconds($item['category'] ?? 'verbal', $metadata);
+                if ($perItemDuration !== null) {
+                    $metadata['duration_seconds'] = $perItemDuration;
+                }
+                if ($perItemDuration !== null) {
+                    $totalEstimatedDuration += $perItemDuration * $repeat;
+                }
+
                 JsvvSequenceItem::create([
                     'sequence_id' => $sequence->id,
                     'position' => $index,
@@ -55,7 +80,18 @@ class JsvvSequenceService extends Service
                     'slot' => $item['slot'],
                     'voice' => $item['voice'] ?? null,
                     'repeat' => (int) max(1, $item['repeat'] ?? 1),
-                    'metadata' => $item,
+                    'metadata' => $metadata,
+                ]);
+            }
+
+            $holdSeconds = (float) Arr::get($data, 'holdSeconds', 0);
+            if ($holdSeconds > 0) {
+                $totalEstimatedDuration += $holdSeconds;
+            }
+
+            if ($totalEstimatedDuration > 0) {
+                $sequence->update([
+                    'estimated_duration_seconds' => $totalEstimatedDuration,
                 ]);
             }
 
@@ -170,19 +206,37 @@ class JsvvSequenceService extends Service
 
     private function runSequence(JsvvSequence $sequence): void
     {
+        $sequenceStart = microtime(true);
+        $useLocalStream = $this->useLocalStreamPlayback();
+        $estimatedDuration = $this->getSequenceEstimatedDuration($sequence);
+        $sessionId = null;
+
         try {
             $this->setActiveSequenceLock($sequence->id);
-            $this->preemptActiveSession();
+            if ($useLocalStream) {
+                $this->preemptActiveSession();
+            }
 
             $items = $sequence->sequenceItems()->orderBy('position')->get();
 
-            $this->orchestrator->start([
-                'source' => 'jsvv',
-                'route' => Arr::get($sequence->options, 'route', []),
-                'zones' => Arr::get($sequence->options, 'zones', []),
-                'options' => ['priority' => $sequence->priority],
-            ]);
+            if ($useLocalStream) {
+                $session = $this->orchestrator->start([
+                    'source' => 'jsvv',
+                    'route' => Arr::get($sequence->options, 'route', []),
+                    'zones' => Arr::get($sequence->options, 'zones', []),
+                    'options' => ['priority' => $sequence->priority],
+                ]);
+                $sessionId = is_array($session) ? Arr::get($session, 'id') : null;
+            }
 
+            $this->logSequenceEvent($sequence, 'started', [
+                'playback_mode' => $useLocalStream ? 'local_stream' : 'remote_trigger',
+                'estimated_duration_seconds' => $estimatedDuration,
+            ], $sessionId);
+
+            $this->notifyJsvvSms($sequence);
+
+            $sendFramesToUnits = !$useLocalStream;
             foreach ($items as $item) {
                 $this->refreshActiveSequenceLock($sequence->id);
                 $category = $item->category;
@@ -191,20 +245,35 @@ class JsvvSequenceService extends Service
 
                 for ($i = 0; $i < $repeat; $i++) {
                     if ($category === 'siren') {
-                        $this->client->triggerJsvvFrame('SIREN', [(string) $slot], false, true);
+                        $this->client->triggerJsvvFrame('SIREN', [(string) $slot], $sendFramesToUnits, true);
                     } else {
                         $voice = $item->voice ?? 'male';
-                        $this->client->triggerJsvvFrame('VERBAL', [(string) $slot, $voice], false, true);
+                        $this->client->triggerJsvvFrame('VERBAL', [(string) $slot, $voice], $sendFramesToUnits, true);
                     }
                 }
             }
 
-            $this->stopIfCurrentSourceIsJsvv('jsvv_sequence_completed');
+            if (!$useLocalStream) {
+                $this->waitForRemotePlayback($sequence, $estimatedDuration);
+            }
+
+            if ($useLocalStream) {
+                $this->stopIfCurrentSourceIsJsvv('jsvv_sequence_completed');
+            }
+
+            $actualDuration = max(0.0, microtime(true) - $sequenceStart);
 
             $sequence->update([
                 'status' => 'completed',
                 'completed_at' => now(),
+                'actual_duration_seconds' => $actualDuration,
             ]);
+
+            $this->logSequenceEvent($sequence->fresh(), 'completed', [
+                'playback_mode' => $useLocalStream ? 'local_stream' : 'remote_trigger',
+                'estimated_duration_seconds' => $estimatedDuration,
+                'actual_duration_seconds' => $actualDuration,
+            ], $sessionId);
         } catch (Throwable $throwable) {
             Log::error('JSVV sequence failed', [
                 'sequence_id' => $sequence->id,
@@ -218,9 +287,19 @@ class JsvvSequenceService extends Service
                 'failed_at' => now(),
                 'error_message' => $throwable->getMessage(),
             ]);
+
+            $this->logSequenceEvent($sequence->fresh(), 'failed', [
+                'error_message' => $throwable->getMessage(),
+                'estimated_duration_seconds' => $estimatedDuration,
+            ], $sessionId);
         } finally {
             $this->clearActiveSequenceLock();
         }
+    }
+
+    private function useLocalStreamPlayback(): bool
+    {
+        return config('jsvv.sequence.playback_mode', 'local_stream') === 'local_stream';
     }
 
     private function preemptActiveSession(): void
@@ -327,5 +406,190 @@ class JsvvSequenceService extends Service
             'P3' => 3,
             default => 10,
         };
+    }
+
+    private function buildSequenceItemMetadata(array $requestItem, ?array $resolvedItem): array
+    {
+        $metadata = [];
+        if (is_array($resolvedItem)) {
+            $metadata = $resolvedItem;
+        }
+
+        foreach ($requestItem as $key => $value) {
+            if (!array_key_exists($key, $metadata) || $metadata[$key] === null) {
+                $metadata[$key] = $value;
+            }
+        }
+
+        $metadata['request'] = $requestItem;
+
+        return $metadata;
+    }
+
+    private function detectItemDurationSeconds(string $category, array $metadata): ?float
+    {
+        $durationKeys = [
+            'duration_seconds',
+            'durationSeconds',
+            'duration',
+            'length',
+        ];
+
+        foreach ($durationKeys as $key) {
+            $value = Arr::get($metadata, $key);
+            if (is_numeric($value) && (float) $value > 0) {
+                return (float) $value;
+            }
+        }
+
+        $requestDuration = Arr::get($metadata, 'request.duration');
+        if (is_numeric($requestDuration) && (float) $requestDuration > 0) {
+            return (float) $requestDuration;
+        }
+
+        $path = Arr::get($metadata, 'path');
+        if (is_string($path)) {
+            $durationFromPath = $this->resolveAudioDurationSeconds($path);
+            if ($durationFromPath !== null) {
+                return $durationFromPath;
+            }
+        }
+
+        $defaults = config('jsvv.sequence.default_durations', []);
+        $fallback = (float) ($defaults['fallback'] ?? 10.0);
+
+        return match (strtolower($category)) {
+            'siren' => (float) ($defaults['siren'] ?? $fallback),
+            'verbal' => (float) ($defaults['verbal'] ?? $fallback),
+            default => $fallback,
+        };
+    }
+
+    private function resolveAudioDurationSeconds(?string $path): ?float
+    {
+        if ($path === null || $path === '' || !is_file($path)) {
+            return null;
+        }
+
+        $cacheTtl = (int) config('jsvv.sequence.duration_cache_ttl', 86400);
+        $cacheKey = 'jsvv:audio_duration:' . sha1($path . '|' . (string) filemtime($path));
+
+        return Cache::remember(
+            $cacheKey,
+            $cacheTtl > 0 ? $cacheTtl : null,
+            static function () use ($path): ?float {
+                try {
+                    return (float) max(1, audio_duration($path));
+                } catch (\Throwable $exception) {
+                    Log::warning('Unable to determine audio duration for JSVV asset', [
+                        'path' => $path,
+                        'message' => $exception->getMessage(),
+                    ]);
+                    return null;
+                }
+            }
+        );
+    }
+
+    private function ensureItemDuration(JsvvSequenceItem $item): float
+    {
+        $metadata = $item->metadata ?? [];
+        $duration = Arr::get($metadata, 'duration_seconds');
+        if (!is_numeric($duration) || (float) $duration <= 0) {
+            $duration = $this->detectItemDurationSeconds($item->category, $metadata);
+            $metadata['duration_seconds'] = $duration;
+            $item->update(['metadata' => $metadata]);
+        }
+
+        return (float) $duration;
+    }
+
+    private function getSequenceEstimatedDuration(JsvvSequence $sequence): float
+    {
+        $existing = $sequence->estimated_duration_seconds;
+        if (is_numeric($existing) && (float) $existing > 0) {
+            return (float) $existing;
+        }
+
+        $sequence->loadMissing('sequenceItems');
+        $total = 0.0;
+
+        foreach ($sequence->sequenceItems as $item) {
+            $duration = $this->ensureItemDuration($item);
+            $repeat = max(1, (int) $item->repeat);
+            $total += $duration * $repeat;
+        }
+
+        $holdSeconds = (float) Arr::get($sequence->options ?? [], 'holdSeconds', 0);
+        if ($holdSeconds > 0) {
+            $total += $holdSeconds;
+        }
+
+        if ($total <= 0) {
+            $defaults = config('jsvv.sequence.default_durations', []);
+            $total = (float) ($defaults['fallback'] ?? 10.0);
+        }
+
+        $sequence->update([
+            'estimated_duration_seconds' => $total,
+        ]);
+
+        return $total;
+    }
+
+    private function waitForRemotePlayback(JsvvSequence $sequence, float $durationSeconds): void
+    {
+        $duration = max(1.0, $durationSeconds);
+        $start = microtime(true);
+
+        while (true) {
+            $elapsed = microtime(true) - $start;
+            if ($elapsed >= $duration) {
+                break;
+            }
+            $remaining = $duration - $elapsed;
+            $interval = (float) max(0.5, min(5.0, $remaining));
+            usleep((int) round($interval * 1_000_000));
+            $this->refreshActiveSequenceLock($sequence->id);
+        }
+    }
+
+    private function logSequenceEvent(JsvvSequence $sequence, string $event, array $extra = [], ?string $sessionId = null): void
+    {
+        $playbackMode = $extra['playback_mode'] ?? ($this->useLocalStreamPlayback() ? 'local_stream' : 'remote_trigger');
+
+        $payload = array_merge([
+            'sequence_id' => $sequence->id,
+            'priority' => $sequence->priority,
+            'status' => $sequence->status,
+            'playback_mode' => $playbackMode,
+        ], $extra);
+
+        StreamTelemetryEntry::create([
+            'type' => 'jsvv_sequence_' . $event,
+            'session_id' => is_string($sessionId) ? $sessionId : null,
+            'payload' => $payload,
+            'recorded_at' => now(),
+        ]);
+
+        Log::info('JSVV sequence ' . $event, $payload);
+    }
+
+    private function notifyJsvvSms(JsvvSequence $sequence): void
+    {
+        $settings = app(JsvvSettings::class);
+        if (!$settings->allowSms || empty($settings->smsContacts)) {
+            return;
+        }
+
+        $template = $settings->smsMessage ?: 'Byl spuštěn poplach JSVV (priorita {priority}) v {time}.';
+        $replacements = [
+            '{priority}' => $sequence->priority ?? 'neuvedeno',
+            '{time}' => now()->format('H:i'),
+            '{date}' => now()->format('d.m.Y'),
+        ];
+
+        $message = str_replace(array_keys($replacements), array_values($replacements), $template);
+        $this->smsService->send($settings->smsContacts, $message);
     }
 }

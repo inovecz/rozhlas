@@ -59,6 +59,9 @@ const jsvvSettings = ref({
   allowSms: false,
   smsContacts: [],
   smsMessage: '',
+  allowAlarmSms: false,
+  alarmSmsContacts: [],
+  alarmSmsMessage: '',
   allowEmail: false,
   emailContacts: [],
   emailSubject: '',
@@ -68,6 +71,8 @@ const jsvvSettings = ref({
 const errorBag = reactive({
   smsContacts: null,
   smsMessage: null,
+  alarmSmsContacts: null,
+  alarmSmsMessage: null,
   emailContacts: null,
   emailSubject: null,
   emailMessage: null,
@@ -108,6 +113,9 @@ async function loadSettings() {
       allowSms: response.allowSms ?? false,
       smsContacts: response.smsContacts ?? [],
       smsMessage: response.smsMessage ?? '',
+      allowAlarmSms: response.allowAlarmSms ?? false,
+      alarmSmsContacts: response.alarmSmsContacts ?? [],
+      alarmSmsMessage: response.alarmSmsMessage ?? '',
       allowEmail: response.allowEmail ?? false,
       emailContacts: response.emailContacts ?? [],
       emailSubject: response.emailSubject ?? '',
@@ -323,6 +331,24 @@ const cantSaveSms = computed(() => {
   return hasError;
 });
 
+const cantSaveAlarmSms = computed(() => {
+  errorBag.alarmSmsContacts = null;
+  errorBag.alarmSmsMessage = null;
+  if (!jsvvSettings.value.allowAlarmSms) {
+    return false;
+  }
+  let hasError = false;
+  if (!jsvvSettings.value.alarmSmsContacts?.length) {
+    errorBag.alarmSmsContacts = 'Musíte zadat alespoň jedno telefonní číslo';
+    hasError = true;
+  }
+  if (!jsvvSettings.value.alarmSmsMessage?.trim()) {
+    errorBag.alarmSmsMessage = 'Musíte zadat text SMS zprávy';
+    hasError = true;
+  }
+  return hasError;
+});
+
 const cantSaveEmail = computed(() => {
   errorBag.emailContacts = null;
   errorBag.emailSubject = null;
@@ -361,6 +387,24 @@ async function saveSmsSettings() {
   } catch (error) {
     console.error(error);
     toast.error('Nastavení SMS se nepodařilo uložit');
+  }
+}
+
+async function saveAlarmSmsSettings() {
+  if (cantSaveAlarmSms.value) {
+    toast.error('Zkontrolujte prosím nastavení SMS pro alarmy');
+    return;
+  }
+  try {
+    await SettingsService.saveJsvvSettings({
+      allowAlarmSms: jsvvSettings.value.allowAlarmSms,
+      alarmSmsContacts: jsvvSettings.value.alarmSmsContacts,
+      alarmSmsMessage: jsvvSettings.value.alarmSmsMessage,
+    });
+    toast.success('SMS nastavení pro alarmy bylo uloženo');
+  } catch (error) {
+    console.error(error);
+    toast.error('Nastavení SMS pro alarmy se nepodařilo uložit');
   }
 }
 
@@ -415,6 +459,15 @@ function addPhoneContact(newContact) {
     return;
   }
   jsvvSettings.value.smsContacts.push(newContact);
+}
+
+function addAlarmPhoneContact(newContact) {
+  const phoneRegex = /^(\+(?:\d{1,3}))?(\s|-)?((?:\d{2,3})|\(\d{2,3}\))(?:\s|-)?(\d{3})(?:\s|-)?(\d{3})$/;
+  if (!phoneRegex.test(newContact)) {
+    toast.error('Zadané číslo není ve správném formátu');
+    return;
+  }
+  jsvvSettings.value.alarmSmsContacts.push(newContact);
 }
 
 function addEmailContact(newContact) {
@@ -616,6 +669,36 @@ async function playRecord(id) {
 
         <div class="flex justify-end">
           <Button icon="mdi-content-save" label="Uložit SMS nastavení" size="sm" :disabled="cantSaveSms" @click="saveSmsSettings"/>
+        </div>
+      </Box>
+
+      <Box label="Nastavení SMS upozornění na alarm hnízd">
+        <Checkbox v-model="jsvvSettings.allowAlarmSms" label="Povolit odesílání SMS při zařízení/hlídce (např. slabá baterie)"/>
+
+        <div class="space-y-4 mt-3">
+          <div>
+            <label class="label-text text-sm font-medium">Telefonní čísla</label>
+            <VueMultiselect
+                v-model="jsvvSettings.alarmSmsContacts"
+                :options="[]"
+                :multiple="true"
+                :close-on-select="false"
+                :taggable="true"
+                @tag="addAlarmPhoneContact"
+                placeholder="Přidat příjemce"
+                tag-placeholder="Přidat číslo"
+                :class="{'border border-error rounded-md': errorBag.alarmSmsContacts}"/>
+            <p v-if="errorBag.alarmSmsContacts" class="text-xs text-error mt-1">{{ errorBag.alarmSmsContacts }}</p>
+          </div>
+          <Textarea
+              v-model="jsvvSettings.alarmSmsMessage"
+              placeholder="Zpráva, která bude zaslána při vyhlášení alarmu (dostupné proměnné: {nest}, {repeat}, {data})"
+              label="Text zprávy"
+              :error="errorBag.alarmSmsMessage"/>
+        </div>
+
+        <div class="flex justify-end">
+          <Button icon="mdi-content-save" label="Uložit SMS pro alarmy" size="sm" :disabled="cantSaveAlarmSms" @click="saveAlarmSmsSettings"/>
         </div>
       </Box>
 
