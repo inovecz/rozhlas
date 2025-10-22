@@ -19,22 +19,13 @@ Tento návod shrnuje kompletní proces uvedení backendu, webového rozhraní a 
 
 ## 2. První spuštění
 
-### 2.1 Stažení zdrojů a instalace balíčků
+### 2.1 Stažení repozitáře a bootstrap
 ```bash
 git clone <repo-url> rozhlas
 cd rozhlas
-
-# PHP závislosti
-composer install
-
-# JavaScript frontend
-npm install
-
-# Python klient (virtuální env doporučený)
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r python-client/requirements.txt
+bash scripts/bootstrap.sh
 ```
+Skript `bootstrap.sh` stáhne (pokud je třeba) `composer.phar`, nainstaluje PHP závislosti, spustí `npm install` a připraví Python virtuální prostředí s požadovanými balíčky. Stačí jej spustit jednou po klonování repozitáře.
 
 ### 2.2 Rychlá instalace (doporučeno)
 
