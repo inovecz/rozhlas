@@ -4,13 +4,14 @@ window.axios = axios;
 window.axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
 
 
-let baseUrl;
+const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+const hostname = window.location.hostname || '127.0.0.1';
+const defaultPort = 8001;
+const envApiUrl = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL)
+    ? import.meta.env.VITE_API_URL
+    : null;
 
-if (true || window.location.host.includes('rozhlas.lan')) {
-    baseUrl = 'http://rozhlas.lan:8001/api';
-} else {
-    baseUrl = 'https://production-url.cz/api';
-}
+const baseUrl = envApiUrl ?? `${protocol}//${hostname}:${defaultPort}/api`;
 
 if (localStorage.getItem('token')) {
     window.axios.defaults.headers.common['Authorization'] = 'Bearer ' + localStorage.getItem('token');

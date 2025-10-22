@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="$ROOT_DIR/storage/logs/run"
 mkdir -p "$LOG_DIR"
 
-LARAVEL_HOST=${LARAVEL_HOST:-rozhlas.lan}
+LARAVEL_HOST=${LARAVEL_HOST:-127.0.0.1}
 LARAVEL_PORT=${LARAVEL_PORT:-8001}
 VITE_HOST=${VITE_HOST:-127.0.0.1}
 VITE_PORT=${VITE_PORT:-5173}
