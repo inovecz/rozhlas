@@ -25,7 +25,7 @@ git clone <repo-url> rozhlas
 cd rozhlas
 bash scripts/bootstrap.sh
 ```
-Skript `bootstrap.sh` se pokusí doinstalovat požadované balíčky (PHP, Node.js/npm, python3, ffmpeg) přes Homebrew nebo apt-get, stáhne `composer.phar`, nainstaluje PHP/JS/Python závislosti a připraví virtuální prostředí. Stačí jej spustit jednou po klonování repozitáře.
+Skript `bootstrap.sh` se pokusí doinstalovat požadované balíčky (PHP, Composer, Node.js/npm, python3, ffmpeg) přes Homebrew nebo apt-get, nainstaluje PHP/JS závislosti a připraví Python virtuální prostředí. Pokud v `python-client/` chybí `requirements.txt`, krok instalace Python balíčků se přeskočí. Stačí jej spustit jednou po klonování repozitáře.
 
 ### 2.2 Rychlá instalace (doporučeno)
 
