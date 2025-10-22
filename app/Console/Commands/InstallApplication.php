@@ -6,8 +6,10 @@ namespace App\Console\Commands;
 
 use App\Models\User;
 use Illuminate\Console\Command;
+use Illuminate\Foundation\ViteManifestNotFoundException;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Symfony\Component\Process\Process;
 
 class InstallApplication extends Command
 {
@@ -44,11 +46,16 @@ class InstallApplication extends Command
         $this->components->info('Seeding baseline data...');
         $this->call('db:seed', ['--force' => true]);
 
+        if (config('app.env') === 'production') {
+            $this->components->info('Building frontend assets (npm run build)...');
+            $this->runNpmBuild();
+        }
+
         $modbusPort = $this->promptForModbusPort();
         $modbusUnitId = $this->promptForModbusUnitId();
 
         $this->components->info('Caching configuration...');
-        $this->call('config:cache');
+        $this->cacheConfiguration();
 
         $this->components->info('Clearing application cache');
         $this->clearApplicationCache();
@@ -197,5 +204,45 @@ class InstallApplication extends Command
     {
         $message = strtolower($exception->getMessage());
         return str_contains($message, 'no such table') && str_contains($message, 'cache');
+    }
+
+    private function cacheConfiguration(): void
+    {
+        try {
+            $this->call('config:cache');
+        } catch (\Throwable $exception) {
+            if ($exception instanceof ViteManifestNotFoundException) {
+                $this->components->warn('Skipping config:cache – Vite manifest not found. Run npm run build before caching config.');
+                return;
+            }
+
+            throw $exception;
+        }
+    }
+
+    private function runNpmBuild(): void
+    {
+        if (!file_exists(base_path('package.json'))) {
+            $this->components->warn('package.json not found, skipping npm build.');
+            return;
+        }
+
+        $npmBinary = PHP_OS_FAMILY === 'Windows' ? 'npm.cmd' : 'npm';
+
+        try {
+            $process = new Process([$npmBinary, 'run', 'build'], base_path());
+        } catch (\Throwable $exception) {
+            $this->components->warn('Unable to create npm process: ' . $exception->getMessage());
+            return;
+        }
+
+        $process->setTimeout(null);
+        $process->run(function ($type, $buffer): void {
+            $this->output->write($buffer);
+        });
+
+        if (!$process->isSuccessful()) {
+            throw new \RuntimeException('npm run build failed: ' . $process->getErrorOutput());
+        }
     }
 }
