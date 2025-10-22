@@ -123,4 +123,6 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    'python_binary' => env('PYTHON_BINARY', 'python3'),
+
 ];

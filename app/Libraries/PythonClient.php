@@ -27,7 +27,7 @@ class PythonClient
         ?string $modbusScript = null,
         ?string $jsvvScript = null,
     ) {
-        $this->pythonBinary = $pythonBinary ?? (string) env('PYTHON_BINARY', self::DEFAULT_BINARY);
+        $this->pythonBinary = $pythonBinary ?? (string) config('app.python_binary', self::DEFAULT_BINARY);
         $this->scriptsRoot = $scriptsRoot ?? base_path('python-client');
         $this->modbusScript = $modbusScript ?? (string) env('MODBUS_SCRIPT', self::DEFAULT_MODBUS_SCRIPT);
         $this->jsvvScript = $jsvvScript ?? (string) env('JSVV_SCRIPT', self::DEFAULT_JSVV_SCRIPT);
