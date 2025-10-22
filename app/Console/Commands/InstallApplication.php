@@ -34,7 +34,7 @@ class InstallApplication extends Command
         $this->call('config:clear');
 
         $this->components->info('Clearing application cache');
-        $this->call('cache:clear');
+        $this->clearApplicationCache(ignoreMissingTable: true);
 
         $this->ensureSqliteDatabaseExists();
 
@@ -49,6 +49,9 @@ class InstallApplication extends Command
 
         $this->components->info('Caching configuration...');
         $this->call('config:cache');
+
+        $this->components->info('Clearing application cache');
+        $this->clearApplicationCache();
 
         $this->components->info('Restarting queue workers');
         $this->call('queue:restart');
@@ -174,5 +177,25 @@ class InstallApplication extends Command
             touch($databasePath);
             $this->components->info(sprintf('Created SQLite database at %s', $databasePath));
         }
+    }
+
+    private function clearApplicationCache(bool $ignoreMissingTable = false): void
+    {
+        try {
+            $this->call('cache:clear');
+        } catch (\Throwable $exception) {
+            if ($ignoreMissingTable && $this->isMissingCacheTableError($exception)) {
+                $this->components->warn('Skipping cache:clear – cache table not created yet.');
+                return;
+            }
+
+            throw $exception;
+        }
+    }
+
+    private function isMissingCacheTableError(\Throwable $exception): bool
+    {
+        $message = strtolower($exception->getMessage());
+        return str_contains($message, 'no such table') && str_contains($message, 'cache');
     }
 }

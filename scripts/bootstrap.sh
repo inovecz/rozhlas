@@ -128,6 +128,5 @@ else
   echo "Warning: python-client/requirements.txt not found, skipping Python dependency installation." >&2
 fi
 
-echo "\nBootstrap completed. Next steps:"
-echo "  1) cp .env.example .env (if not already done)"
-echo "  2) php artisan app:install"
+echo "\nBootstrap completed. Next step:"
+echo "  php artisan app:install"
