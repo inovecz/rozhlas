@@ -128,5 +128,8 @@ else
   echo "Warning: python-client/requirements.txt not found, skipping Python dependency installation." >&2
 fi
 
+echo "Ensuring main scripts are executable..."
+chmod +x "$ROOT_DIR/run.sh" "$ROOT_DIR/scripts/install.sh"
+
 echo "\nBootstrap completed. Next step:"
 echo "  php artisan app:install"
