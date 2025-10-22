@@ -17,6 +17,11 @@ class InstallApplication extends Command
 
     public function handle(): int
     {
+        if (!file_exists(base_path('.env'))) {
+            $this->components->info('Creating .env from .env.example');
+            copy(base_path('.env.example'), base_path('.env'));
+        }
+
         if (!$this->option('force')) {
             $this->warn('This command will run database migrations and seeders.');
             if (!$this->confirm('Do you want to continue?')) {
@@ -24,6 +29,12 @@ class InstallApplication extends Command
                 return self::SUCCESS;
             }
         }
+
+        $this->components->info('Clearing configuration cache');
+        $this->call('config:clear');
+
+        $this->components->info('Clearing application cache');
+        $this->call('cache:clear');
 
         $this->components->info('Running database migrations...');
         $this->call('migrate', ['--force' => true]);
@@ -33,6 +44,12 @@ class InstallApplication extends Command
 
         $modbusPort = $this->promptForModbusPort();
         $modbusUnitId = $this->promptForModbusUnitId();
+
+        $this->components->info('Caching configuration...');
+        $this->call('config:cache');
+
+        $this->components->info('Restarting queue workers');
+        $this->call('queue:restart');
 
         $email = $this->promptForEmail();
         $password = $this->promptForPassword();
@@ -47,6 +64,7 @@ class InstallApplication extends Command
         $this->components->twoColumnDetail('Password', $password);
         $this->components->twoColumnDetail('Modbus port', $modbusPort);
         $this->components->twoColumnDetail('Modbus unit id', (string) $modbusUnitId);
+        $this->components->twoColumnDetail('Start command', './run.sh (development)');
 
         $this->line('');
         $this->warn('Store these credentials securely. You can change the password after logging in.');

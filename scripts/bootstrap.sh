@@ -50,6 +50,17 @@ ensure_runtime_tooling() {
     fi
   fi
 
+  if ! command -v composer >/dev/null 2>&1; then
+    if [ "$manager" = "brew" ]; then
+      install_packages "$manager" composer
+    elif [ "$manager" = "apt" ]; then
+      install_packages "$manager" composer
+    else
+      echo "Composer is required. Please install Composer manually." >&2
+      exit 1
+    fi
+  fi
+
   if ! command -v python3 >/dev/null 2>&1; then
     if [ "$manager" = "brew" ]; then
       install_packages "$manager" python
@@ -89,22 +100,8 @@ ensure_runtime_tooling
 # Composer (composer.phar)
 # ---------------------------------------------------------------------------
 
-if [ ! -f composer.phar ]; then
-  echo "Downloading composer.phar..."
-  EXPECTED_SIGNATURE=$(php -r "copy('https://composer.github.io/installer.sig', 'php://stdout');")
-  php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
-  ACTUAL_SIGNATURE=$(php -r "echo hash_file('sha384', 'composer-setup.php');")
-  if [ "$EXPECTED_SIGNATURE" != "$ACTUAL_SIGNATURE" ]; then
-    echo 'ERROR: Invalid composer installer signature' >&2
-    rm composer-setup.php
-    exit 1
-  fi
-  php composer-setup.php --quiet
-  rm composer-setup.php
-fi
-
-echo "Installing PHP dependencies (composer.phar install)..."
-php composer.phar install --no-interaction --prefer-dist
+echo "Installing PHP dependencies (composer install)..."
+composer install --no-interaction --prefer-dist
 
 # ---------------------------------------------------------------------------
 # Node dependencies
