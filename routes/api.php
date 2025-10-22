@@ -11,6 +11,15 @@ use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\JsvvAlarmController;
+use App\Http\Controllers\LiveBroadcastController;
+use App\Http\Controllers\Api\FmController;
+use App\Http\Controllers\Api\ControlTabController;
+use App\Http\Controllers\Api\GsmController;
+use App\Http\Controllers\Api\JsvvEventController;
+use App\Http\Controllers\Api\JsvvSequenceController;
+use App\Http\Controllers\Api\LiveBroadcastApiController;
+use App\Http\Controllers\Api\ManualControlController;
+use App\Http\Controllers\Api\TelemetryController;
 
 Route::group(['prefix' => 'auth', 'middleware' => ['api', 'auth:api']], static function () {
     Route::post('/login', [AuthController::class, 'login'])->withoutMiddleware(['auth:api']);
@@ -49,6 +58,46 @@ Route::group(['middleware' => ['api']], static function () {
         Route::get('/audios', [JsvvAlarmController::class, 'getAudios']);
         Route::post('/audios', [JsvvAlarmController::class, 'saveAudios']);
     });
+
+    Route::group(['prefix' => 'live-broadcast'], static function () {
+        Route::get('/start', [LiveBroadcastController::class, 'start']);
+        Route::get('/stop', [LiveBroadcastController::class, 'stop']);
+
+        Route::post('/start', [LiveBroadcastApiController::class, 'start']);
+        Route::post('/stop', [LiveBroadcastApiController::class, 'stop']);
+        Route::get('/status', [LiveBroadcastApiController::class, 'status']);
+        Route::post('/playlist', [LiveBroadcastApiController::class, 'playlist']);
+        Route::post('/playlist/{playlistId}/cancel', [LiveBroadcastApiController::class, 'cancelPlaylist']);
+        Route::get('/sources', [LiveBroadcastApiController::class, 'sources']);
+        Route::get('/volume', [LiveBroadcastApiController::class, 'getVolumeLevels']);
+        Route::post('/volume', [LiveBroadcastApiController::class, 'updateVolumeLevel']);
+        Route::post('/volume/runtime', [LiveBroadcastApiController::class, 'applyRuntimeVolumeLevel']);
+    });
+
+    Route::group(['prefix' => 'jsvv'], static function () {
+        Route::post('/sequences', [JsvvSequenceController::class, 'plan']);
+        Route::post('/sequences/{sequenceId}/trigger', [JsvvSequenceController::class, 'trigger']);
+        Route::get('/assets', [JsvvSequenceController::class, 'assets']);
+        Route::post('/events', JsvvEventController::class);
+    });
+
+    Route::group(['prefix' => 'gsm'], static function () {
+        Route::post('/events', [GsmController::class, 'events']);
+        Route::get('/whitelist', [GsmController::class, 'index']);
+        Route::post('/whitelist', [GsmController::class, 'store']);
+        Route::put('/whitelist/{id}', [GsmController::class, 'update']);
+        Route::delete('/whitelist/{id}', [GsmController::class, 'destroy']);
+        Route::post('/pin/verify', [GsmController::class, 'verifyPin']);
+    });
+    Route::post('/control-tab/events', [ControlTabController::class, 'handle']);
+
+    Route::group(['prefix' => 'fm'], static function () {
+        Route::get('/frequency', [FmController::class, 'show']);
+        Route::post('/frequency', [FmController::class, 'update']);
+    });
+
+    Route::post('/manual-control/events', ManualControlController::class);
+    Route::get('/stream/telemetry', TelemetryController::class);
 
     Route::group(['prefix' => 'locations'], static function () {
         Route::group(['prefix' => '{location}', 'where' => ['location' => '\d+',]], static function () {
@@ -112,6 +161,10 @@ Route::group(['middleware' => ['api']], static function () {
         Route::group(['prefix' => 'jsvv'], static function () {
             Route::post('/', [SettingsController::class, 'saveJsvvSettings']);
             Route::get('/', [SettingsController::class, 'getJsvvSettings']);
+        });
+        Route::group(['prefix' => 'volume'], static function () {
+            Route::get('/', [SettingsController::class, 'getVolumeSettings']);
+            Route::post('/', [SettingsController::class, 'saveVolumeSettings']);
         });
     });
 

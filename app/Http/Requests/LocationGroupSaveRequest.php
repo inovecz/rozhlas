@@ -25,6 +25,7 @@ class LocationGroupSaveRequest extends FormRequest
             'is_hidden' => 'required|boolean',
             'subtone_type' => ['required', 'string', new Enum(SubtoneTypeEnum::class)],
             'subtone_data' => 'required|array',
+            'modbus_group_address' => 'nullable|integer|min:0|max:65535',
             'subtone_data.listen' => 'required|array',
             'subtone_data.listen.*' => 'nullable|integer',
             'subtone_data.record' => 'required|array',
@@ -42,6 +43,7 @@ class LocationGroupSaveRequest extends FormRequest
         return [
             'name' => 'trim|escape',
             'type' => 'trim|cast:boolean',
+            'modbus_group_address' => 'trim|digit|empty_string_to_null',
             'subtone_type' => 'trim',
             'subtone_data.listen.*' => 'trim|digit|empty_string_to_null',
             'subtone_data.record.*' => 'trim|digit|empty_string_to_null',

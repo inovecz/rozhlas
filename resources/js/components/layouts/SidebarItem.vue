@@ -21,6 +21,7 @@ const props = defineProps({
 <style scoped>
 .router-link-active,
 .router-link-exact-active {
-  @apply bg-slate-600;
+  background-color: #ffffff;
+  color: rgb(var(--p));
 }
 </style>

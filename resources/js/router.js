@@ -24,6 +24,7 @@ import LocationGroupEdit from "./views/settings/LocationGroupEdit.vue";
 import Jsvv from "./views/jsvv/Jsvv.vue";
 import JsvvEdit from "./views/jsvv/JsvvEdit.vue";
 import JSVVSettings from "./views/settings/JSVVSettings.vue";
+import VolumeSettings from "./views/settings/VolumeSettings.vue";
 
 const routes = [
     {
@@ -50,6 +51,7 @@ const routes = [
             {path: "/settings/gsm", name: "GSMSettings", component: GSMSettings, meta: {title: "Nastavení GSM"}},
             {path: "/settings/fm", name: "FMSettings", component: FMSettings, meta: {title: "Nastavení FM rádia"}},
             {path: "/settings/jsvv", name: "JSVVSettings", component: JSVVSettings, meta: {title: "Nastavení JSVV"}},
+            {path: "/settings/volume", name: "VolumeSettings", component: VolumeSettings, meta: {title: "Nastavení hlasitosti"}},
             {path: "/settings/two-way-comm", name: "TwoWayCommSettings", component: TwoWayCommSettings, meta: {title: "Nastavení obousměrné komunikace"}},
             {path: "/settings/location-groups", name: "LocationGroupsSettings", component: LocationGroupsSettings, meta: {title: "Nastavení lokalit"}},
             {path: "/settings/location-group", name: "CreateLocationGroup", component: LocationGroupEdit, meta: {title: "Nová lokalita"}},
@@ -84,7 +86,7 @@ router.beforeEach((to, from, next) => {
     if (to.name !== 'Login' && to.name !== 'Register' && !localStorage.getItem('token')) {
         next({name: 'Login'});
     }
-    document.title = to.meta.title || 'Sarrah IV';
+    document.title = to.meta.title || 'Sarrah V';
     next();
 });
 

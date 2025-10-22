@@ -44,9 +44,22 @@ export default {
         });
     },
 
-    saveTask(id, title, scheduled_at, is_repeating, intro_id, opening_id, common_ids, closing_id, outro_id) {
+    saveTask(id, title, scheduled_at, is_repeating, intro_id, opening_id, common_ids, closing_id, outro_id, repeat_count = null, repeat_interval_value = null, repeat_interval_unit = null, repeat_interval_meta = null) {
         return new Promise((resolve, reject) => {
-            http.post('schedules' + (id ? '/' + id : ''), {title, scheduled_at, is_repeating, intro_id, opening_id, common_ids, closing_id, outro_id}).then(response => {
+            http.post('schedules' + (id ? '/' + id : ''), {
+                title,
+                scheduled_at,
+                is_repeating,
+                intro_id,
+                opening_id,
+                common_ids,
+                closing_id,
+                outro_id,
+                repeat_count,
+                repeat_interval_value,
+                repeat_interval_unit,
+                repeat_interval_meta,
+            }).then(response => {
                 resolve(response.data);
             }).catch(error => {
                 reject([]);

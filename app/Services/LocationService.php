@@ -18,6 +18,7 @@ class LocationService extends Service
             'is_hidden' => $request->input('is_hidden'),
             'subtone_type' => $request->input('subtone_type'),
             'subtone_data' => $request->input('subtone_data'),
+            'modbus_group_address' => $request->input('modbus_group_address'),
             'init_audio_id' => $request->input('init_audio')['id'] ?? null,
             'exit_audio_id' => $request->input('exit_audio')['id'] ?? null,
             'timing' => $request->input('timing'),

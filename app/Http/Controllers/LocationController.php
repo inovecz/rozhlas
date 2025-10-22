@@ -21,6 +21,7 @@ class LocationController extends Controller
     public function list(ListRequest $request): AnonymousResourceCollection
     {
         $locations = Location::query()
+            ->with(['locationGroup', 'assignedLocationGroups'])
             ->when($request->input('search'), static function ($query, $search) {
                 return $query->where('name', 'like', '%'.$search.'%');
             })
@@ -79,8 +80,20 @@ class LocationController extends Controller
     public function saveLocation(LocationsSaveRequest $request): JsonResponse
     {
         $locations = isset($request->all()[0]) ? collect($request->validated()) : collect([$request->validated()]);
-        $locations->each(static function ($location) {
-            Location::updateOrCreate(['id' => $location['id'] ?? null], $location);
+        $locations->each(static function ($payload) {
+            unset($payload['location_group'], $payload['assigned_location_groups'], $payload['status_label'], $payload['isNew'], $payload['updated'], $payload['hash']);
+            $groupIds = collect($payload['location_group_ids'] ?? [])->map('intval')->filter()->values();
+            unset($payload['location_group_ids']);
+
+            $components = collect($payload['components'] ?? [])->filter(static fn($item) => is_string($item) && $item !== '')->values();
+            $payload['components'] = $components->toArray() ?: null;
+
+            $location = Location::updateOrCreate(['id' => $payload['id'] ?? null], $payload);
+            if ($groupIds->isNotEmpty()) {
+                $location->assignedLocationGroups()->sync($groupIds);
+            } else {
+                $location->assignedLocationGroups()->detach();
+            }
         });
 
         return response()->json(['message' => 'Locations saved successfully']);

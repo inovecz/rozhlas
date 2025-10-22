@@ -18,6 +18,7 @@ class LocationGroup extends Model
         return [
             'subtone_type' => SubtoneTypeEnum::class,
             'is_hidden' => 'boolean',
+            'modbus_group_address' => 'integer',
             'subtone_data' => 'array',
             'timing' => 'array',
         ];
@@ -52,6 +53,11 @@ class LocationGroup extends Model
         return $this->subtone_type;
     }
 
+    public function getModbusGroupAddress(): ?int
+    {
+        return $this->modbus_group_address;
+    }
+
     public function isHidden(): bool
     {
         return $this->is_hidden;
@@ -77,6 +83,7 @@ class LocationGroup extends Model
         $array = [
             'id' => $this->getId(),
             'name' => $this->getName(),
+            'modbus_group_address' => $this->getModbusGroupAddress(),
             'subtone_type' => $this->getSubtoneType()->value,
             'is_hidden' => $this->isHidden(),
             'subtone_data' => $this->getSubtoneData(),
@@ -100,6 +107,7 @@ class LocationGroup extends Model
         return [
             'id' => $this->getId(),
             'name' => $this->getName(),
+            'modbus_group_address' => $this->getModbusGroupAddress(),
         ];
     }
     // </editor-fold desc="Region: ARRAY GETTERS">

@@ -10,6 +10,7 @@
   "require": {
     "php": "^8.2",
     "ext-fileinfo": "*",
+    "digitalcz/gosms": "^2.0",
     "elegantweb/sanitizer": "^2.2",
     "laravel/framework": "^11.7",
     "laravel/sanctum": "^4.0.2",

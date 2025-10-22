@@ -20,23 +20,11 @@ export default {
     },
 
     fetchFMSettings() {
-        return new Promise((resolve, reject) => {
-            http.get('settings/fm').then(response => {
-                resolve(response.data);
-            }).catch(error => {
-                reject([]);
-            });
-        });
+        return http.get('fm/frequency').then(response => response.data);
     },
 
     saveFMSettings(settings) {
-        return new Promise((resolve, reject) => {
-            http.post('settings/fm', settings).then(response => {
-                resolve(response.data);
-            }).catch(error => {
-                reject(error.response.data);
-            });
-        });
+        return http.post('fm/frequency', settings).then(response => response.data);
     },
 
     fetchTwoWayCommSettings() {

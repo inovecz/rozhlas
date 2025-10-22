@@ -22,6 +22,17 @@ const locationStoreInfo = locationStore();
 const locationGroups = ref([]);
 const toast = useToast();
 
+const componentLabels = {
+  RECEIVER: 'Přijímač',
+  CHARGER: 'Nabíječ',
+  BIDIRECTIONAL: 'Obousměr',
+  ECOTECH: 'Ekotechnika',
+  CURRENT_LOOP: 'Proudová smyčka',
+  BAT_REP_TEST: 'BAT+REP Test',
+  DIGITAL_INTERFACE: 'Digitální interface',
+  DIGITAL_BIDIRECTIONAL: 'Digitální obousměr',
+};
+
 emitter.on('locateOnMap', (center) => {
   center.value = center;
   map.value.leafletObject.setView(new L.LatLng(center.value[0], center.value[1]), 18)
@@ -35,28 +46,57 @@ function updateLocationGroups() {
   locationGroups.value = locationStoreInfo.locationGroups;
 }
 
-const icons = {
-  NEST: L.ExtraMarkers.icon({
+const statusColors = {
+  OK: 'green',
+  WARNING: 'orange',
+  ERROR: 'red',
+  UNKNOWN: 'pink',
+};
+
+const centralIcon = L.ExtraMarkers.icon({
+  icon: 'mdi-volume-high',
+  markerColor: 'orange',
+  shape: 'square',
+  prefix: 'mdi',
+  iconColor: 'white'
+});
+
+const newIcon = L.ExtraMarkers.icon({
+  icon: 'mdi-plus',
+  markerColor: 'green',
+  shape: 'square',
+  prefix: 'mdi',
+  iconColor: 'white'
+});
+
+const nestIconCache = new Map();
+
+const getNestIcon = (status) => {
+  const key = status ?? 'UNKNOWN';
+  if (nestIconCache.has(key)) {
+    return nestIconCache.get(key);
+  }
+  const markerColor = statusColors[key] ?? statusColors.UNKNOWN;
+  const icon = L.ExtraMarkers.icon({
     icon: 'mdi-broadcast',
-    markerColor: 'white',
+    markerColor,
     shape: 'square',
     prefix: 'mdi',
-    iconColor: 'black'
-  }),
-  CENTRAL: L.ExtraMarkers.icon({
-    icon: 'mdi-volume-high',
-    markerColor: 'orange',
-    shape: 'square',
-    prefix: 'mdi',
-    iconColor: 'white'
-  }),
-  NEW: L.ExtraMarkers.icon({
-    icon: 'mdi-plus',
-    markerColor: 'green',
-    shape: 'square',
-    prefix: 'mdi',
-    iconColor: 'white'
-  })
+    iconColor: markerColor === 'white' ? 'black' : 'white'
+  });
+  nestIconCache.set(key, icon);
+  return icon;
+};
+
+const getMarkerIcon = (location) => {
+  if (location.isNew) {
+    return newIcon;
+  }
+  if (location.type === 'CENTRAL') {
+    return centralIcon;
+  }
+  const status = location.status ?? 'UNKNOWN';
+  return getNestIcon(status);
 };
 
 function toggleDragAndDrop(value) {
@@ -112,6 +152,14 @@ function addLocationMarker() {
     longitude: center.value[1],
     type: 'NEST',
     is_active: true,
+    modbus_address: null,
+    bidirectional_address: null,
+    private_receiver_address: null,
+    components: [],
+    status: 'OK',
+    status_label: 'V pořádku',
+    location_group_ids: [],
+    assigned_location_groups: [],
     updated: true,
     isNew: true,
     hash: generateRandomString(16)
@@ -136,6 +184,9 @@ function setNewCenter() {
 }
 
 function filterList(locationId) {
+  if (!locationId) {
+    return;
+  }
   if (!dragAndDrop.value) {
     emitter.emit('filterListById', locationId);
   }
@@ -154,9 +205,31 @@ function filterList(locationId) {
         <l-tile-layer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                       layer-type="base"
                       name="OpenStreetMap"/>
-        <l-marker v-if="locationStoreInfo.locations?.length > 0" v-for="location in locationStoreInfo.locations" :key="location.id" :draggable="dragAndDrop" @click="filterList(location.id)" @mouseup="locationPositionUpdated($event, location.isNew ? location.hash : location.id)" :lat-lng="[location.latitude, location.longitude]" :icon="location.isNew ? icons.NEW : icons[location.type]">
+        <l-marker
+            v-if="locationStoreInfo.locations?.length > 0"
+            v-for="location in locationStoreInfo.locations"
+            :key="location.id ?? location.hash"
+            :draggable="dragAndDrop"
+            @click="filterList(location.id)"
+            @mouseup="locationPositionUpdated($event, location.isNew ? location.hash : location.id)"
+            :lat-lng="[location.latitude, location.longitude]"
+            :icon="getMarkerIcon(location)">
           <L-popup>
-            {{ location.name }}
+            <div class="space-y-1 text-sm">
+              <div class="font-semibold">{{ location.name }}</div>
+              <div v-if="location.status_label" class="flex items-center gap-1">
+                <span class="mdi mdi-circle" :class="{
+                  'text-green-500': location.status === 'OK',
+                  'text-orange-500': location.status === 'WARNING',
+                  'text-red-500': location.status === 'ERROR',
+                  'text-pink-500': location.status === 'UNKNOWN'
+                }"></span>
+                <span>{{ location.status_label }}</span>
+              </div>
+              <div v-if="Array.isArray(location.components) && location.components.length" class="text-xs text-gray-500">
+                Součásti: {{ location.components.map(component => componentLabels[component] ?? component).join(', ') }}
+              </div>
+            </div>
           </L-popup>
         </l-marker>
       </l-map>

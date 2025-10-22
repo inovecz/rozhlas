@@ -25,6 +25,7 @@ class Schedule extends Model
             'processed_at' => 'datetime',
             'is_repeating' => 'boolean',
             'common_ids' => 'json',
+            'repeat_interval_meta' => 'array',
         ];
     }
     // </editor-fold desc="Region: STATE DEFINITION">
@@ -114,6 +115,10 @@ class Schedule extends Model
             'end_at' => $this->getEndAt(),
             'processed_at' => $this->getProcessedAt(),
             'is_repeating' => $this->isRepeating(),
+            'repeat_count' => $this->repeat_count,
+            'repeat_interval_value' => $this->repeat_interval_value,
+            'repeat_interval_unit' => $this->repeat_interval_unit,
+            'repeat_interval_meta' => $this->repeat_interval_meta,
             'intro' => $this->intro?->getToArrayDefault(),
             'opening' => $this->opening?->getToArrayDefault(),
             'commons' => $this->commons->map(fn(File $file) => $file->getToArrayDefault()),
@@ -126,17 +131,40 @@ class Schedule extends Model
     // <editor-fold desc="Region: FUNCTIONS">
     public function calculateDuration(): int
     {
-        $duration = 0;
-        $duration += $this->intro?->getMetadata()['duration'] ?? 0;
-        $duration += $this->opening?->getMetadata()['duration'] ?? 0;
-        $duration += $this->commons->sum(function (File $file) {
-            return $this->isRepeating() ? $file->getMetadata()['duration'] * 2 : $file->getMetadata()['duration'];
+        $baseDuration = 0;
+        $baseDuration += $this->intro?->getMetadata()['duration'] ?? 0;
+        $baseDuration += $this->opening?->getMetadata()['duration'] ?? 0;
+        $baseDuration += $this->commons->sum(static function (File $file) {
+            return $file->getMetadata()['duration'] ?? 0;
         });
-        $duration += $this->outro?->getMetadata()['duration'] ?? 0;
-        $duration += $this->closing?->getMetadata()['duration'] ?? 0;
-        return $duration;
+        $baseDuration += $this->outro?->getMetadata()['duration'] ?? 0;
+        $baseDuration += $this->closing?->getMetadata()['duration'] ?? 0;
+
+        if (!$this->isRepeating()) {
+            return $baseDuration;
+        }
+
+        $repeatCount = max(1, (int) ($this->repeat_count ?? 1));
+        $intervalSeconds = max(0, $this->resolveIntervalSeconds());
+
+        return ($baseDuration * $repeatCount) + $intervalSeconds * max(0, $repeatCount - 1);
     }
     // </editor-fold desc="Region: FUNCTIONS">
+
+    private function resolveIntervalSeconds(): int
+    {
+        $value = (int) ($this->repeat_interval_value ?? 0);
+        $unit = $this->repeat_interval_unit ?? null;
+
+        return match ($unit) {
+            'minutes' => $value * 60,
+            'hours' => $value * 3600,
+            'days' => $value * 86400,
+            'months' => $value * 30 * 86400,
+            'years' => $value * 365 * 86400,
+            default => 0,
+        };
+    }
 
     // <editor-fold desc="Region: SCOPES">
     // </editor-fold desc="Region: SCOPES">

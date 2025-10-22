@@ -1,0 +1,15 @@
+checks:
+  - name: gsm_listener_health
+    type: http
+    url: http://127.0.0.1/api/health/gsm
+    interval: 60
+
+  - name: jsvv_listener_health
+    type: http
+    url: http://127.0.0.1/api/health/jsvv
+    interval: 60
+
+  - name: queue_backlog
+    type: command
+    command: php artisan queue:monitor 10
+    interval: 120

@@ -75,6 +75,15 @@ function deleteLocationGroup(id) {
                   Počet míst
                 </div>
               </th>
+              <th @click="orderBy('modbus_group_address')">
+                <div class="flex items-center cursor-pointer underline">
+                  Modbus adresa
+                  <span v-if="orderColumn.value === 'modbus_group_address'">
+                    <span v-if="orderAsc.value" class="mdi mdi-triangle-small-up text-lg"></span>
+                    <span v-if="!orderAsc.value" class="mdi mdi-triangle-small-down text-lg"></span>
+                  </span>
+                </div>
+              </th>
               <th>
                 <div class="flex items-center">
                   Typ subtónu
@@ -101,6 +110,9 @@ function deleteLocationGroup(id) {
               </td>
               <td>
                 <span>{{ locationGroup.locations_count }}</span>
+              </td>
+              <td>
+                <span>{{ typeof locationGroup.modbus_group_address === 'number' ? locationGroup.modbus_group_address : (locationGroup.modbus_group_address ?? '-') }}</span>
               </td>
               <td>
                 <span>{{ locationGroup.subtone_type }}</span>
