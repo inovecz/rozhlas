@@ -5,23 +5,88 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 cd "$ROOT_DIR"
 
-if ! command -v php >/dev/null 2>&1; then
-  echo "PHP is required to bootstrap the project." >&2
-  exit 1
-fi
+detect_package_manager() {
+  if command -v brew >/dev/null 2>&1; then
+    echo "brew"
+  elif command -v apt-get >/dev/null 2>&1; then
+    echo "apt"
+  else
+    echo "none"
+  fi
+}
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "python3 is required to bootstrap the project." >&2
-  exit 1
-fi
+install_packages() {
+  local manager="$1"; shift
+  local packages=("$@")
 
-if ! command -v npm >/dev/null 2>&1; then
-  echo "npm is required to bootstrap the project." >&2
-  exit 1
-fi
+  if [ "$manager" = "brew" ]; then
+    for pkg in "${packages[@]}"; do
+      if ! brew list "$pkg" >/dev/null 2>&1; then
+        echo "Installing $pkg (Homebrew)"
+        brew install "$pkg"
+      fi
+    done
+  elif [ "$manager" = "apt" ]; then
+    echo "Installing ${packages[*]} (apt-get – may require sudo password)"
+    sudo apt-get update
+    sudo apt-get install -y "${packages[@]}"
+  else
+    echo "Warning: unsupported package manager. Please install ${packages[*]} manually." >&2
+  fi
+}
+
+ensure_runtime_tooling() {
+  local manager
+  manager=$(detect_package_manager)
+
+  if ! command -v php >/dev/null 2>&1; then
+    if [ "$manager" = "brew" ]; then
+      install_packages "$manager" php
+    elif [ "$manager" = "apt" ]; then
+      install_packages "$manager" php php-cli php-mbstring php-xml php-curl php-zip php-sqlite3
+    else
+      echo "PHP is required to bootstrap the project." >&2
+      exit 1
+    fi
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    if [ "$manager" = "brew" ]; then
+      install_packages "$manager" python
+    elif [ "$manager" = "apt" ]; then
+      install_packages "$manager" python3 python3-venv python3-pip
+    else
+      echo "python3 is required to bootstrap the project." >&2
+      exit 1
+    fi
+  fi
+
+  if ! command -v npm >/dev/null 2>&1; then
+    if [ "$manager" = "brew" ]; then
+      install_packages "$manager" node
+    elif [ "$manager" = "apt" ]; then
+      install_packages "$manager" nodejs npm
+    else
+      echo "npm (Node.js) is required to bootstrap the project." >&2
+      exit 1
+    fi
+  fi
+
+  if ! command -v ffmpeg >/dev/null 2>&1; then
+    if [ "$manager" = "brew" ]; then
+      install_packages "$manager" ffmpeg
+    elif [ "$manager" = "apt" ]; then
+      install_packages "$manager" ffmpeg
+    else
+      echo "Warning: ffmpeg not found. Install it manually to enable audio processing." >&2
+    fi
+  fi
+}
+
+ensure_runtime_tooling
 
 # ---------------------------------------------------------------------------
-# Composer (via composer.phar)
+# Composer (composer.phar)
 # ---------------------------------------------------------------------------
 
 if [ ! -f composer.phar ]; then
