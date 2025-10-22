@@ -44,7 +44,7 @@ const showSideBar = computed(() => basicStoreInfo.showSideBar)
         <router-link :to="{ name: 'LiveBroadcast' }">
           <div class="flex space-x-3">
             <span class="mdi mdi-broadcast text-3xl"></span>
-            <span class="text-3xl font-light">Sarrah IV</span>
+            <span class="text-3xl font-light">Sarrah V</span>
           </div>
         </router-link>
       </div>

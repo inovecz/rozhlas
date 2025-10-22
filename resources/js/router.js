@@ -86,7 +86,7 @@ router.beforeEach((to, from, next) => {
     if (to.name !== 'Login' && to.name !== 'Register' && !localStorage.getItem('token')) {
         next({name: 'Login'});
     }
-    document.title = to.meta.title || 'Sarrah IV';
+    document.title = to.meta.title || 'Sarrah V';
     next();
 });
 

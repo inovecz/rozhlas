@@ -1,6 +1,6 @@
-# Uživatelská příručka Sarrah IV (aktualizace 2025-05-24)
+# Uživatelská příručka Sarrah V (aktualizace 2025-05-24)
 
-Tato příručka shrnuje aktuální možnosti rozhraní aplikace Sarrah IV. Soustředí se na každodenní práci operátora – živé vysílání, přípravu vlastních nahrávek, plánování úloh a obsluhu systému JSVV. Všechny popsané obrazovky jsou dostupné v hlavním menu aplikace.
+Tato příručka shrnuje aktuální možnosti rozhraní aplikace Sarrah V. Soustředí se na každodenní práci operátora – živé vysílání, přípravu vlastních nahrávek, plánování úloh a obsluhu systému JSVV. Všechny popsané obrazovky jsou dostupné v hlavním menu aplikace.
 
 ---
 
