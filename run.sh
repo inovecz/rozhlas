@@ -11,6 +11,17 @@ LARAVEL_PORT=${LARAVEL_PORT:-8001}
 VITE_HOST=${VITE_HOST:-127.0.0.1}
 VITE_PORT=${VITE_PORT:-5173}
 
+APP_ENV_VALUE=${APP_ENV:-}
+if [[ -z "$APP_ENV_VALUE" && -f "$ROOT_DIR/.env" ]]; then
+  APP_ENV_VALUE=$(grep '^APP_ENV=' "$ROOT_DIR/.env" | tail -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" )
+fi
+APP_ENV_VALUE=${APP_ENV_VALUE:-local}
+APP_ENV_LOWER=$(echo "$APP_ENV_VALUE" | tr '[:upper:]' '[:lower:]')
+RUN_VITE=true
+if [[ "$APP_ENV_LOWER" == "production" ]]; then
+  RUN_VITE=false
+fi
+
 BACKEND_LOG="$LOG_DIR/backend.log"
 FRONTEND_LOG="$LOG_DIR/frontend.log"
 ALARM_LOG="$LOG_DIR/alarm-monitor.log"
@@ -48,12 +59,16 @@ echo "Starting Laravel backend (php artisan serve)..."
 ) &
 BACKEND_PID=$!
 
-echo "Starting Vite dev server (npm run dev)..."
-(
-  cd "$ROOT_DIR"
-  npm run dev -- --host "$VITE_HOST" --port "$VITE_PORT" >>"$FRONTEND_LOG" 2>&1
-) &
-FRONTEND_PID=$!
+if [[ "$RUN_VITE" == true ]]; then
+  echo "Starting Vite dev server (npm run dev)..."
+  (
+    cd "$ROOT_DIR"
+    npm run dev -- --host "$VITE_HOST" --port "$VITE_PORT" >>"$FRONTEND_LOG" 2>&1
+  ) &
+  FRONTEND_PID=$!
+else
+  echo "Skipping Vite dev server start (APP_ENV=$APP_ENV_VALUE)"
+fi
 
 sleep 2
 
@@ -70,9 +85,15 @@ ALARM_PID=$!
 
 echo "\nServers running:"
 echo "  Backend : http://$LARAVEL_HOST:$LARAVEL_PORT"
-echo "  Frontend: http://$VITE_HOST:$VITE_PORT"
+if [[ "$RUN_VITE" == true ]]; then
+  echo "  Frontend: http://$VITE_HOST:$VITE_PORT"
+else
+  echo "  Frontend: (not running in $APP_ENV_VALUE environment)"
+fi
 echo "Logs stored in $LOG_DIR"
 echo "Press Ctrl+C to stop all services."
 
 wait "$BACKEND_PID"
-wait "$FRONTEND_PID"
+if [[ -n "$FRONTEND_PID" ]]; then
+  wait "$FRONTEND_PID"
+fi
