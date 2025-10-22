@@ -120,9 +120,13 @@ if [ ! -d "$VENV_DIR" ]; then
   python3 -m venv "$VENV_DIR"
 fi
 
-echo "Installing Python dependencies (python-client requirements)..."
 "$VENV_DIR/bin/pip" install --upgrade pip >/dev/null 2>&1 || true
-"$VENV_DIR/bin/pip" install -r "$ROOT_DIR/python-client/requirements.txt"
+if [ -f "$ROOT_DIR/python-client/requirements.txt" ]; then
+  echo "Installing Python dependencies (python-client/requirements.txt)..."
+  "$VENV_DIR/bin/pip" install -r "$ROOT_DIR/python-client/requirements.txt"
+else
+  echo "Warning: python-client/requirements.txt not found, skipping Python dependency installation." >&2
+fi
 
 echo "\nBootstrap completed. Next steps:"
 echo "  1) cp .env.example .env (if not already done)"
