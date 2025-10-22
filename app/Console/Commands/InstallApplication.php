@@ -36,6 +36,8 @@ class InstallApplication extends Command
         $this->components->info('Clearing application cache');
         $this->call('cache:clear');
 
+        $this->ensureSqliteDatabaseExists();
+
         $this->components->info('Running database migrations...');
         $this->call('migrate', ['--force' => true]);
 
@@ -145,5 +147,32 @@ class InstallApplication extends Command
         }
 
         file_put_contents($envPath, $contents);
+    }
+
+    private function ensureSqliteDatabaseExists(): void
+    {
+        if (config('database.default') !== 'sqlite') {
+            return;
+        }
+
+        $databasePath = config('database.connections.sqlite.database');
+        if ($databasePath === null || $databasePath === '' || $databasePath === ':memory:') {
+            return;
+        }
+
+        $isAbsolute = Str::startsWith($databasePath, ['/','\\']) || preg_match('/^[A-Za-z]:\\\\/', $databasePath) === 1;
+        if (!$isAbsolute) {
+            $databasePath = base_path($databasePath);
+        }
+
+        $directory = dirname($databasePath);
+        if (!is_dir($directory)) {
+            mkdir($directory, 0755, true);
+        }
+
+        if (!file_exists($databasePath)) {
+            touch($databasePath);
+            $this->components->info(sprintf('Created SQLite database at %s', $databasePath));
+        }
     }
 }
