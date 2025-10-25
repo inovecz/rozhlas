@@ -11,7 +11,7 @@ import LiveBroadcastService from "../../services/LiveBroadcastService.js";
 import LocationService from "../../services/LocationService.js";
 import SettingsService from "../../services/SettingsService.js";
 import RecordSelectDialog from "../../components/modals/RecordSelectDialog.vue";
-import {formatDate, getAudioOutputDevices} from "../../helper.js";
+import {formatDate} from "../../helper.js";
 import VolumeService from "../../services/VolumeService.js";
 
 const toast = useToast();
@@ -56,9 +56,9 @@ const volumeGroups = ref([]);
 const volumeLoading = ref(false);
 const volumeSaving = reactive({});
 const volumeSlider = {
-  min: -12,
-  max: 59.5,
-  step: 0.5,
+  min: 0,
+  max: 100,
+  step: 1,
 };
 const sourceInputChannelMap = ref({
   microphone: 'input_1',
@@ -73,6 +73,16 @@ const sourceInputChannelMap = ref({
   input_8: 'input_8',
   fm_radio: 'fm_radio',
   control_box: 'control_box',
+});
+const hardwareAudioDevices = ref({
+  playback_devices: [],
+  capture_devices: [],
+  pulse: {
+    sinks: [],
+    sources: []
+  },
+  pulse_controls: [],
+  timestamp: null,
 });
 const nextScheduledBroadcast = computed(() => {
   const schedule = status.value?.next_schedule ?? null;
@@ -214,7 +224,7 @@ onMounted(async () => {
     loadLocationGroups(),
     loadNests(),
     loadStatus(),
-    loadAudioOutputs(),
+    loadHardwareAudioDevices(),
     loadVolumeLevels()
   ]);
 });
@@ -246,9 +256,40 @@ watch(() => form.source, async (newSource, oldSource) => {
 
 const loadSources = async () => {
   try {
-    sources.value = await LiveBroadcastService.getSources();
-    if (!form.source && sources.value.length > 0) {
-      form.source = sources.value[0].id;
+    const response = await LiveBroadcastService.getSources();
+    const list = Array.isArray(response) ? response : (response?.sources ?? []);
+    const normalised = list
+      .map((item) => ({
+        id: item?.id ?? null,
+        label: item?.label ?? item?.id ?? '',
+        available: item?.available !== false,
+        unavailable_reason: item?.unavailable_reason ?? null,
+      }))
+      .filter(item => typeof item.id === 'string' && item.id.length > 0);
+
+    sources.value = normalised;
+
+    const ensureDefaultSource = () => {
+      const preferred = sources.value.find(source => source.id === 'pc_webrtc' && source.available);
+      const firstAvailable = sources.value.find(source => source.available);
+      const fallback = preferred ?? firstAvailable ?? sources.value[0] ?? null;
+      if (fallback) {
+        form.source = fallback.id;
+      } else {
+        form.source = '';
+      }
+    };
+
+    if (!form.source) {
+      ensureDefaultSource();
+      return;
+    }
+
+    const selected = sources.value.find(source => source.id === form.source);
+    if (!selected || selected.available === false) {
+      if (!isStreaming.value) {
+        ensureDefaultSource();
+      }
     }
   } catch (error) {
     console.error(error);
@@ -275,21 +316,64 @@ const loadNests = async () => {
   }
 };
 
-const loadAudioOutputs = async () => {
+const buildHardwareOutputList = (devices) => {
+  const outputs = [{id: 'default', label: 'Výchozí systém'}];
+  const sinks = Array.isArray(devices?.pulse?.sinks) ? devices.pulse.sinks : [];
+  sinks.forEach((sink) => {
+    if (sink?.name) {
+      outputs.push({
+        id: `pulse:${sink.name}`,
+        label: sink?.pretty_name ?? sink?.description ?? `PulseAudio ${sink.name}`,
+      });
+    }
+  });
+
+  const playbackDevices = Array.isArray(devices?.playback_devices) ? devices.playback_devices : [];
+  playbackDevices.forEach((device) => {
+    const card = Number.isFinite(device?.card) ? Number(device.card) : null;
+    const dev = Number.isFinite(device?.device) ? Number(device.device) : null;
+    const id = card !== null && dev !== null ? `alsa:${card}:${dev}` : null;
+    if (id) {
+      const cardLabel = device?.card_description ?? device?.card_name ?? `Karta ${card}`;
+      const devLabel = device?.device_description ?? device?.device_name ?? `Zařízení ${dev}`;
+      outputs.push({
+        id,
+        label: `${cardLabel} • ${devLabel}`,
+      });
+    }
+  });
+
+  const unique = [];
+  const seen = new Set();
+  outputs.forEach((item) => {
+    if (item?.id && !seen.has(item.id)) {
+      seen.add(item.id);
+      unique.push(item);
+    }
+  });
+  return unique;
+};
+
+const loadHardwareAudioDevices = async (silent = false) => {
   try {
-    const devices = await getAudioOutputDevices();
-    audioOutputDevices.value = devices;
-    if (!devices.some(device => device.id === selectedAudioOutputId.value)) {
-      selectedAudioOutputId.value = 'default';
+    const devices = await LiveBroadcastService.getAudioDevices();
+    hardwareAudioDevices.value = devices;
+    const outputs = buildHardwareOutputList(devices);
+    audioOutputDevices.value = outputs;
+    if (!outputs.some(device => device.id === selectedAudioOutputId.value)) {
+      selectedAudioOutputId.value = outputs[0]?.id ?? 'default';
     }
   } catch (error) {
-    console.error('Failed to load audio outputs', error);
-    toast.error('Nepodařilo se načíst audio výstupy');
+    console.error('Failed to detect audio hardware', error);
+    if (!silent) {
+      toast.error('Nepodařilo se načíst hardware audio zařízení');
+    }
   }
 };
 
 const loadStatus = async () => {
   try {
+    await loadHardwareAudioDevices(true);
     const response = await LiveBroadcastService.getStatus();
     syncingForm.value = true;
     status.value = response;
@@ -463,9 +547,10 @@ const handleActiveVolumeChange = async () => {
     toast.error('Zadejte platnou číselnou hodnotu');
     return;
   }
-  item.value = parsed;
+  const clamped = Math.min(volumeSlider.max, Math.max(volumeSlider.min, parsed));
+  item.value = clamped;
   try {
-    await updateVolumeLevel(groupId, item.id, parsed);
+    await updateVolumeLevel(groupId, item.id, clamped);
   } catch (error) {
     await loadVolumeLevels(true);
   }
@@ -733,8 +818,8 @@ const removePlaylistItem = (index) => {
               <select
                   v-model="form.source"
                   class="form-select w-full border border-gray-300 rounded-md bg-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-40">
-                <option v-for="source in sources" :key="source.id" :value="source.id">
-                  {{ source.label }}
+                <option v-for="source in sources" :key="source.id" :value="source.id" :disabled="source.available === false && source.id !== form.source" :title="source.available === false ? (source.unavailable_reason ?? 'Zdroj není dostupný') : ''">
+                  {{ source.label }}{{ source.available === false && source.unavailable_reason ? ' – ' + source.unavailable_reason : (source.available === false ? ' – Nedostupný' : '') }}
                 </option>
               </select>
             </div>
@@ -744,7 +829,6 @@ const removePlaylistItem = (index) => {
               <select
                   v-model="selectedAudioOutputId"
                   class="form-select w-full border border-gray-300 rounded-md bg-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-40">
-                <option value="default">Výchozí systém</option>
                 <option v-for="output in audioOutputDevices" :key="output.id" :value="output.id">
                   {{ output.label }}
                 </option>
@@ -785,7 +869,7 @@ const removePlaylistItem = (index) => {
               <template v-if="!volumeLoading">
                 <div v-if="currentInputVolumeItem" class="space-y-2">
                   <div class="text-xs text-gray-500">
-                    Výchozí hodnota: {{ currentInputVolumeItem.default }}
+                    Výchozí hodnota: {{ Math.round(currentInputVolumeItem.default) }} %
                   </div>
                   <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:min-w-[360px]">
                     <input
@@ -799,7 +883,7 @@ const removePlaylistItem = (index) => {
                         :disabled="isCurrentVolumeSaving"
                     />
                     <div class="flex items-center gap-2 text-sm text-gray-700">
-                      <span class="inline-block w-14 text-right">{{ Number(currentInputVolumeItem.value).toFixed(1) }}</span>
+                      <span class="inline-block w-14 text-right">{{ Math.round(Number(currentInputVolumeItem.value)) }} %</span>
                       <span v-if="isCurrentVolumeSaving" class="text-xs text-gray-500">Ukládám…</span>
                     </div>
                   </div>

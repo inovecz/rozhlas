@@ -72,6 +72,7 @@ Route::group(['middleware' => ['api']], static function () {
         Route::get('/volume', [LiveBroadcastApiController::class, 'getVolumeLevels']);
         Route::post('/volume', [LiveBroadcastApiController::class, 'updateVolumeLevel']);
         Route::post('/volume/runtime', [LiveBroadcastApiController::class, 'applyRuntimeVolumeLevel']);
+        Route::get('/audio-devices', [LiveBroadcastApiController::class, 'audioDevices']);
     });
 
     Route::group(['prefix' => 'jsvv'], static function () {

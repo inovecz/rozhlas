@@ -7,8 +7,12 @@ code can run on macOS or Linux (including Raspberry Pi).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import inspect
+import os
+import sys
+import time
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Iterable, Mapping, MutableMapping
 
 from . import constants
@@ -92,7 +96,9 @@ class ModbusAudioClient:
             raise ModbusAudioError(f"Unable to open serial port {self.settings.port}")
 
         self._connected = True
-        self._setup_rs485_gpio()
+        driver_configured = self._setup_rs485_driver()
+        if not driver_configured:
+            self._setup_rs485_gpio()
 
     def close(self) -> None:
         if self._connected:
@@ -216,7 +222,8 @@ class ModbusAudioClient:
                 f"No response while writing register 0x{address:04X}; verify wiring, port, and unit id"
             ) from exc
         if getattr(response, "isError", lambda: False)():  # pragma: no cover - depends on pymodbus
-            raise ModbusAudioError(f"Modbus error while writing register 0x{address:04X}")
+            details = _format_modbus_error_details(response)
+            raise ModbusAudioError(f"Modbus error while writing register 0x{address:04X}{details}")
 
     def write_registers(self, address: int, values: Iterable[int], unit: int | None = None) -> None:
         """Write consecutive holding registers."""
@@ -234,8 +241,9 @@ class ModbusAudioClient:
                 f"No response while writing registers starting at 0x{address:04X}; check connection"
             ) from exc
         if getattr(response, "isError", lambda: False)():  # pragma: no cover - depends on pymodbus
+            details = _format_modbus_error_details(response)
             raise ModbusAudioError(
-                f"Modbus error while writing {len(value_list)} registers starting at 0x{address:04X}"
+                f"Modbus error while writing {len(value_list)} registers starting at 0x{address:04X}{details}"
             )
 
     def configure_route(self, addresses: Iterable[int]) -> None:
@@ -328,8 +336,9 @@ class ModbusAudioClient:
                 " verify port, wiring, baud rate, and unit id"
             ) from exc
         if getattr(response, "isError", lambda: False)():  # pragma: no cover - depends on pymodbus
+            details = _format_modbus_error_details(response)
             raise ModbusAudioError(
-                f"Modbus error while reading {quantity} register(s) starting at 0x{address:04X}"
+                f"Modbus error while reading {quantity} register(s) starting at 0x{address:04X}{details}"
             )
         if not hasattr(response, "registers"):
             raise ModbusAudioError("Unexpected response payload from pymodbus")
@@ -412,6 +421,45 @@ class ModbusAudioClient:
         return method(**kwargs)
 
 
+    def _setup_rs485_driver(self) -> bool:
+        if not constants.ENABLE_RS485_DRIVER:
+            return False
+
+        serial_handle = self._resolve_serial_handle()
+        if serial_handle is None:
+            raise ModbusAudioError("Unable to locate the underlying serial handle for RS485 RS485Settings")
+
+        try:
+            from serial.rs485 import RS485Settings  # type: ignore[import]
+        except Exception as exc:  # pragma: no cover - optional dependency
+            raise ModbusAudioError("pyserial does not provide RS485 support; install a recent pyserial release") from exc
+
+        lead = constants.RS485_DRIVER_LEAD_SECONDS if constants.RS485_DRIVER_LEAD_SECONDS > 0 else None
+        tail = constants.RS485_DRIVER_TAIL_SECONDS if constants.RS485_DRIVER_TAIL_SECONDS > 0 else None
+
+        settings = RS485Settings(
+            rts_level_for_tx=constants.RS485_DRIVER_RTS_TX_HIGH,
+            rts_level_for_rx=constants.RS485_DRIVER_RTS_RX_HIGH,
+            delay_before_tx=lead,
+            delay_before_rx=tail,
+        )
+
+        try:
+            serial_handle.rs485_mode = settings  # type: ignore[attr-defined]
+        except Exception as exc:
+            raise ModbusAudioError(f"Unable to enable RS485 mode via serial driver: {exc}") from exc
+
+        if constants.RS485_GPIO_DEBUG:
+            print(
+                "[RS485] Enabled kernel RS485 mode",
+                f"(tx_level={'HIGH' if constants.RS485_DRIVER_RTS_TX_HIGH else 'LOW'}, "
+                f"rx_level={'HIGH' if constants.RS485_DRIVER_RTS_RX_HIGH else 'LOW'}, "
+                f"lead={lead}, tail={tail})",
+                file=sys.stderr,
+                flush=True,
+            )
+        return True
+
     def _setup_rs485_gpio(self) -> None:
         if not constants.ENABLE_RS485_GPIO:
             return
@@ -456,21 +504,60 @@ class ModbusAudioClient:
         return None
 
 
+def _import_gpiod():
+    """Import gpiod, optionally extending sys.path with local site-packages."""
+
+    try:
+        import gpiod  # type: ignore[import]
+    except ModuleNotFoundError:
+        search_paths: list[str] = []
+        extra_paths = os.environ.get("MODBUS_RS485_GPIO_PYTHONPATH", "")
+        if extra_paths:
+            search_paths.extend(part for part in extra_paths.split(":") if part)
+
+        project_root = Path(__file__).resolve().parents[2]
+        venv_dir = project_root / ".venv"
+        if venv_dir.exists():
+            for pattern in ("lib/python*/site-packages", "lib64/python*/site-packages"):
+                for candidate in venv_dir.glob(pattern):
+                    search_paths.append(str(candidate))
+
+        appended = False
+        for path_str in search_paths:
+            if not path_str:
+                continue
+            candidate = Path(path_str)
+            if not candidate.exists():
+                continue
+            if path_str not in sys.path:
+                sys.path.insert(0, path_str)
+            appended = True
+        if not appended:
+            raise
+        import gpiod  # type: ignore[import]  # noqa: F401
+    return gpiod  # type: ignore[name-defined]
+
+
 class _RS485Controller:
     """Manage RS485 direction control via a dedicated GPIO line."""
 
     def __init__(self, *, chip: str, line_offset: int, active_high: bool, consumer: str) -> None:
         try:
-            import gpiod  # type: ignore[import]
+            gpiod = _import_gpiod()
         except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
-            raise ModbusAudioError("gpiod is not installed; disable ENABLE_RS485_GPIO or install gpiod") from exc
+            raise ModbusAudioError(
+                "gpiod is not installed; install it in the active interpreter or adjust MODBUS_RS485_GPIO_PYTHONPATH"
+            ) from exc
 
         self._chip_name = chip
         self._line_offset = line_offset
         self._active_high = active_high
         self._consumer = consumer
+        self._debug_enabled = constants.RS485_GPIO_DEBUG
         self._serial_handle = None
         self._original_write: Callable[..., object] | None = None
+        self._original_flush: Callable[..., object] | None = None
+        self._is_transmitting = False
 
         self._chip = None
         self._request = None
@@ -489,6 +576,12 @@ class _RS485Controller:
             self._value_rx = line.Value.INACTIVE if active_high else line.Value.ACTIVE
             self._set_value = lambda value: request.set_value(line_offset, value)
             self._release = request.release
+            self._log_debug(
+                "Configured libgpiod v2 line",
+                chip=chip,
+                line=line_offset,
+                active_high=active_high,
+            )
         else:  # pragma: no cover - legacy libgpiod v1 fallback
             chip_obj = gpiod.Chip(chip)
             line_obj = chip_obj.get_line(line_offset)
@@ -499,6 +592,12 @@ class _RS485Controller:
             self._value_rx = 0 if active_high else 1
             self._set_value = line_obj.set_value
             self._release = line_obj.release
+            self._log_debug(
+                "Configured libgpiod v1 line",
+                chip=chip,
+                line=line_offset,
+                active_high=active_high,
+            )
 
         self.receive()
 
@@ -510,23 +609,40 @@ class _RS485Controller:
         if original_write is None:
             raise ModbusAudioError("Serial handle does not expose a writable interface for RS485 control")
 
+        original_flush = getattr(serial_handle, "flush", None)
+
         def wrapped(data, *args, **kwargs):
             self.transmit()
             try:
                 return original_write(data, *args, **kwargs)
             finally:
+                if callable(original_flush):
+                    try:
+                        original_flush()
+                    except Exception:
+                        pass
                 self.receive()
 
         serial_handle.write = wrapped  # type: ignore[attr-defined]
         self._serial_handle = serial_handle
         self._original_write = original_write
+        self._original_flush = original_flush
+        self._log_debug("Attached to serial handle", handle=repr(serial_handle))
         self.receive()
 
     def transmit(self) -> None:
+        self._is_transmitting = True
         self._set_value(self._value_tx)
+        self._log_debug("Set GPIO to transmit", level=self._value_tx)
+        if constants.RS485_GPIO_PRE_TX_DELAY > 0:
+            time.sleep(constants.RS485_GPIO_PRE_TX_DELAY)
 
     def receive(self) -> None:
+        if self._is_transmitting and constants.RS485_GPIO_POST_TX_DELAY > 0:
+            time.sleep(constants.RS485_GPIO_POST_TX_DELAY)
         self._set_value(self._value_rx)
+        self._log_debug("Set GPIO to receive", level=self._value_rx)
+        self._is_transmitting = False
 
     def close(self) -> None:
         if self._serial_handle is not None and self._original_write is not None:
@@ -536,6 +652,9 @@ class _RS485Controller:
                 pass
         self._serial_handle = None
         self._original_write = None
+        self._original_flush = None
+        self._is_transmitting = False
+        self._log_debug("Detached from serial handle")
 
         try:
             self.receive()
@@ -552,6 +671,33 @@ class _RS485Controller:
                 self._chip.close()
             except Exception:
                 pass
+
+    def _log_debug(self, message: str, **kwargs) -> None:
+        if not self._debug_enabled:
+            return
+        details = " ".join(f"{key}={value}" for key, value in kwargs.items())
+        text = f"[RS485] {message}"
+        if details:
+            text = f"{text} ({details})"
+        print(text, file=sys.stderr, flush=True)
+
+
+def _format_modbus_error_details(response) -> str:
+    """Render extra debugging information for pymodbus error responses."""
+
+    parts: list[str] = []
+    exc_code = getattr(response, "exception_code", None)
+    if exc_code is not None:
+        parts.append(f"exception code: {exc_code}")
+    function_code = getattr(response, "function_code", None)
+    if function_code is not None:
+        parts.append(f"function code: 0x{function_code:02X}")
+    data = getattr(response, "message", None)
+    if data:
+        parts.append(f"message: {data}")
+    if not parts:
+        parts.append(f"raw: {repr(response)}")
+    return " (" + ", ".join(parts) + ")"
 
 
 def _resolve_framers() -> dict[str, type]:

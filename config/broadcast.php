@@ -2,6 +2,48 @@
 
 declare(strict_types=1);
 
+$parseIntList = static function ($value): array {
+    if ($value === null || $value === '') {
+        return [];
+    }
+
+    $items = array_map('trim', explode(',', (string) $value));
+    $items = array_filter($items, static fn ($item) => $item !== '');
+
+    return array_values(array_map(static fn ($item) => (int) $item, $items));
+};
+
+$parseStringList = static function ($value): array {
+    if ($value === null || $value === '') {
+        return [];
+    }
+
+    $items = array_map('trim', explode(',', (string) $value));
+
+    return array_values(array_filter($items, static fn ($item) => $item !== ''));
+};
+
+$parseBool = static function ($value, bool $default = false): bool {
+    if ($value === null || $value === '') {
+        return $default;
+    }
+
+    if (is_bool($value)) {
+        return $value;
+    }
+
+    $normalized = strtolower((string) $value);
+    if ($normalized === '1' || $normalized === 'true' || $normalized === 'yes' || $normalized === 'on') {
+        return true;
+    }
+
+    if ($normalized === '0' || $normalized === 'false' || $normalized === 'no' || $normalized === 'off') {
+        return false;
+    }
+
+    return $default;
+};
+
 return [
     'default_route' => array_values(array_filter(array_map(
         static fn ($value) => (int) trim($value),
@@ -9,7 +51,7 @@ return [
     ))),
     'mixer' => [
         'enabled' => env('BROADCAST_MIXER_ENABLED', false),
-        'binary' => env('BROADCAST_MIXER_BINARY', '/usr/local/bin/alza-mixer'),
+        'binary' => env('BROADCAST_MIXER_BINARY', 'alsamixer'),
         'timeout' => (int) env('BROADCAST_MIXER_TIMEOUT', 10),
         'presets' => [
             'microphone' => [
@@ -55,5 +97,15 @@ return [
         'reset' => [
             'args' => ['reset'],
         ],
+    ],
+    'live' => [
+        'source' => env('BROADCAST_LIVE_SOURCE', 'microphone'),
+        'route' => $parseIntList(env('BROADCAST_LIVE_ROUTE')),
+        'zones' => $parseIntList(env('BROADCAST_LIVE_ZONES')),
+        'update_route' => $parseBool(env('BROADCAST_LIVE_UPDATE_ROUTE', false)),
+        'timeout' => ($timeout = env('BROADCAST_LIVE_TIMEOUT')) !== null && $timeout !== ''
+            ? (float) $timeout
+            : null,
+        'volume_groups' => $parseStringList(env('BROADCAST_LIVE_VOLUME_GROUPS', 'inputs,outputs')),
     ],
 ];

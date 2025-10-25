@@ -25,13 +25,14 @@ class VolumeManager
     public function applyRuntimeLevel(string $groupId, string $itemId, float $value): array
     {
         $definition = $this->definitionsFor($groupId, $itemId);
+        $value = $this->normalizeLevel($value);
         $this->applyToMixer($definition, $value);
 
         return [
             'id' => $itemId,
             'label' => $definition['label'] ?? $itemId,
             'value' => (float) $value,
-            'default' => (float) ($definition['default'] ?? 0.0),
+            'default' => $this->normalizeLevel((float) ($definition['default'] ?? 0.0)),
         ];
     }
 
@@ -69,6 +70,7 @@ class VolumeManager
     {
         $definition = $this->definitionsFor($groupId, $itemId);
 
+        $value = $this->normalizeLevel($value);
         $values = $this->getGroupValues($groupId);
         $values[$itemId] = $value;
         $this->setGroupValues($groupId, $values);
@@ -84,7 +86,9 @@ class VolumeManager
         $definition = $this->definitionsFor($groupId, $itemId);
         $values = $this->getGroupValues($groupId);
 
-        return (float) ($values[$itemId] ?? $definition['default'] ?? 0.0);
+        $raw = (float) ($values[$itemId] ?? $definition['default'] ?? 0.0);
+
+        return $this->normalizeLevel($raw);
     }
 
     /**
@@ -116,7 +120,7 @@ class VolumeManager
                 }
 
                 $definition = $this->definitionsFor($groupId, $itemId);
-                $value = (float) Arr::get($item, 'value', $definition['default'] ?? 0.0);
+                $value = $this->normalizeLevel((float) Arr::get($item, 'value', $definition['default'] ?? 0.0));
                 $updates[] = [$definition, $value];
 
                 $values = $this->getGroupValues($groupId);
@@ -167,13 +171,14 @@ class VolumeManager
     private function formatItem(string $groupId, string $itemId, array $definition): array
     {
         $values = $this->getGroupValues($groupId);
-        $current = $values[$itemId] ?? $definition['default'] ?? 0.0;
+        $default = $this->normalizeLevel((float) ($definition['default'] ?? 0.0));
+        $current = $this->normalizeLevel((float) ($values[$itemId] ?? $default));
 
         return [
             'id' => $itemId,
             'label' => $definition['label'] ?? $itemId,
-            'value' => (float) $current,
-            'default' => (float) ($definition['default'] ?? 0.0),
+            'value' => $current,
+            'default' => $default,
         ];
     }
 
@@ -235,8 +240,13 @@ class VolumeManager
         $channel = $definition['channel'] ?? null;
         $label = $definition['label'] ?? $channel ?? 'channel';
         $control = $definition['alsa_control'] ?? $definition['channel'] ?? $label;
-        $valueFormatted = number_format($value, 1, '.', '');
-        $valueDb = ($value > 0 ? '+' : '') . $valueFormatted . 'dB';
+        if ($control === null) {
+            return;
+        }
+
+        $normalized = $this->normalizeLevel($value);
+        $percentInt = (int) round($normalized);
+        $valueFormatted = number_format($normalized, 1, '.', '');
 
         $context = [
             'channel' => $channel ?? $label,
@@ -244,9 +254,20 @@ class VolumeManager
             'alsa_control' => $control,
             'control' => $control,
             'value' => $valueFormatted,
-            'value_db' => $valueDb,
+            'value_percent' => $percentInt,
+            'value_percent_str' => sprintf('%d%%', $percentInt),
         ];
 
         $this->mixer->runLevelCommand($template, $context, $label);
     }
+
+    private function normalizeLevel(float $value): float
+    {
+        if (!is_finite($value)) {
+            return 0.0;
+        }
+
+        return max(0.0, min(100.0, $value));
+    }
+
 }

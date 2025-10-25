@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\VolumeLevelRequest;
 use App\Services\StreamOrchestrator;
 use App\Services\VolumeManager;
+use App\Services\Mixer\AudioDeviceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -154,5 +155,14 @@ class LiveBroadcastApiController extends Controller
         );
 
         return response()->json(['item' => $item]);
+    }
+
+    public function audioDevices(AudioDeviceService $service): JsonResponse
+    {
+        $devices = $service->listDevices();
+
+        return response()->json([
+            'devices' => $devices,
+        ]);
     }
 }

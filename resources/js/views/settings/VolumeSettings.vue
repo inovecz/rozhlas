@@ -13,9 +13,9 @@ const saving = ref(false);
 const groups = ref([]);
 const activeTab = ref(null);
 const volumeSlider = {
-  min: -12,
-  max: 59.5,
-  step: 0.5,
+  min: 0,
+  max: 100,
+  step: 1,
 };
 
 const load = async () => {
@@ -77,12 +77,15 @@ const updateItemValue = (groupId, item) => {
   }
   if (!Number.isFinite(item.value)) {
     toast.error('Zadejte platnou číselnou hodnotu');
-    item.value = item.default ?? 0;
+    item.value = item.default ?? 50;
+    return;
   }
+  const clamped = Math.min(volumeSlider.max, Math.max(volumeSlider.min, Number(item.value)));
+  item.value = clamped;
 };
 
 const resetItemToDefault = (item) => {
-  item.value = item.default ?? 0;
+  item.value = item.default ?? 50;
 };
 
 const save = async () => {
@@ -92,7 +95,7 @@ const save = async () => {
       id: group.id,
       items: group.items.map(item => ({
         id: item.id,
-        value: Number(item.value),
+        value: Math.min(volumeSlider.max, Math.max(volumeSlider.min, Number(item.value))),
       })),
     }));
     const response = await VolumeService.saveSettings(payload);
@@ -144,7 +147,7 @@ onMounted(load);
                     class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border border-gray-200 rounded-md bg-white p-3 shadow-sm">
                   <div>
                     <div class="font-medium text-gray-900">{{ item.label }}</div>
-                    <div class="text-xs text-gray-500">Výchozí: {{ item.default }}</div>
+                    <div class="text-xs text-gray-500">Výchozí: {{ Math.round(item.default) }} %</div>
                   </div>
                   <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:min-w-[380px]">
                     <input
@@ -158,7 +161,7 @@ onMounted(load);
                         :disabled="saving"
                     />
                     <div class="flex items-center gap-2 text-sm text-gray-700">
-                      <span class="inline-block w-14 text-right">{{ Number(item.value).toFixed(1) }}</span>
+                      <span class="inline-block w-14 text-right">{{ Math.round(Number(item.value)) }} %</span>
                       <button
                           class="btn btn-ghost btn-xs"
                           type="button"

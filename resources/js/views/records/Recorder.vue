@@ -19,9 +19,9 @@ const volumeGroups = ref([]);
 const volumeLoading = ref(false);
 const volumeSaving = reactive({});
 const volumeSlider = {
-  min: -12,
-  max: 59.5,
-  step: 0.5,
+  min: 0,
+  max: 100,
+  step: 1,
 };
 const sourceInputChannelMap = ref({
   microphone: 'input_1',
@@ -264,9 +264,10 @@ const handleActiveVolumeChange = async () => {
     toast.error('Zadejte platnou číselnou hodnotu');
     return;
   }
-  item.value = parsed;
+  const clamped = Math.min(volumeSlider.max, Math.max(volumeSlider.min, parsed));
+  item.value = clamped;
   try {
-    await updateVolumeLevel(groupId, item.id, parsed);
+    await updateVolumeLevel(groupId, item.id, clamped);
   } catch (error) {
     await loadVolumeLevels(true);
   }
@@ -601,7 +602,7 @@ onBeforeUnmount(() => {
                     :disabled="isCurrentVolumeSaving || recording"
                 />
                 <div class="flex items-center gap-2 text-sm text-gray-700">
-                  <span class="inline-block w-14 text-right">{{ Number(currentInputVolumeItem.value).toFixed(1) }}</span>
+                  <span class="inline-block w-14 text-right">{{ Math.round(Number(currentInputVolumeItem.value)) }} %</span>
                   <span v-if="isCurrentVolumeSaving" class="text-xs text-gray-500">Ukládám…</span>
                 </div>
               </div>

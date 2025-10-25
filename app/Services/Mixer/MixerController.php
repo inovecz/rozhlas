@@ -21,7 +21,7 @@ class MixerController
         $config = $config ?? config('broadcast.mixer', []);
 
         $this->enabled = (bool) ($config['enabled'] ?? false);
-        $this->binary = $config['binary'] ?? null;
+        $this->binary = $this->normalizeBinaryPath($config['binary'] ?? null);
         $this->timeout = (int) ($config['timeout'] ?? 10);
         $this->presets = $config['presets'] ?? [];
         $this->resetCommand = $config['reset'] ?? [];
@@ -179,5 +179,44 @@ class MixerController
         }
 
         return $value;
+    }
+
+    private function normalizeBinaryPath(?string $binary): ?string
+    {
+        if ($binary === null) {
+            return null;
+        }
+
+        $trimmed = trim($binary);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        if ($this->isAbsolutePath($trimmed)) {
+            return $trimmed;
+        }
+
+        if (!str_contains($trimmed, '/') && !str_contains($trimmed, '\\')) {
+            return $trimmed;
+        }
+
+        if (str_starts_with($trimmed, './')) {
+            $trimmed = substr($trimmed, 2);
+        }
+
+        return base_path($trimmed);
+    }
+
+    private function isAbsolutePath(string $path): bool
+    {
+        if ($path === '') {
+            return false;
+        }
+
+        if (str_starts_with($path, '/') || str_starts_with($path, '\\')) {
+            return true;
+        }
+
+        return strlen($path) > 1 && ctype_alpha($path[0]) && $path[1] === ':';
     }
 }

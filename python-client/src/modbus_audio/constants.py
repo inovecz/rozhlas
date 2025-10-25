@@ -2,8 +2,47 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Sequence
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    """Return boolean environment override."""
+
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    value = value.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _env_int(name: str, default: int) -> int:
+    """Return integer environment override (accepts decimal or 0x prefixed values)."""
+
+    value = os.environ.get(name)
+    if value is None or value.strip() == "":
+        return default
+    try:
+        return int(value, 0)
+    except ValueError:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    """Return floating-point environment override."""
+
+    value = os.environ.get(name)
+    if value is None or value.strip() == "":
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
 
 
 NUM_ADDR_RAM = 0x0000
@@ -31,7 +70,7 @@ OGG_BITRATE = 0x403F
 FREQUENCY_REGISTER = 0x4024
 SERIAL_NUMBER_BLOCK = (0x4000, 3)
 
-DEFAULT_SERIAL_PORT = "/dev/tty.usbserial-AV0K3CPZ"
+DEFAULT_SERIAL_PORT = "/dev/ttyAMA3"
 DEFAULT_BAUDRATE = 57600
 DEFAULT_PARITY = "N"
 DEFAULT_STOPBITS = 1
@@ -50,6 +89,28 @@ RS485_GPIO_CHIP = "/dev/gpiochip0"
 RS485_GPIO_LINE_OFFSET = 16
 RS485_GPIO_ACTIVE_HIGH = True
 RS485_GPIO_CONSUMER = "modbus-audio"
+RS485_GPIO_PRE_TX_DELAY = 0.0
+RS485_GPIO_POST_TX_DELAY = 0.0
+RS485_GPIO_DEBUG = False
+ENABLE_RS485_DRIVER = False
+RS485_DRIVER_RTS_TX_HIGH = True
+RS485_DRIVER_RTS_RX_HIGH = False
+RS485_DRIVER_LEAD_SECONDS = 0.0
+RS485_DRIVER_TAIL_SECONDS = 0.0
+
+ENABLE_RS485_GPIO = _env_bool("MODBUS_RS485_GPIO_ENABLE", ENABLE_RS485_GPIO)
+RS485_GPIO_CHIP = os.environ.get("MODBUS_RS485_GPIO_CHIP", RS485_GPIO_CHIP)
+RS485_GPIO_LINE_OFFSET = _env_int("MODBUS_RS485_GPIO_LINE", RS485_GPIO_LINE_OFFSET)
+RS485_GPIO_ACTIVE_HIGH = _env_bool("MODBUS_RS485_GPIO_ACTIVE_HIGH", RS485_GPIO_ACTIVE_HIGH)
+RS485_GPIO_CONSUMER = os.environ.get("MODBUS_RS485_GPIO_CONSUMER", RS485_GPIO_CONSUMER)
+RS485_GPIO_PRE_TX_DELAY = _env_float("MODBUS_RS485_GPIO_LEAD_SECONDS", RS485_GPIO_PRE_TX_DELAY)
+RS485_GPIO_POST_TX_DELAY = _env_float("MODBUS_RS485_GPIO_TAIL_SECONDS", RS485_GPIO_POST_TX_DELAY)
+RS485_GPIO_DEBUG = _env_bool("MODBUS_RS485_GPIO_DEBUG", RS485_GPIO_DEBUG)
+ENABLE_RS485_DRIVER = _env_bool("MODBUS_RS485_DRIVER_ENABLE", ENABLE_RS485_DRIVER)
+RS485_DRIVER_RTS_TX_HIGH = _env_bool("MODBUS_RS485_DRIVER_RTS_TX_HIGH", RS485_DRIVER_RTS_TX_HIGH)
+RS485_DRIVER_RTS_RX_HIGH = _env_bool("MODBUS_RS485_DRIVER_RTS_RX_HIGH", RS485_DRIVER_RTS_RX_HIGH)
+RS485_DRIVER_LEAD_SECONDS = _env_float("MODBUS_RS485_DRIVER_LEAD_SECONDS", RS485_DRIVER_LEAD_SECONDS)
+RS485_DRIVER_TAIL_SECONDS = _env_float("MODBUS_RS485_DRIVER_TAIL_SECONDS", RS485_DRIVER_TAIL_SECONDS)
 
 
 @dataclass(frozen=True)

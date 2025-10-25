@@ -45,27 +45,82 @@ export const getPermissions = () => {
 };
 
 export const getAudioInputDevices = async () => {
-    try {
-        // Request mic access before listing devices
-        await navigator.mediaDevices.getUserMedia({audio: true});
+    const mediaDevices = navigator.mediaDevices;
+    if (!mediaDevices || typeof mediaDevices.enumerateDevices !== 'function') {
+        console.warn("Media device enumeration is not supported in this browser");
+        return [];
+    }
 
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        return devices.filter(device => device.kind === "audioinput").map(({deviceId, label}) => ({id: deviceId, label}));
+    let permissionStream = null;
+    try {
+        if (typeof mediaDevices.getUserMedia === 'function') {
+            try {
+                permissionStream = await mediaDevices.getUserMedia({audio: true});
+            } catch (permissionError) {
+                console.warn("Microphone permission not granted; device labels may be limited.", permissionError);
+            }
+        }
+
+        const devices = await mediaDevices.enumerateDevices();
+        return devices
+            .filter(device => device.kind === "audioinput")
+            .map(({deviceId, label}, index) => ({
+                id: deviceId || `input-${index}`,
+                label: (label && label.trim()) || `Mikrofon ${index + 1}`,
+            }));
     } catch (err) {
         console.error("Error while fetching audio inputs:", err);
-        throw err;
+        return [];
+    } finally {
+        if (permissionStream) {
+            permissionStream.getTracks().forEach(track => track.stop());
+        }
     }
 }
 
 export const getAudioOutputDevices = async () => {
+    const mediaDevices = navigator.mediaDevices;
+    if (!mediaDevices || typeof mediaDevices.enumerateDevices !== 'function') {
+        console.warn("Media device enumeration is not supported in this browser");
+        return [];
+    }
+
+    const enumerateOutputs = async () => {
+        const devices = await mediaDevices.enumerateDevices();
+        return devices.filter(device => device.kind === "audiooutput");
+    };
+
+    const mapOutputs = (outputs) => outputs.map(({deviceId, label}, index) => {
+        const trimmedLabel = label && label.trim();
+        const isDefault = deviceId === "default";
+        return {
+            id: deviceId || (isDefault ? "default" : `output-${index}`),
+            label: trimmedLabel || (isDefault ? "Výchozí systém" : `Audio výstup ${index + 1}`),
+        };
+    });
+
     try {
-        // Request mic access before listing devices, to ensure labels are available
-        await navigator.mediaDevices.getUserMedia({audio: true});
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        return devices.filter(device => device.kind === "audiooutput").map(({deviceId, label}) => ({id: deviceId, label}));
+        let outputs = await enumerateOutputs();
+        const hasLabels = outputs.some(device => device.label && device.label.trim().length > 0);
+
+        if (!hasLabels && typeof mediaDevices.getUserMedia === 'function') {
+            let permissionStream;
+            try {
+                permissionStream = await mediaDevices.getUserMedia({audio: true});
+                outputs = await enumerateOutputs();
+            } catch (permissionError) {
+                console.warn("Microphone permission not granted; audio output labels may be limited.", permissionError);
+            } finally {
+                if (permissionStream) {
+                    permissionStream.getTracks().forEach(track => track.stop());
+                }
+            }
+        }
+
+        return mapOutputs(outputs);
     } catch (err) {
         console.error("Error while fetching audio outputs:", err);
-        throw err;
+        return [];
     }
 }
 

@@ -223,20 +223,87 @@ class StreamOrchestrator extends Service
 
     public function listSources(): array
     {
-        return [
-            ['id' => 'microphone', 'label' => 'Mikrofon'],
-            ['id' => 'central_file', 'label' => 'Soubor v ústředně'],
-            ['id' => 'pc_webrtc', 'label' => 'Vstup z PC (WebRTC)'],
-            ['id' => 'input_2', 'label' => 'Vstup 2'],
-            ['id' => 'input_3', 'label' => 'Vstup 3'],
-            ['id' => 'input_4', 'label' => 'Vstup 4'],
-            ['id' => 'input_5', 'label' => 'Vstup 5'],
-            ['id' => 'input_6', 'label' => 'Vstup 6'],
-            ['id' => 'input_7', 'label' => 'Vstup 7'],
-            ['id' => 'input_8', 'label' => 'Vstup 8'],
-            ['id' => 'fm_radio', 'label' => 'FM Rádio'],
-            ['id' => 'control_box', 'label' => 'Control box'],
+        try {
+            /** @var \App\Services\Mixer\AudioDeviceService $deviceService */
+            $deviceService = app(\App\Services\Mixer\AudioDeviceService::class);
+            $devices = $deviceService->listDevices();
+        } catch (\Throwable $exception) {
+            Log::warning('Unable to detect audio devices for source list.', [
+                'exception' => $exception->getMessage(),
+            ]);
+            $devices = [];
+        }
+
+        $pulseSources = collect($devices['pulse']['sources'] ?? [])
+            ->filter(fn ($source) => is_array($source));
+
+        $physicalCapture = collect($devices['capture_devices'] ?? [])
+            ->filter(fn ($device) => is_array($device) && !isset($device['error']));
+
+        $hasPhysicalCapture = $physicalCapture->isNotEmpty();
+        $hasPulseMonitor = $pulseSources->contains(function ($source) {
+            $name = $source['name'] ?? '';
+            return is_string($name) && str_contains($name, '.monitor');
+        });
+        $hasPulseMicrophone = $pulseSources->contains(function ($source) {
+            $name = $source['name'] ?? '';
+            return is_string($name) && !str_contains($name, '.monitor');
+        });
+
+        $hasCapturePath = $hasPhysicalCapture || $hasPulseMicrophone;
+        $hasSystemPlaybackTap = $hasPulseMonitor || collect($devices['pulse']['sinks'] ?? [])->isNotEmpty();
+
+        $sources = [
+            $this->makeSourceDefinition(
+                'microphone',
+                'Mikrofon',
+                $hasCapturePath,
+                $hasCapturePath ? null : 'Nebyl nalezen žádný mikrofon nebo jiný vstup.'
+            ),
+            ['id' => 'central_file', 'label' => 'Soubor v ústředně', 'available' => true],
+            $this->makeSourceDefinition(
+                'pc_webrtc',
+                'Vstup z PC (WebRTC)',
+                $hasSystemPlaybackTap,
+                $hasSystemPlaybackTap ? null : 'Není dostupný systémový zvukový výstup (monitor).'
+            ),
+            ['id' => 'fm_radio', 'label' => 'FM Rádio', 'available' => true],
+            $this->makeSourceDefinition(
+                'control_box',
+                'Control box',
+                $hasCapturePath,
+                $hasCapturePath ? null : 'Nebyl nalezen žádný audio vstup pro Control box.'
+            ),
         ];
+
+        for ($index = 2; $index <= 9; $index++) {
+            $sources[] = $this->makeSourceDefinition(
+                'input_' . $index,
+                'Vstup ' . $index,
+                $hasCapturePath,
+                $hasCapturePath ? null : 'Nebyl nalezen žádný audio vstup.'
+            );
+        }
+
+        return $sources;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function makeSourceDefinition(string $id, string $label, bool $available, ?string $reason = null): array
+    {
+        $definition = [
+            'id' => $id,
+            'label' => $label,
+            'available' => $available,
+        ];
+
+        if ($reason !== null) {
+            $definition['unavailable_reason'] = $reason;
+        }
+
+        return $definition;
     }
 
     public function enqueuePlaylist(array $payload): array

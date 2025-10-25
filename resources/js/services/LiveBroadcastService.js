@@ -31,6 +31,10 @@ export default {
         return http.get('live-broadcast/sources').then(response => response.data?.sources ?? []);
     },
 
+    getAudioDevices() {
+        return http.get('live-broadcast/audio-devices').then(response => response.data?.devices ?? {});
+    },
+
     enqueuePlaylist(payload) {
         return http.post('live-broadcast/playlist', normalisePlaylistPayload(payload)).then(response => response.data);
     },

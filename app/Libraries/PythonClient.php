@@ -38,12 +38,20 @@ class PythonClient
      * Modbus helpers
      * -----------------------------------------------------------------
      */
-    public function startStream(?array $route = null, ?array $zones = null, ?float $timeout = null): array
+    public function startStream(?array $route = null, ?array $zones = null, ?float $timeout = null, bool $updateRoute = false): array
     {
-        return $this->runModbus('start-stream', [
-            'route' => $route,
-            'zones' => $zones,
-        ], $timeout);
+        $options = [];
+        if ($route !== null) {
+            $options['route'] = $route;
+        }
+        if ($zones !== null) {
+            $options['zones'] = $zones;
+        }
+        if ($updateRoute) {
+            $options['update-route'] = true;
+        }
+
+        return $this->runModbus('start-stream', $options, $timeout);
     }
 
     public function stopStream(?float $timeout = null): array
@@ -733,6 +741,15 @@ class PythonClient
         $base = array_merge($_ENV ?? [], $_SERVER ?? []);
 
         $modbus = config('modbus', []);
+        $normalize = static function ($value) {
+            if ($value === null || $value === '') {
+                return null;
+            }
+            if (is_bool($value)) {
+                return $value ? '1' : '0';
+            }
+            return $value;
+        };
 
         $overrides = array_filter([
             'MODBUS_PORT' => $modbus['port'] ?? null,
@@ -743,6 +760,19 @@ class PythonClient
             'MODBUS_BYTESIZE' => $modbus['bytesize'] ?? null,
             'MODBUS_TIMEOUT' => $modbus['timeout'] ?? null,
             'MODBUS_UNIT_ID' => $modbus['unit_id'] ?? null,
+            'MODBUS_RS485_GPIO_ENABLE' => $normalize($modbus['rs485_gpio_enable'] ?? null),
+            'MODBUS_RS485_GPIO_CHIP' => $normalize($modbus['rs485_gpio_chip'] ?? null),
+            'MODBUS_RS485_GPIO_LINE' => $normalize($modbus['rs485_gpio_line'] ?? null),
+            'MODBUS_RS485_GPIO_ACTIVE_HIGH' => $normalize($modbus['rs485_gpio_active_high'] ?? null),
+            'MODBUS_RS485_GPIO_LEAD_SECONDS' => $normalize($modbus['rs485_gpio_lead'] ?? null),
+            'MODBUS_RS485_GPIO_TAIL_SECONDS' => $normalize($modbus['rs485_gpio_tail'] ?? null),
+            'MODBUS_RS485_GPIO_DEBUG' => $normalize($modbus['rs485_gpio_debug'] ?? null),
+            'MODBUS_RS485_GPIO_PYTHONPATH' => $normalize($modbus['rs485_gpio_pythonpath'] ?? null),
+            'MODBUS_RS485_DRIVER_ENABLE' => $normalize($modbus['rs485_driver_enable'] ?? null),
+            'MODBUS_RS485_DRIVER_RTS_TX_HIGH' => $normalize($modbus['rs485_driver_rts_tx_high'] ?? null),
+            'MODBUS_RS485_DRIVER_RTS_RX_HIGH' => $normalize($modbus['rs485_driver_rts_rx_high'] ?? null),
+            'MODBUS_RS485_DRIVER_LEAD_SECONDS' => $normalize($modbus['rs485_driver_lead'] ?? null),
+            'MODBUS_RS485_DRIVER_TAIL_SECONDS' => $normalize($modbus['rs485_driver_tail'] ?? null),
         ], static fn ($value) => $value !== null && $value !== '');
 
         return array_merge($base, $overrides);
