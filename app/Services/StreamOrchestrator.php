@@ -14,6 +14,7 @@ use App\Models\Location;
 use App\Models\LocationGroup;
 use App\Models\Schedule;
 use App\Models\StreamTelemetryEntry;
+use App\Services\Mixer\AudioRoutingService;
 use App\Services\Mixer\MixerController;
 use App\Services\VolumeManager;
 use Illuminate\Http\JsonResponse;
@@ -34,6 +35,7 @@ class StreamOrchestrator extends Service
     public function __construct(
         private readonly PythonClient $client = new PythonClient(),
         private readonly MixerController $mixer = new MixerController(),
+        private readonly AudioRoutingService $audioRouting = new AudioRoutingService(),
     ) {
         parent::__construct();
     }
@@ -72,6 +74,7 @@ class StreamOrchestrator extends Service
                 'session_id' => $active->id,
             ]);
 
+            $this->applyAudioRouting($augmentedOptions, $source, $active->id);
             $this->applySourceVolume($source);
 
             $response = $this->client->startStream(
@@ -106,6 +109,7 @@ class StreamOrchestrator extends Service
             'zones' => $zones,
         ]);
 
+        $this->applyAudioRouting($augmentedOptions, $source, null);
         $this->applySourceVolume($source);
 
         $response = $this->client->startStream(
@@ -623,6 +627,41 @@ class StreamOrchestrator extends Service
             'groupAddresses' => $groupAddresses,
             'groupsWithoutAddress' => $groupsWithoutAddress,
         ];
+    }
+
+    /**
+     * Apply audio routing commands for the selected input/output devices.
+     *
+     * @param array<string, mixed> $options
+     */
+    private function applyAudioRouting(array $options, string $source, ?int $sessionId = null): void
+    {
+        $inputId = Arr::get($options, 'audioInputId');
+        if ($inputId === null) {
+            $inputId = Arr::get($options, 'audio_input_id');
+        }
+
+        $outputId = Arr::get($options, 'audioOutputId');
+        if ($outputId === null) {
+            $outputId = Arr::get($options, 'audio_output_id');
+        }
+
+        if (!is_string($inputId) && !is_string($outputId)) {
+            return;
+        }
+
+        $context = array_filter([
+            'source' => $source,
+            'session_id' => $sessionId,
+            'audio_input_id' => is_string($inputId) ? $inputId : null,
+            'audio_output_id' => is_string($outputId) ? $outputId : null,
+        ], static fn ($value) => $value !== null && $value !== '');
+
+        $this->audioRouting->apply(
+            is_string($inputId) ? $inputId : null,
+            is_string($outputId) ? $outputId : null,
+            $context,
+        );
     }
 
     /**

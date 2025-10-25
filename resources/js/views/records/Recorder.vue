@@ -24,18 +24,32 @@ const volumeSlider = {
   step: 1,
 };
 const sourceInputChannelMap = ref({
-  microphone: 'input_1',
-  central_file: 'file_playback',
-  pc_webrtc: 'pc_webrtc',
-  input_2: 'input_2',
-  input_3: 'input_3',
-  input_4: 'input_4',
-  input_5: 'input_5',
-  input_6: 'input_6',
-  input_7: 'input_7',
-  input_8: 'input_8',
-  fm_radio: 'fm_radio',
-  control_box: 'control_box',
+  microphone: 'capture_level',
+  central_file: 'capture_level',
+  pc_webrtc: 'capture_level',
+  input_2: 'capture_level',
+  input_3: 'capture_level',
+  input_4: 'capture_level',
+  input_5: 'capture_level',
+  input_6: 'capture_level',
+  input_7: 'capture_level',
+  input_8: 'capture_level',
+  fm_radio: 'capture_level',
+  control_box: 'capture_level',
+});
+const sourceOutputChannelMap = ref({
+  microphone: 'tx_audio',
+  central_file: 'tx_audio',
+  pc_webrtc: 'tx_audio',
+  input_2: 'tx_audio',
+  input_3: 'tx_audio',
+  input_4: 'tx_audio',
+  input_5: 'tx_audio',
+  input_6: 'tx_audio',
+  input_7: 'tx_audio',
+  input_8: 'tx_audio',
+  fm_radio: 'tx_audio',
+  control_box: 'tx_audio',
 });
 
 const form = reactive({
@@ -116,23 +130,57 @@ const activeInputItemId = computed(() => {
   return null;
 });
 
-const currentVolumeEntry = computed(() => {
-  const targetId = activeInputItemId.value;
-  if (!targetId) {
+const activeOutputItemId = computed(() => {
+  const source = currentSourceId.value;
+  if (source && sourceOutputChannelMap.value?.[source]) {
+    return sourceOutputChannelMap.value[source];
+  }
+  return null;
+});
+
+const findVolumeEntryById = (itemId) => {
+  if (!itemId) {
     return null;
   }
   for (const group of volumeGroups.value) {
     const items = Array.isArray(group?.items) ? group.items : [];
-    const found = items.find((item) => item.id === targetId);
+    const found = items.find((item) => item.id === itemId);
     if (found) {
       return {groupId: group.id, item: found};
     }
   }
   return null;
+};
+
+const currentVolumeEntry = computed(() => {
+  return findVolumeEntryById(activeInputItemId.value) ?? findVolumeEntryById(activeOutputItemId.value);
 });
 
 const currentInputVolumeItem = computed(() => currentVolumeEntry.value?.item ?? null);
 const currentInputVolumeGroupId = computed(() => currentVolumeEntry.value?.groupId ?? null);
+
+const linkedVolumeEntries = computed(() => {
+  const ids = [];
+  if (activeInputItemId.value) {
+    ids.push(activeInputItemId.value);
+  }
+  if (activeOutputItemId.value) {
+    ids.push(activeOutputItemId.value);
+  }
+  const seen = new Set();
+  const entries = [];
+  for (const id of ids) {
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    const entry = findVolumeEntryById(id);
+    if (entry) {
+      entries.push(entry);
+    }
+  }
+  return entries;
+});
 
 const currentVolumeSavingKey = computed(() => {
   const groupId = currentInputVolumeGroupId.value;
@@ -218,6 +266,12 @@ const loadVolumeLevels = async (silent = false) => {
         ...response.sourceChannels,
       };
     }
+    if (response?.sourceOutputChannels && typeof response.sourceOutputChannels === 'object') {
+      sourceOutputChannelMap.value = {
+        ...sourceOutputChannelMap.value,
+        ...response.sourceOutputChannels,
+      };
+    }
   } catch (error) {
     console.error(error);
     if (!silent) {
@@ -258,16 +312,24 @@ const handleActiveVolumeChange = async () => {
     toast.error('Pro tento zdroj není k dispozici nastavení hlasitosti.');
     return;
   }
-  const {groupId, item} = entry;
-  const parsed = Number(item.value);
+  const parsed = Number(entry.item.value);
   if (Number.isNaN(parsed)) {
     toast.error('Zadejte platnou číselnou hodnotu');
     return;
   }
   const clamped = Math.min(volumeSlider.max, Math.max(volumeSlider.min, parsed));
-  item.value = clamped;
+  const targets = linkedVolumeEntries.value;
+  if (targets.length === 0) {
+    toast.error('Pro tento zdroj není k dispozici nastavení hlasitosti.');
+    return;
+  }
+  targets.forEach(({item}) => {
+    item.value = clamped;
+  });
   try {
-    await updateVolumeLevel(groupId, item.id, clamped);
+    for (const {groupId, item} of targets) {
+      await updateVolumeLevel(groupId, item.id, clamped);
+    }
   } catch (error) {
     await loadVolumeLevels(true);
   }

@@ -85,6 +85,25 @@ class MixerController
     }
 
     /**
+     * Execute an arbitrary mixer command definition using the configured backend.
+     *
+     * @param array<string, mixed>|string $definition
+     * @param array<string, mixed> $context
+     */
+    public function runCustomCommand(array|string $definition, array $context = [], string $actionLabel = 'custom mixer command', bool $force = false): void
+    {
+        if (!$force && !$this->enabled) {
+            Log::debug('Mixer disabled: skipping custom command.', [
+                'action' => $actionLabel,
+            ]);
+            return;
+        }
+
+        $command = $this->substitute($definition, $context);
+        $this->runCommand($command, $actionLabel);
+    }
+
+    /**
      * @param array<string, mixed>|string $definition
      */
     private function runCommand(array|string $definition, string $action): void

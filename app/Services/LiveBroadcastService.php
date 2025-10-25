@@ -186,9 +186,8 @@ class LiveBroadcastService extends Service
 
     private function applySourceVolume(string $source): void
     {
-        $channelMap = config('volume.source_channels', []);
-        $channel = $channelMap[$source] ?? null;
-        if (!is_string($channel) || $channel === '') {
+        $channels = $this->resolveSourceVolumeChannels($source);
+        if ($channels === []) {
             return;
         }
 
@@ -197,6 +196,45 @@ class LiveBroadcastService extends Service
             return;
         }
 
+        foreach ($channels as $channel) {
+            $this->applyChannelVolume($volumeManager, $source, $channel);
+        }
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function resolveSourceVolumeChannels(string $source): array
+    {
+        $mappings = [
+            config('volume.source_channels', []),
+            config('volume.source_output_channels', []),
+        ];
+
+        $channels = [];
+        foreach ($mappings as $map) {
+            if (!is_array($map)) {
+                continue;
+            }
+
+            $channel = $map[$source] ?? null;
+            if (is_string($channel) && $channel !== '') {
+                $channels[] = $channel;
+            }
+        }
+
+        $unique = [];
+        foreach ($channels as $channel) {
+            if (!in_array($channel, $unique, true)) {
+                $unique[] = $channel;
+            }
+        }
+
+        return $unique;
+    }
+
+    private function applyChannelVolume(VolumeManager $volumeManager, string $source, string $channel): void
+    {
         $groupId = $this->findVolumeGroupForChannel($channel);
         if ($groupId === null) {
             return;

@@ -132,6 +132,7 @@ class LiveBroadcastApiController extends Controller
         return response()->json([
             'groups' => $volumeManager->listGroups(),
             'sourceChannels' => config('volume.source_channels', []),
+            'sourceOutputChannels' => config('volume.source_output_channels', []),
         ]);
     }
 

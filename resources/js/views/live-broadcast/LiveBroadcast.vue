@@ -35,6 +35,10 @@ const form = reactive({
   fmFrequency: ''
 });
 
+const audioInputDevices = ref([]);
+const initialAudioInput = JSON.parse(localStorage.getItem('audioInputDevice') ?? 'null');
+const selectedAudioInputId = ref(initialAudioInput?.id ?? 'default');
+
 const audioOutputDevices = ref([]);
 const initialAudioOutput = JSON.parse(localStorage.getItem('audioOutputDevice') ?? 'null');
 const selectedAudioOutputId = ref(initialAudioOutput?.id ?? 'default');
@@ -74,6 +78,7 @@ const sourceInputChannelMap = ref({
   fm_radio: 'fm_radio',
   control_box: 'control_box',
 });
+const sourceOutputChannelMap = ref({});
 const hardwareAudioDevices = ref({
   playback_devices: [],
   capture_devices: [],
@@ -354,12 +359,55 @@ const buildHardwareOutputList = (devices) => {
   return unique;
 };
 
+const buildHardwareInputList = (devices) => {
+  const inputs = [{id: 'default', label: 'Výchozí systém'}];
+  const sources = Array.isArray(devices?.pulse?.sources) ? devices.pulse.sources : [];
+  sources.forEach((source) => {
+    if (source?.name) {
+      inputs.push({
+        id: `pulse:${source.name}`,
+        label: source?.pretty_name ?? source?.description ?? `PulseAudio ${source.name}`,
+      });
+    }
+  });
+
+  const captureDevices = Array.isArray(devices?.capture_devices) ? devices.capture_devices : [];
+  captureDevices.forEach((device) => {
+    const card = Number.isFinite(device?.card) ? Number(device.card) : null;
+    const dev = Number.isFinite(device?.device) ? Number(device.device) : null;
+    const id = card !== null && dev !== null ? `alsa:${card}:${dev}` : null;
+    if (id) {
+      const cardLabel = device?.card_description ?? device?.card_name ?? `Karta ${card}`;
+      const devLabel = device?.device_description ?? device?.device_name ?? `Zařízení ${dev}`;
+      inputs.push({
+        id,
+        label: `${cardLabel} • ${devLabel}`,
+      });
+    }
+  });
+
+  const unique = [];
+  const seen = new Set();
+  inputs.forEach((item) => {
+    if (item?.id && !seen.has(item.id)) {
+      seen.add(item.id);
+      unique.push(item);
+    }
+  });
+  return unique;
+};
+
 const loadHardwareAudioDevices = async (silent = false) => {
   try {
     const devices = await LiveBroadcastService.getAudioDevices();
     hardwareAudioDevices.value = devices;
     const outputs = buildHardwareOutputList(devices);
+    const inputs = buildHardwareInputList(devices);
     audioOutputDevices.value = outputs;
+    audioInputDevices.value = inputs;
+    if (!inputs.some(device => device.id === selectedAudioInputId.value)) {
+      selectedAudioInputId.value = inputs[0]?.id ?? 'default';
+    }
     if (!outputs.some(device => device.id === selectedAudioOutputId.value)) {
       selectedAudioOutputId.value = outputs[0]?.id ?? 'default';
     }
@@ -401,6 +449,11 @@ const loadStatus = async () => {
       form.note = optionBag.note;
     }
 
+    const audioInputId = optionBag.audioInputId ?? optionBag.audio_input_id ?? selectedAudioInputId.value;
+    if (audioInputId) {
+      selectedAudioInputId.value = audioInputId;
+    }
+
     const audioOutputId = optionBag.audioOutputId ?? optionBag.audio_output_id ?? selectedAudioOutputId.value;
     if (audioOutputId) {
       selectedAudioOutputId.value = audioOutputId;
@@ -424,6 +477,15 @@ const loadFmFrequency = async () => {
   }
 };
 
+const persistAudioInput = () => {
+  const device = audioInputDevices.value.find(input => input.id === selectedAudioInputId.value);
+  const payload = {
+    id: selectedAudioInputId.value,
+    label: device?.label ?? 'Výchozí systém',
+  };
+  localStorage.setItem('audioInputDevice', JSON.stringify(payload));
+};
+
 const persistAudioOutput = () => {
   const device = audioOutputDevices.value.find(output => output.id === selectedAudioOutputId.value);
   const payload = {
@@ -433,9 +495,30 @@ const persistAudioOutput = () => {
   localStorage.setItem('audioOutputDevice', JSON.stringify(payload));
 };
 
+if (!initialAudioInput) {
+  persistAudioInput();
+}
+
 if (!initialAudioOutput) {
   persistAudioOutput();
 }
+
+watch(selectedAudioInputId, async (newValue, oldValue) => {
+  persistAudioInput();
+  if (syncingForm.value) {
+    return;
+  }
+  if (!isStreaming.value) {
+    return;
+  }
+  if (liveUpdateInProgress.value) {
+    return;
+  }
+  if (newValue === oldValue) {
+    return;
+  }
+  await applyLiveUpdate();
+});
 
 watch(selectedAudioOutputId, async (newValue, oldValue) => {
   persistAudioOutput();
@@ -502,6 +585,12 @@ const loadVolumeLevels = async (silent = false) => {
         ...response.sourceChannels
       };
     }
+    if (response?.sourceOutputChannels && typeof response.sourceOutputChannels === 'object') {
+      sourceOutputChannelMap.value = {
+        ...sourceOutputChannelMap.value,
+        ...response.sourceOutputChannels
+      };
+    }
   } catch (error) {
     console.error(error);
     if (!silent) {
@@ -536,9 +625,83 @@ const updateVolumeLevel = async (groupId, itemId, value) => {
   }
 };
 
-const handleActiveVolumeChange = async () => {
-  const entry = currentVolumeEntry.value;
+const currentSourceId = computed(() => {
+  if (isStreaming.value && status.value?.session?.source) {
+    return status.value.session.source;
+  }
+  return form.source || status.value?.session?.source || null;
+});
+
+const activeInputItemId = computed(() => {
+  const source = currentSourceId.value;
+  if (source && sourceInputChannelMap.value?.[source]) {
+    return sourceInputChannelMap.value[source];
+  }
+  return null;
+});
+
+const activeOutputItemId = computed(() => {
+  const source = currentSourceId.value;
+  if (source && sourceOutputChannelMap.value?.[source]) {
+    return sourceOutputChannelMap.value[source];
+  }
+  const outputsGroup = volumeGroups.value.find(group => group.id === 'outputs');
+  const items = Array.isArray(outputsGroup?.items) ? outputsGroup.items : [];
+  if (items.length > 0) {
+    return items[0].id;
+  }
+  return null;
+});
+
+const findVolumeEntryById = (itemId) => {
+  if (!itemId) {
+    return null;
+  }
+  for (const group of volumeGroups.value) {
+    const items = Array.isArray(group?.items) ? group.items : [];
+    const found = items.find(item => item.id === itemId);
+    if (found) {
+      return {groupId: group.id, item: found};
+    }
+  }
+  return null;
+};
+
+const currentInputVolumeEntry = computed(() => findVolumeEntryById(activeInputItemId.value));
+const currentOutputVolumeEntry = computed(() => findVolumeEntryById(activeOutputItemId.value));
+
+const currentInputVolumeItem = computed(() => currentInputVolumeEntry.value?.item ?? null);
+const currentOutputVolumeItem = computed(() => currentOutputVolumeEntry.value?.item ?? null);
+
+const currentInputVolumeSavingKey = computed(() => {
+  const entry = currentInputVolumeEntry.value;
   if (!entry) {
+    return null;
+  }
+  return makeVolumeKey(entry.groupId, entry.item.id);
+});
+
+const currentOutputVolumeSavingKey = computed(() => {
+  const entry = currentOutputVolumeEntry.value;
+  if (!entry) {
+    return null;
+  }
+  return makeVolumeKey(entry.groupId, entry.item.id);
+});
+
+const isInputVolumeSaving = computed(() => {
+  const key = currentInputVolumeSavingKey.value;
+  return key ? Boolean(volumeSaving[key]) : false;
+});
+
+const isOutputVolumeSaving = computed(() => {
+  const key = currentOutputVolumeSavingKey.value;
+  return key ? Boolean(volumeSaving[key]) : false;
+});
+
+const handleVolumeEntryChange = async (entry) => {
+  if (!entry) {
+    toast.error('Pro tento zdroj není k dispozici nastavení hlasitosti.');
     return;
   }
   const {groupId, item} = entry;
@@ -556,53 +719,13 @@ const handleActiveVolumeChange = async () => {
   }
 };
 
-const currentSourceId = computed(() => {
-  if (isStreaming.value && status.value?.session?.source) {
-    return status.value.session.source;
-  }
-  return form.source || status.value?.session?.source || null;
-});
+const handleInputVolumeChange = async () => {
+  await handleVolumeEntryChange(currentInputVolumeEntry.value);
+};
 
-const activeInputItemId = computed(() => {
-  const source = currentSourceId.value;
-  if (source && sourceInputChannelMap.value?.[source]) {
-    return sourceInputChannelMap.value[source];
-  }
-  return null;
-});
-
-const currentVolumeEntry = computed(() => {
-  const targetId = activeInputItemId.value;
-  if (!targetId) {
-    return null;
-  }
-  for (const group of volumeGroups.value) {
-    const items = Array.isArray(group?.items) ? group.items : [];
-    const found = items.find(item => item.id === targetId);
-    if (found) {
-      return {groupId: group.id, item: found};
-    }
-  }
-  return null;
-});
-
-const currentInputVolumeGroupId = computed(() => currentVolumeEntry.value?.groupId ?? null);
-
-const currentInputVolumeItem = computed(() => currentVolumeEntry.value?.item ?? null);
-
-const currentVolumeSavingKey = computed(() => {
-  const groupId = currentInputVolumeGroupId.value;
-  const item = currentInputVolumeItem.value;
-  if (!groupId || !item) {
-    return null;
-  }
-  return makeVolumeKey(groupId, item.id);
-});
-
-const isCurrentVolumeSaving = computed(() => {
-  const key = currentVolumeSavingKey.value;
-  return key ? Boolean(volumeSaving[key]) : false;
-});
+const handleOutputVolumeChange = async () => {
+  await handleVolumeEntryChange(currentOutputVolumeEntry.value);
+};
 
 const buildStartPayload = () => {
   const options = {};
@@ -619,6 +742,7 @@ const buildStartPayload = () => {
   if (showFmInfo.value && form.fmFrequency) {
     options.frequency = form.fmFrequency;
   }
+  options.audioInputId = selectedAudioInputId.value || 'default';
   options.audioOutputId = selectedAudioOutputId.value || 'default';
 
   const manualRoute = parseNumericList(form.routeText);
@@ -825,6 +949,17 @@ const removePlaylistItem = (index) => {
             </div>
 
             <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Vstup zvuku</label>
+              <select
+                  v-model="selectedAudioInputId"
+                  class="form-select w-full border border-gray-300 rounded-md bg-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-40">
+                <option v-for="input in audioInputDevices" :key="input.id" :value="input.id">
+                  {{ input.label }}
+                </option>
+              </select>
+            </div>
+
+            <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Výstup zvuku</label>
               <select
                   v-model="selectedAudioOutputId"
@@ -860,35 +995,76 @@ const removePlaylistItem = (index) => {
               <div class="flex items-center justify-between">
                 <span class="text-sm font-semibold text-gray-700">
                   Ovládání hlasitosti
-                  <template v-if="currentInputVolumeItem">
-                    – {{ currentInputVolumeItem.label }}
-                  </template>
                 </span>
                 <span v-if="volumeLoading" class="text-xs text-gray-500">Načítám…</span>
               </div>
               <template v-if="!volumeLoading">
-                <div v-if="currentInputVolumeItem" class="space-y-2">
-                  <div class="text-xs text-gray-500">
-                    Výchozí hodnota: {{ Math.round(currentInputVolumeItem.default) }} %
-                  </div>
-                  <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:min-w-[360px]">
-                    <input
-                        v-model.number="currentInputVolumeItem.value"
-                        type="range"
-                        class="range range-sm w-full sm:w-64 md:w-80"
-                        :min="volumeSlider.min"
-                        :max="volumeSlider.max"
-                        :step="volumeSlider.step"
-                        @change="handleActiveVolumeChange"
-                        :disabled="isCurrentVolumeSaving"
-                    />
-                    <div class="flex items-center gap-2 text-sm text-gray-700">
-                      <span class="inline-block w-14 text-right">{{ Math.round(Number(currentInputVolumeItem.value)) }} %</span>
-                      <span v-if="isCurrentVolumeSaving" class="text-xs text-gray-500">Ukládám…</span>
+                <div class="space-y-4">
+                  <div>
+                    <div class="flex items-center justify-between">
+                      <span class="text-sm font-medium text-gray-700">
+                        Vstup
+                        <template v-if="currentInputVolumeItem">
+                          – {{ currentInputVolumeItem.label }}
+                        </template>
+                      </span>
+                      <span v-if="isInputVolumeSaving" class="text-xs text-gray-500">Ukládám…</span>
                     </div>
+                    <template v-if="currentInputVolumeItem">
+                      <div class="text-xs text-gray-500 mt-1">
+                        Výchozí hodnota: {{ Math.round(currentInputVolumeItem.default) }} %
+                      </div>
+                      <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:min-w-[360px] mt-2">
+                        <input
+                            v-model.number="currentInputVolumeItem.value"
+                            type="range"
+                            class="range range-sm w-full sm:w-64 md:w-80"
+                            :min="volumeSlider.min"
+                            :max="volumeSlider.max"
+                            :step="volumeSlider.step"
+                            @change="handleInputVolumeChange"
+                            :disabled="isInputVolumeSaving"
+                        />
+                        <div class="flex items-center gap-2 text-sm text-gray-700">
+                          <span class="inline-block w-14 text-right">{{ Math.round(Number(currentInputVolumeItem.value)) }} %</span>
+                        </div>
+                      </div>
+                    </template>
+                    <div v-else class="text-xs text-gray-500 mt-1">Žádný vstup není dostupný.</div>
+                  </div>
+                  <div>
+                    <div class="flex items-center justify-between">
+                      <span class="text-sm font-medium text-gray-700">
+                        Výstup
+                        <template v-if="currentOutputVolumeItem">
+                          – {{ currentOutputVolumeItem.label }}
+                        </template>
+                      </span>
+                      <span v-if="isOutputVolumeSaving" class="text-xs text-gray-500">Ukládám…</span>
+                    </div>
+                    <template v-if="currentOutputVolumeItem">
+                      <div class="text-xs text-gray-500 mt-1">
+                        Výchozí hodnota: {{ Math.round(currentOutputVolumeItem.default) }} %
+                      </div>
+                      <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:min-w-[360px] mt-2">
+                        <input
+                            v-model.number="currentOutputVolumeItem.value"
+                            type="range"
+                            class="range range-sm w-full sm:w-64 md:w-80"
+                            :min="volumeSlider.min"
+                            :max="volumeSlider.max"
+                            :step="volumeSlider.step"
+                            @change="handleOutputVolumeChange"
+                            :disabled="isOutputVolumeSaving"
+                        />
+                        <div class="flex items-center gap-2 text-sm text-gray-700">
+                          <span class="inline-block w-14 text-right">{{ Math.round(Number(currentOutputVolumeItem.value)) }} %</span>
+                        </div>
+                      </div>
+                    </template>
+                    <div v-else class="text-xs text-gray-500 mt-1">Žádný výstup není dostupný.</div>
                   </div>
                 </div>
-                <div v-else class="text-xs text-gray-500">Žádný aktivní vstup není dostupný.</div>
               </template>
             </div>
           </div>

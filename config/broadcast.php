@@ -97,6 +97,10 @@ return [
         'reset' => [
             'args' => ['reset'],
         ],
+        'routing' => [
+            'inputs' => [],
+            'outputs' => [],
+        ],
     ],
     'live' => [
         'source' => env('BROADCAST_LIVE_SOURCE', 'microphone'),

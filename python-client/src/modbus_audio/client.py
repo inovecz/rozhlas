@@ -538,68 +538,114 @@ def _import_gpiod():
     return gpiod  # type: ignore[name-defined]
 
 
+class _GPIOLineHandle:
+    """Wrap a GPIO line so we can drive and read it consistently across libgpiod versions."""
+
+    def __init__(self, *, chip: str, line_offset: int, consumer: str, initial_level: bool) -> None:
+        gpiod = _import_gpiod()
+
+        self.chip_name = chip
+        self.line_offset = line_offset
+        self._state: bool | None = None
+        self._released = False
+        self._set_raw: Callable[[bool], None]
+        self._get_raw: Callable[[], bool]
+        self._release: Callable[[], None]
+
+        if hasattr(gpiod, "request_lines"):
+            from gpiod import line as line_mod  # type: ignore[import]
+
+            config = {
+                line_offset: gpiod.LineSettings(
+                    direction=line_mod.Direction.OUTPUT,
+                    output_value=line_mod.Value.ACTIVE if initial_level else line_mod.Value.INACTIVE,
+                )
+            }
+            request = gpiod.request_lines(chip, consumer=consumer, config=config)
+
+            def set_raw(level: bool) -> None:
+                request.set_value(line_offset, line_mod.Value.ACTIVE if level else line_mod.Value.INACTIVE)
+
+            def get_raw() -> bool:
+                return request.get_value(line_offset) == line_mod.Value.ACTIVE
+
+            self._set_raw = set_raw
+            self._get_raw = get_raw
+            self._release = request.release
+        else:  # pragma: no cover - legacy libgpiod v1 fallback
+            chip_obj = gpiod.Chip(chip)
+            line_obj = chip_obj.get_line(line_offset)
+            line_obj.request(consumer=consumer, type=gpiod.LINE_REQ_DIR_OUT)
+
+            def set_raw(level: bool) -> None:
+                line_obj.set_value(1 if level else 0)
+
+            def get_raw() -> bool:
+                return bool(line_obj.get_value())
+
+            def release() -> None:
+                try:
+                    line_obj.release()
+                finally:
+                    chip_obj.close()
+
+            self._set_raw = set_raw
+            self._get_raw = get_raw
+            self._release = release
+
+        self.drive(initial_level, force=True)
+
+    def drive(self, level: bool, *, force: bool = False) -> None:
+        if not force and self._state is level:
+            return
+        self._set_raw(level)
+        self._state = level
+
+    def read(self) -> int:
+        return int(self._get_raw())
+
+    def close(self) -> None:
+        if self._released:
+            return
+        try:
+            self._release()
+        finally:
+            self._released = True
+
+
 class _RS485Controller:
     """Manage RS485 direction control via a dedicated GPIO line."""
 
     def __init__(self, *, chip: str, line_offset: int, active_high: bool, consumer: str) -> None:
-        try:
-            gpiod = _import_gpiod()
-        except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
-            raise ModbusAudioError(
-                "gpiod is not installed; install it in the active interpreter or adjust MODBUS_RS485_GPIO_PYTHONPATH"
-            ) from exc
-
-        self._chip_name = chip
-        self._line_offset = line_offset
-        self._active_high = active_high
-        self._consumer = consumer
         self._debug_enabled = constants.RS485_GPIO_DEBUG
         self._serial_handle = None
         self._original_write: Callable[..., object] | None = None
         self._original_flush: Callable[..., object] | None = None
         self._is_transmitting = False
 
-        self._chip = None
-        self._request = None
-        self._set_value: Callable[[object], None]
-        self._release: Callable[[], None]
+        self._tx_level = True if active_high else False
+        self._rx_level = not self._tx_level
 
-        if hasattr(gpiod, "request_lines"):
-            from gpiod import line  # type: ignore[import]
-
-            config = {
-                line_offset: gpiod.LineSettings(direction=line.Direction.OUTPUT)
-            }
-            request = gpiod.request_lines(chip, consumer=consumer, config=config)
-            self._request = request
-            self._value_tx = line.Value.ACTIVE if active_high else line.Value.INACTIVE
-            self._value_rx = line.Value.INACTIVE if active_high else line.Value.ACTIVE
-            self._set_value = lambda value: request.set_value(line_offset, value)
-            self._release = request.release
-            self._log_debug(
-                "Configured libgpiod v2 line",
+        self._line: _GPIOLineHandle
+        try:
+            self._line = _GPIOLineHandle(
                 chip=chip,
-                line=line_offset,
-                active_high=active_high,
+                line_offset=line_offset,
+                consumer=consumer,
+                initial_level=self._rx_level,
             )
-        else:  # pragma: no cover - legacy libgpiod v1 fallback
-            chip_obj = gpiod.Chip(chip)
-            line_obj = chip_obj.get_line(line_offset)
-            line_obj.request(consumer=consumer, type=gpiod.LINE_REQ_DIR_OUT)
-            self._chip = chip_obj
-            self._request = line_obj
-            self._value_tx = 1 if active_high else 0
-            self._value_rx = 0 if active_high else 1
-            self._set_value = line_obj.set_value
-            self._release = line_obj.release
-            self._log_debug(
-                "Configured libgpiod v1 line",
-                chip=chip,
-                line=line_offset,
-                active_high=active_high,
-            )
+        except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+            raise ModbusAudioError(
+                "gpiod is not installed; install it in the active interpreter or adjust MODBUS_RS485_GPIO_PYTHONPATH"
+            ) from exc
 
-        self.receive()
+        self._log_debug(
+            "Configured GPIO line",
+            chip=chip,
+            line=line_offset,
+            active_high=active_high,
+            initial_level=self._format_level(self._rx_level),
+        )
 
     def attach(self, serial_handle) -> None:
         if self._serial_handle is not None:
@@ -632,16 +678,16 @@ class _RS485Controller:
 
     def transmit(self) -> None:
         self._is_transmitting = True
-        self._set_value(self._value_tx)
-        self._log_debug("Set GPIO to transmit", level=self._value_tx)
+        self._line.drive(self._tx_level)
+        self._log_debug("Set GPIO to transmit", level=self._format_level(self._tx_level))
         if constants.RS485_GPIO_PRE_TX_DELAY > 0:
             time.sleep(constants.RS485_GPIO_PRE_TX_DELAY)
 
     def receive(self) -> None:
         if self._is_transmitting and constants.RS485_GPIO_POST_TX_DELAY > 0:
             time.sleep(constants.RS485_GPIO_POST_TX_DELAY)
-        self._set_value(self._value_rx)
-        self._log_debug("Set GPIO to receive", level=self._value_rx)
+        self._line.drive(self._rx_level)
+        self._log_debug("Set GPIO to receive", level=self._format_level(self._rx_level))
         self._is_transmitting = False
 
     def close(self) -> None:
@@ -661,16 +707,10 @@ class _RS485Controller:
         except Exception:  # pragma: no cover - GPIO access may fail during teardown
             pass
 
-        if self._release is not None:
-            try:
-                self._release()
-            except Exception:  # pragma: no cover
-                pass
-        if self._chip is not None:  # pragma: no cover - legacy cleanup
-            try:
-                self._chip.close()
-            except Exception:
-                pass
+        try:
+            self._line.close()
+        except Exception:  # pragma: no cover - best effort cleanup
+            pass
 
     def _log_debug(self, message: str, **kwargs) -> None:
         if not self._debug_enabled:
@@ -680,6 +720,10 @@ class _RS485Controller:
         if details:
             text = f"{text} ({details})"
         print(text, file=sys.stderr, flush=True)
+
+    @staticmethod
+    def _format_level(level: bool) -> str:
+        return "HIGH" if level else "LOW"
 
 
 def _format_modbus_error_details(response) -> str:
