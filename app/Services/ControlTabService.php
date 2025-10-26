@@ -53,16 +53,15 @@ class ControlTabService extends Service
 
     public function handleTextRequest(int $fieldId): array
     {
-        $callback = config("control_tab.text_fields.{$fieldId}");
-        if ($callback === null) {
+        $text = $this->resolveTextField($fieldId);
+
+        if ($text === null) {
             return [
                 'status' => 'unsupported',
                 'field_id' => $fieldId,
                 'text' => '',
             ];
         }
-
-        $text = $this->renderTextField($callback);
 
         return [
             'status' => 'ok',
@@ -250,6 +249,30 @@ class ControlTabService extends Service
             'active_playlist_item' => $this->renderActivePlaylistItem(),
             default => '',
         };
+    }
+
+    private function resolveTextField(int $fieldId): ?string
+    {
+        $entry = config("control_tab.text_fields.{$fieldId}");
+
+        if ($entry === null) {
+            return null;
+        }
+
+        if (is_callable($entry)) {
+            try {
+                $value = $entry();
+                return is_string($value) ? $value : json_encode($value, JSON_UNESCAPED_UNICODE);
+            } catch (\Throwable $exception) {
+                return null;
+            }
+        }
+
+        if (is_string($entry)) {
+            return $this->renderTextField($entry);
+        }
+
+        return null;
     }
 
     private function renderStatusSummary(): string

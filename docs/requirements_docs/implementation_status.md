@@ -12,13 +12,12 @@ Tento dokument shrnuje, které části zadání z *requirements_docs* (JSVV sp
 | Artisan příkaz `jsvv:process-message` + deduplikace | ✅ Hotovo | `app/Console/Commands/ProcessJsvvMessage.php`, fronta `activations-high` |
 | Listener `JsvvListenerService`→`JsvvMessageService` | ✅ Hotovo | Zatím ingest přes API – budoucnu nahradit parserem |
 | Audit eventů (`jsvv_events`) | ✅ Hotovo | Zaznamenává validaci, duplicity, další eventy přidat podle potřeby |
-| Control Channel koordinátor (pauza/stop/resume) | ⚠️ Částečně | `ControlChannelService` zatím jen loguje (NOT_IMPLEMENTED). Nutné doplnit IPC + potvrzení dle kap. 5 (pause_modbus, stop_modbus…) |
-| SLA měření (čas začátku, akustika) | ❌ Chybí | Po integraci control channelu doplnit metriky do `jsvv_events`/telemetrie |
+| Control Channel koordinátor (pauza/stop/resume) | ✅ Hotovo | IPC přes Unix socket (`ControlChannelService` + `control_channel_worker.py`), retry & audit eventy |
+| SLA měření (čas začátku, akustika) | ⚠️ Částečně | `ControlChannelService` ukládá latency do `jsvv_events`; akustická metrika čeká na stream orchestrátor |
 
 ### Akční body
-1. Implementovat skutečnou komunikaci s parserem/control kanálem (Unix socket / ZeroMQ), včetně potvrzení, timeoutů, retry a stavového automatu.
-2. Doplňující posluchače eventů (`RouteActivationCommands`, `HandleStatusAndFaults`…) dle požadavků v `04_backend_laravel.md`.
-3. Přidat sekundární cache pro deduplikační klíče (Redis) – viz kap. 4.5.
+1. Doplňující posluchače eventů (`RouteActivationCommands`, `HandleStatusAndFaults`…) dle požadavků v `04_backend_laravel.md`.
+2. Doplnit akustické SLA metriky (start/akustika) a export do telemetrie.
 
 ---
 
@@ -26,15 +25,14 @@ Tento dokument shrnuje, které části zadání z *requirements_docs* (JSVV sp
 
 | Funkce | Stav | Poznámka / další kroky |
 | --- | --- | --- |
-| JSVV listener (`python-client/daemons/jsvv_listener.py`) | ⚠️ Částečně | Přeposílá payload do API, ale neimplementuje priority frontu ani volání Artisanu |
-| Parser zpráv (CRC, priority, log) | ❌ Chybí | Podle `02_python_parser.md` je nutné doplnit PriorityQueue, logování (RECEIVED/DECODED/DONE…), retry |
-| Volání Artisanu (single/batch) | ❌ Chybí | V parseru zavolat `php artisan jsvv:process-message` s JSON daty |
-| Control Channel worker | ❌ Chybí | Zpracovat příkazy `pause_modbus`/`stop_modbus` a zajišťovat potvrzení stavu FSM |
+| JSVV listener (`python-client/daemons/jsvv_listener.py`) | ✅ Hotovo | Priority queue + retry/backoff, logování dle kap. 2, volá Artisan přes STDIN |
+| Parser zpráv (CRC, priority, log) | ✅ Hotovo | `ParserDaemon` loguje RECEIVED/QUEUED/FORWARDED/DONE, respektuje deduplikaci a priority |
+| Volání Artisanu (single/batch) | ✅ Hotovo | `ArtisanInvoker` používá `php artisan jsvv:process-message`, retry + timeout |
+| Control Channel worker | ✅ Hotovo | `control_channel_worker.py` obsluhuje Unix socket, FSM + Modbus polling (dry-run fallback) |
 
 ### Akční body
-1. Vybudovat parser modul podle kapitoly 2/3 – nejlépe samostatný servis v `python-client/`.
-2. Přidat logování podle SLA (čas příjmu, priorita, výsledky CRC).
-3. Zajistit heartbeat/modbus worker (watchdog) dle kap. 5.
+1. Vyladit watchdog & telemetry export z control channel workeru (např. stav registrů, pády).
+2. Rozšířit logování o SLA metriky (latence parser→Artisan, heartbeat, CRC statistiky).
 
 ---
 
@@ -43,15 +41,15 @@ Tento dokument shrnuje, které části zadání z *requirements_docs* (JSVV sp
 | Oblast | Stav | Poznámka |
 | --- | --- | --- |
 | StreamOrchestrator (JSVV) | ✅ Základ | JSVV sekvence (local_stream / remote_trigger) fungují |
-| Přímé vysílání (mikrofon, vstupy) | ❌ Chybí | Viz `todo.md` → controller, orchestrator, mixer integrace |
-| Playlisty/recordings | ❌ Chybí | Backend job `RecordingBroadcastJob`, UI playlist builder zatím neexistuje |
-| GSM modul & whitelisty | ❌ Chybí | Viz `todo.md` sekce “Stream triggered from GSM module” |
+| Přímé vysílání (mikrofon, vstupy) | ⚠️ Částečně | StreamOrchestrator napojen na control channel; chybí mixer UI a health checks |
+| Playlisty/recordings | ✅ Hotovo (backend) | `ProcessRecordingPlaylist` spouští stream, přehrává nahrávky přes ffmpeg pipeline, telemetrie & cancel |
+| GSM modul & whitelisty | ⚠️ Částečně | Backend daemon (SIM7600), whitelist, PIN & stream orchestrace hotová; chybí UI a monitoring |
 | Manual control panel (vendor protokol) | ❌ Chybí | Zatím jen placeholder v TODO |
 
 ### Akční body
-1. Implementovat `/api/live-broadcast/start|stop`, real-time status, protokol.
-2. Napojit playlist mechanismus s ffmpeg pipeline.
-3. Připravit GSM daemon + backend management UI.
+1. Dokončit `/api/live-broadcast/start|stop` UI + mixer health checks (backend hotovo).
+2. Dokončit GSM frontend/monitoring (signál, PIN workflow) + hardware watchdog.
+3. Rozšířit playlist o UI, logování do runbooku a archiv přehrávek.
 
 ---
 
@@ -59,8 +57,8 @@ Tento dokument shrnuje, které části zadání z *requirements_docs* (JSVV sp
 
 | Funkce | Stav | Poznámka |
 | --- | --- | --- |
-| Control Tab protokol (`docs/requirements_docs/Protokol…`) | ❌ Chybí | Potřeba vytvořit listener/dekóder, mapování tlačítek, odpovědi |
-| Propojení Control Tab → backend fronta | ❌ Chybí | Inspirace v TODO sekci „Manual control panel“ |
+| Control Tab protokol (`docs/requirements_docs/Protokol…`) | ⚠️ Částečně | Python daemon + backend API připraveny; chybí UI a dlouhodobý monitoring |
+| Propojení Control Tab → backend fronta | ⚠️ Částečně | StreamOrchestrator napojen; zbývá websocket/UI vrstva |
 | Mapování lokací/zón (frontend mapa) | ⚠️ Základ | Zobrazení existuje, ale chybí plné naplnění dat z requirements (SLA, stavy hnízd) |
 | Telemetrie & monitoring | ⚠️ Částečně | JSVV sekvence logujeme, ale chybí centralizované metriky (je nutné navázat na budoucí streaming) |
 
@@ -73,13 +71,13 @@ Tento dokument shrnuje, které části zadání z *requirements_docs* (JSVV sp
 | Runbook `Spusteni_a_testovani.md` | ✅ Aktualizováno | Obsahuje nový scénář pro `jsvv:process-message` |
 | Uživatelská dokumentace (`Sarah_V_User_Manual.md`) | ⚠️ Částečně | Popisuje JSVV moduly; chybí nové kapitoly pro přímé vysílání, GSM, Control Tab, až budou implementovány |
 | Testovací plán (KPV Bártek) | ❌ Chybí implementace | Dokument v `requirements_docs` vyžaduje test cases – zatím bez pokrytí |
-| Automatické testy (PHP/JS/python) | ⚠️ Základ | Doplnit unit/integration testy pro `JsvvMessageService`, control channel, parser |
+| Automatické testy (PHP/JS/python) | ⚠️ Částečně | Přidány unit testy pro `ControlChannelService` a `JsvvMessageService`; chybí integrační scénáře a Python coverage |
 
 ---
 
 ## 6. Shrnutí priorit
 
-1. **Control Channel + Parser** – bez skutečné IPC integrace nelze garantovat SLA a preempci.  
+1. **Control Channel telemetrie** – dořešit watchdog, export metrik a akustickou SLA.  
 2. **Completní streaming (mikrofon/playlist/GSM)** – klíčová funkcionalita původní aplikace.  
 3. **Control Tab & API** – hardware panel je součástí zadání.  
 4. **Testovací scénáře dle MV ČR (KPV)** – připravit test cases pro certifikaci.  

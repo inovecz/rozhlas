@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Exceptions\BroadcastLockedException;
 use App\Jobs\ProcessRecordingPlaylist;
 use App\Libraries\PythonClient;
+use App\Models\ControlChannelCommand;
 use App\Models\BroadcastPlaylist;
 use App\Models\BroadcastPlaylistItem;
 use App\Models\BroadcastSession;
@@ -16,6 +17,7 @@ use App\Models\Schedule;
 use App\Models\StreamTelemetryEntry;
 use App\Services\Mixer\AudioRoutingService;
 use App\Services\Mixer\MixerController;
+use App\Services\ControlChannelService;
 use App\Services\VolumeManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Arr;
@@ -25,6 +27,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use InvalidArgumentException;
+use RuntimeException;
 use Throwable;
 
 class StreamOrchestrator extends Service
@@ -32,12 +35,16 @@ class StreamOrchestrator extends Service
     private const MAX_DEST_ZONES = 5;
     private const JSVV_ACTIVE_LOCK_KEY = 'jsvv:sequence:active';
 
+    private ?ControlChannelService $controlChannel;
+
     public function __construct(
         private readonly PythonClient $client = new PythonClient(),
         private readonly MixerController $mixer = new MixerController(),
         private readonly AudioRoutingService $audioRouting = new AudioRoutingService(),
+        ?ControlChannelService $controlChannel = null,
     ) {
         parent::__construct();
+        $this->controlChannel = $this->resolveControlChannel($controlChannel);
     }
 
     public function start(array $payload): array
@@ -60,6 +67,10 @@ class StreamOrchestrator extends Service
         if ($source !== 'jsvv' && Cache::has(self::JSVV_ACTIVE_LOCK_KEY)) {
             throw new BroadcastLockedException('JSVV sequence is currently running');
         }
+
+        $controlReason = sprintf('Live broadcast start (source=%s)', $source);
+        $resumeCommand = $this->sendControlChannelCommand('resume', $controlReason);
+        $this->assertControlChannelSuccess($resumeCommand, 'resume', $controlReason);
 
         $active = BroadcastSession::query()
             ->where('status', 'running')
@@ -99,6 +110,7 @@ class StreamOrchestrator extends Service
                     'zones' => $zones,
                 ],
             ]);
+            $this->recordControlChannelTelemetry('resume', $resumeCommand, $active->id);
 
             return $active->fresh()->toArray();
         }
@@ -136,6 +148,7 @@ class StreamOrchestrator extends Service
                 'zones' => $zones,
             ],
         ]);
+        $this->recordControlChannelTelemetry('resume', $resumeCommand, $session->id);
 
         return $session->fresh()->toArray();
     }
@@ -154,6 +167,7 @@ class StreamOrchestrator extends Service
             ];
         }
 
+        $controlReason = sprintf('Live broadcast stop (%s)', $reason ?? 'manual');
         $response = $this->client->stopStream();
 
         $session->update([
@@ -175,6 +189,10 @@ class StreamOrchestrator extends Service
                 'reason' => $reason,
             ],
         ]);
+
+        $pauseCommand = $this->sendControlChannelCommand('pause', $controlReason);
+        $this->assertControlChannelSuccess($pauseCommand, 'pause', $controlReason);
+        $this->recordControlChannelTelemetry('pause', $pauseCommand, $session->id);
 
         return $session->fresh()->toArray();
     }
@@ -221,6 +239,8 @@ class StreamOrchestrator extends Service
             'title' => $nextSchedule->getTitle(),
             'scheduled_at' => $nextSchedule->getScheduledAt()?->toIso8601String(),
         ] : null;
+
+        $details['control_channel'] = $this->controlChannelSummary();
 
         return $details;
     }
@@ -416,6 +436,128 @@ class StreamOrchestrator extends Service
     public function getResponse(): JsonResponse
     {
         return response()->json($this->getStatusDetails());
+    }
+
+    private function resolveControlChannel(?ControlChannelService $service): ?ControlChannelService
+    {
+        if ($service !== null) {
+            return $service;
+        }
+
+        try {
+            return app(ControlChannelService::class);
+        } catch (Throwable $exception) {
+            Log::warning('Control channel service is not available', [
+                'error' => $exception->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    private function sendControlChannelCommand(string $action, string $reason): ?ControlChannelCommand
+    {
+        if ($this->controlChannel === null) {
+            return null;
+        }
+
+        try {
+            return match ($action) {
+                'resume' => $this->controlChannel->resume(reason: $reason),
+                'pause' => $this->controlChannel->pause(reason: $reason),
+                'stop' => $this->controlChannel->stop(reason: $reason),
+                'status' => $this->controlChannel->status(reason: $reason),
+                default => null,
+            };
+        } catch (Throwable $exception) {
+            Log::error('Control channel command failed', [
+                'action' => $action,
+                'reason' => $reason,
+                'error' => $exception->getMessage(),
+            ]);
+
+            $this->recordTelemetry([
+                'type' => 'control_channel_exception',
+                'payload' => [
+                    'action' => $action,
+                    'reason' => $reason,
+                    'error' => $exception->getMessage(),
+                ],
+            ]);
+
+            return null;
+        }
+    }
+
+    private function assertControlChannelSuccess(?ControlChannelCommand $command, string $action, string $reason): void
+    {
+        if ($command === null) {
+            return;
+        }
+
+        if ($command->result !== 'OK') {
+            $payload = $command->payload ?? [];
+            $errorDetail = Arr::get($payload, 'error')
+                ?? Arr::get($payload, 'response.details.error')
+                ?? Arr::get($payload, 'details.error');
+
+            throw new RuntimeException(sprintf(
+                'Control channel %s failed (%s): %s',
+                $action,
+                $reason,
+                $errorDetail !== null ? $errorDetail : $command->result
+            ));
+        }
+    }
+
+    private function recordControlChannelTelemetry(string $action, ?ControlChannelCommand $command, ?int $sessionId = null): void
+    {
+        if ($command === null) {
+            return;
+        }
+
+        $payload = [
+            'command_id' => $command->id,
+            'result' => $command->result,
+            'state_before' => $command->state_before,
+            'state_after' => $command->state_after,
+            'reason' => $command->reason,
+            'issued_at' => $command->issued_at?->toIso8601String(),
+            'details' => $command->payload,
+        ];
+
+        $entry = [
+            'type' => 'control_channel_' . $action,
+            'payload' => $payload,
+        ];
+
+        if ($sessionId !== null) {
+            $entry['session_id'] = $sessionId;
+        }
+
+        $this->recordTelemetry($entry);
+    }
+
+    private function controlChannelSummary(): ?array
+    {
+        $command = $this->sendControlChannelCommand('status', 'live_broadcast_status');
+        if ($command === null) {
+            return null;
+        }
+
+        $payload = $command->payload ?? [];
+        $response = Arr::get($payload, 'response');
+        $response = is_array($response) ? $response : [];
+
+        return [
+            'result' => $command->result,
+            'state' => $response['state'] ?? $command->state_after ?? $command->state_before,
+            'stateBefore' => $command->state_before,
+            'stateAfter' => $command->state_after,
+            'details' => $response['details'] ?? Arr::get($payload, 'details', $payload),
+            'latencyMs' => $response['latencyMs'] ?? Arr::get($payload, 'latency_ms'),
+            'issuedAt' => $command->issued_at?->toIso8601String(),
+        ];
     }
 
     /**

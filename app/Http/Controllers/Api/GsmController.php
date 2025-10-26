@@ -19,9 +19,14 @@ class GsmController extends Controller
     public function events(Request $request): JsonResponse
     {
         $payload = $request->all();
-        $this->service->handleIncomingCall($payload);
+        $result = $this->service->handleIncomingCall($payload);
 
-        return response()->json(['status' => 'accepted']);
+        return response()->json([
+            'status' => 'ok',
+            'action' => $result['action'] ?? 'ack',
+            'sessionId' => $result['sessionId'] ?? null,
+            'authorised' => $result['authorised'] ?? null,
+        ]);
     }
 
     public function index(): JsonResponse

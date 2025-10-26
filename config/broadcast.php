@@ -112,4 +112,33 @@ return [
             : null,
         'volume_groups' => $parseStringList(env('BROADCAST_LIVE_VOLUME_GROUPS', 'inputs,outputs')),
     ],
+    'playlist' => [
+        'storage_root' => env('PLAYLIST_STORAGE_ROOT', storage_path('app/recordings')),
+        'storage_fallbacks' => array_filter([
+            env('PLAYLIST_STORAGE_FALLBACK'),
+        ]),
+        'supported_extensions' => array_values(array_filter(array_map(
+            static fn (string $value) => strtolower(trim($value)),
+            explode(',', (string) env('PLAYLIST_SUPPORTED_EXTENSIONS', 'mp3,wav,ogg,flac')),
+        ), static fn (string $value) => $value !== '')),
+        'default_gap_ms' => (int) env('PLAYLIST_DEFAULT_GAP_MS', 250),
+        'player' => [
+            'binary' => env('PLAYLIST_PLAYER_BINARY', env('PLAYLIST_PLAYER', 'ffmpeg')),
+            'arguments' => [
+                '-nostdin',
+                '-hide_banner',
+                '-loglevel',
+                env('PLAYLIST_PLAYER_LOGLEVEL', 'error'),
+                '-i',
+                '{input}',
+                '-vn',
+                '-f',
+                env('PLAYLIST_PLAYER_FORMAT', 'alsa'),
+                env('PLAYLIST_PLAYER_OUTPUT', 'default'),
+            ],
+            'timeout' => ($playerTimeout = env('PLAYLIST_PLAYER_TIMEOUT')) !== null && $playerTimeout !== ''
+                ? (float) $playerTimeout
+                : null,
+        ],
+    ],
 ];

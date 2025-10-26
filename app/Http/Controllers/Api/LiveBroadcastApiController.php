@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Validator;
 use InvalidArgumentException;
+use RuntimeException;
 
 class LiveBroadcastApiController extends Controller
 {
@@ -59,6 +60,11 @@ class LiveBroadcastApiController extends Controller
                 'status' => 'invalid_request',
                 'message' => $exception->getMessage(),
             ], 422);
+        } catch (RuntimeException $exception) {
+            return response()->json([
+                'status' => 'control_channel_error',
+                'message' => $exception->getMessage(),
+            ], 503);
         }
 
         return response()->json(['session' => $session]);
@@ -67,7 +73,14 @@ class LiveBroadcastApiController extends Controller
     public function stop(Request $request): JsonResponse
     {
         $reason = $request->string('reason')->toString() ?: null;
-        $session = $this->orchestrator->stop($reason);
+        try {
+            $session = $this->orchestrator->stop($reason);
+        } catch (RuntimeException $exception) {
+            return response()->json([
+                'status' => 'control_channel_error',
+                'message' => $exception->getMessage(),
+            ], 503);
+        }
 
         return response()->json(['session' => $session]);
     }

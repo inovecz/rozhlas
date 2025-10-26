@@ -7,6 +7,7 @@ namespace App\Jobs;
 use App\Exceptions\BroadcastLockedException;
 use App\Models\BroadcastPlaylist;
 use App\Models\StreamTelemetryEntry;
+use App\Services\PlaylistAudioPlayer;
 use App\Services\StreamOrchestrator;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -14,6 +15,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Log;
 
 class ProcessRecordingPlaylist implements ShouldQueue
 {
@@ -26,7 +28,7 @@ class ProcessRecordingPlaylist implements ShouldQueue
     {
     }
 
-    public function handle(StreamOrchestrator $orchestrator): void
+    public function handle(StreamOrchestrator $orchestrator, PlaylistAudioPlayer $player): void
     {
         $playlist = BroadcastPlaylist::query()->with('items')->find($this->playlistId);
         if ($playlist === null) {
@@ -38,6 +40,18 @@ class ProcessRecordingPlaylist implements ShouldQueue
         }
 
         $selection = Arr::get($playlist->options ?? [], '_selection', []);
+
+        if ($playlist->status === 'queued') {
+            // Playlist queued but not yet running; mark telemetry for start attempt.
+            StreamTelemetryEntry::create([
+                'type' => 'playlist_attempt_start',
+                'playlist_id' => $playlist->id,
+                'payload' => [
+                    'item_count' => $playlist->items->count(),
+                ],
+                'recorded_at' => now(),
+            ]);
+        }
 
         try {
             $orchestrator->start([
@@ -61,14 +75,32 @@ class ProcessRecordingPlaylist implements ShouldQueue
             'started_at' => now(),
         ]);
 
+        StreamTelemetryEntry::create([
+            'type' => 'playlist_started',
+            'playlist_id' => $playlist->id,
+            'recorded_at' => now(),
+            'payload' => [
+                'recording_count' => $playlist->items()->count(),
+            ],
+        ]);
+
         foreach ($playlist->items()->orderBy('position')->get() as $item) {
             $freshPlaylist = $playlist->fresh();
             if ($freshPlaylist->status === 'cancelled') {
                 $orchestrator->stop('playlist_cancelled');
+                StreamTelemetryEntry::create([
+                    'type' => 'playlist_cancelled_runtime',
+                    'playlist_id' => $playlist->id,
+                    'payload' => [
+                        'position' => $item->position,
+                    ],
+                    'recorded_at' => now(),
+                ]);
                 return;
             }
 
             if ($freshPlaylist->status === 'queued') {
+                $orchestrator->stop('playlist_requeued');
                 return;
             }
 
@@ -84,14 +116,59 @@ class ProcessRecordingPlaylist implements ShouldQueue
 
             sleep(min((int) ($item->duration_seconds ?? 1), 5));
 
+            $result = $player->play($item);
+
+            if (!$result->success) {
+                StreamTelemetryEntry::create([
+                    'type' => 'playlist_item_failed',
+                    'playlist_id' => $playlist->id,
+                    'payload' => array_merge([
+                        'position' => $item->position,
+                        'recording_id' => $item->recording_id,
+                    ], $result->context),
+                    'recorded_at' => now(),
+                ]);
+
+                $playlist->update([
+                    'status' => 'failed',
+                    'completed_at' => null,
+                ]);
+
+                Log::warning('Playlist item playback failed', [
+                    'playlist_id' => $playlist->id,
+                    'recording_id' => $item->recording_id,
+                    'status' => $result->status,
+                    'context' => $result->context,
+                ]);
+
+                $orchestrator->stop('playlist_failed');
+
+                return;
+            }
+
             StreamTelemetryEntry::create([
                 'type' => 'playlist_item_finished',
                 'playlist_id' => $playlist->id,
-                'payload' => [
+                'payload' => array_merge([
                     'position' => $item->position,
-                ],
+                    'recording_id' => $item->recording_id,
+                ], $result->context),
                 'recorded_at' => now(),
             ]);
+
+            $gapMs = $player->calculateGapMilliseconds($item);
+            if ($gapMs > 0) {
+                usleep($gapMs * 1000);
+                StreamTelemetryEntry::create([
+                    'type' => 'playlist_gap_elapsed',
+                    'playlist_id' => $playlist->id,
+                    'payload' => [
+                        'position' => $item->position,
+                        'gap_ms' => $gapMs,
+                    ],
+                    'recorded_at' => now(),
+                ]);
+            }
         }
 
         $orchestrator->stop('playlist_completed');
@@ -99,6 +176,13 @@ class ProcessRecordingPlaylist implements ShouldQueue
         $playlist->update([
             'status' => 'completed',
             'completed_at' => now(),
+        ]);
+
+        StreamTelemetryEntry::create([
+            'type' => 'playlist_completed',
+            'playlist_id' => $playlist->id,
+            'payload' => [],
+            'recorded_at' => now(),
         ]);
     }
 }

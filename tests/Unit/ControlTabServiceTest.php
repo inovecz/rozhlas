@@ -122,7 +122,11 @@ class ControlTabServiceTest extends TestCase
             ->andReturn(['id' => 'seq-id', 'status' => 'planned']);
         $seqService->shouldReceive('trigger')
             ->once()
-            ->andReturn(['id' => 'seq-id', 'status' => 'queued', 'queue_position' => 1]);
+            ->andReturnUsing(function () {
+                Bus::dispatch(new RunJsvvSequence('seq-id'));
+
+                return ['id' => 'seq-id', 'status' => 'queued', 'queue_position' => 1];
+            });
 
         $service = new ControlTabService(Mockery::mock(StreamOrchestrator::class), $seqService);
 

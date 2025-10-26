@@ -9,6 +9,7 @@ use App\Libraries\PythonClient;
 use App\Models\GsmCallSession;
 use App\Models\GsmPinVerification;
 use App\Models\GsmWhitelistEntry;
+use App\Models\StreamTelemetryEntry;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -22,7 +23,7 @@ class GsmStreamService extends Service
         parent::__construct();
     }
 
-    public function handleIncomingCall(array $event): void
+    public function handleIncomingCall(array $event): array
     {
         Log::info('GSM event received', $event);
 
@@ -33,8 +34,16 @@ class GsmStreamService extends Service
         $session = GsmCallSession::query()->find($sessionId) ?? new GsmCallSession(['id' => $sessionId]);
         $session->fill([
             'caller' => $caller,
-            'metadata' => Arr::get($event, 'metadata', []),
         ]);
+
+        if (Arr::has($event, 'metadata')) {
+            $session->metadata = Arr::get($event, 'metadata', []);
+        }
+
+        $response = [
+            'sessionId' => $sessionId,
+            'action' => 'ack',
+        ];
 
         if ($state === 'ringing') {
             $session->status = 'ringing';
@@ -45,7 +54,15 @@ class GsmStreamService extends Service
             if (!$session->authorised) {
                 $this->createPendingPin($session);
             }
-            return;
+            $this->recordTelemetry('gsm_call_ringing', $session, [
+                'caller' => $caller,
+                'authorised' => $session->authorised,
+            ]);
+
+            $response['authorised'] = $session->authorised;
+            $response['action'] = $session->authorised ? 'answer' : 'reject';
+
+            return $response;
         }
 
         if ($state === 'accepted') {
@@ -61,27 +78,65 @@ class GsmStreamService extends Service
                         'zones' => Arr::get($session->metadata, 'zones', []),
                         'options' => ['caller' => $caller],
                     ]);
+                    $this->markStreamStarted($session);
+                    $this->recordTelemetry('gsm_call_started', $session, [
+                        'caller' => $caller,
+                    ]);
                 } catch (BroadcastLockedException $exception) {
                     Log::warning('GSM stream blocked by active JSVV sequence', [
                         'caller' => $caller,
                         'session_id' => $session->id,
                     ]);
-                    $session->status = 'rejected';
+                    $session->status = 'blocked';
                     $session->ended_at = now();
                     $session->save();
                     $this->clearPendingPins($session);
+                    $this->recordTelemetry('gsm_call_blocked', $session, [
+                        'caller' => $caller,
+                    ]);
+
+                    $response['action'] = 'hangup';
+                    return $response;
                 }
+
+                $response['authorised'] = true;
+                return $response;
             }
-            return;
+
+            $this->recordTelemetry('gsm_call_unauthorised', $session, [
+                'caller' => $caller,
+            ]);
+            $response['authorised'] = false;
+            $response['action'] = 'hangup';
+
+            return $response;
         }
 
         if (in_array($state, ['finished', 'rejected', 'error'], true)) {
             $session->status = $state;
             $session->ended_at = now();
             $session->save();
-            $this->orchestrator->stop(sprintf('gsm_%s', $state));
+
+            if ($this->hasStreamStarted($session)) {
+                $this->orchestrator->stop(sprintf('gsm_%s', $state));
+                $this->recordTelemetry('gsm_call_finished', $session, [
+                    'caller' => $caller,
+                    'status' => $state,
+                ]);
+            } else {
+                $this->recordTelemetry('gsm_call_ended', $session, [
+                    'caller' => $caller,
+                    'status' => $state,
+                ]);
+            }
+
             $this->clearPendingPins($session);
+            $response['action'] = 'ack';
+
+            return $response;
         }
+
+        return $response;
     }
 
     public function listWhitelist(): array
@@ -160,5 +215,35 @@ class GsmStreamService extends Service
     private function clearPendingPins(GsmCallSession $session): void
     {
         $session->pins()->delete();
+        $metadata = $session->metadata ?? [];
+        unset($metadata['stream_started']);
+        $session->metadata = $metadata;
+        $session->save();
+    }
+
+    private function markStreamStarted(GsmCallSession $session): void
+    {
+        $metadata = $session->metadata ?? [];
+        $metadata['stream_started'] = true;
+        $session->metadata = $metadata;
+        $session->save();
+    }
+
+    private function hasStreamStarted(GsmCallSession $session): bool
+    {
+        $metadata = $session->metadata ?? [];
+        return Arr::get($metadata, 'stream_started', false) === true;
+    }
+
+    private function recordTelemetry(string $type, GsmCallSession $session, array $payload = []): void
+    {
+        StreamTelemetryEntry::create([
+            'type' => $type,
+            'payload' => array_merge([
+                'session_id' => $session->id,
+                'caller' => $session->caller,
+            ], $payload),
+            'recorded_at' => now(),
+        ]);
     }
 }

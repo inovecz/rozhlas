@@ -160,7 +160,16 @@ Logy se ukládají do `storage/logs`:
 - Bez panelu lze použít `sims/control_tab_simulator.py`.
 - Ověřit, že backend přijme požadavek, zařadí jej do fronty a odpoví JSON s výsledkem.
 
-### 4.8 Příjem rámce přes Artisan
+### 4.8 JSVV parser + Control Channel
+1. Spusťte `./run_daemons.sh start` (spustí `control_channel_worker`, `jsvv_listener`, `gsm_listener`). Pro živý Modbus nastavte `.env` / systémovou proměnnou `CONTROL_CHANNEL_DRY_RUN=0` a zkontrolujte parametry `MODBUS_*`.
+2. Zkontrolujte logy v `storage/logs/daemons/`:
+   - `control_channel_worker.log` – měl by obsahovat `Control channel listening on ...`.
+   - `jsvv_listener.log` – po přijetí rámců se zapisují stavy `RECEIVED/QUEUED/FORWARDED/DONE`.
+3. Ověřte handshake control channelu: `socat - UNIX-CONNECT:/var/run/jsvv-control.sock` → očekávaný výstup `READY`.
+4. V případě potřeby můžete statusově pingnout backend: `php artisan tinker` → `(app(App\Services\ControlChannelService::class))->status()`.
+5. Zastavení démonů: `./run_daemons.sh stop` (uvolní socket a PID soubory).
+
+### 4.9 Příjem rámce přes Artisan
 1. Připravte ukázkový JSON (`sample.json`):
    ```json
    {
@@ -180,7 +189,43 @@ Logy se ukládají do `storage/logs`:
    - `jsvv_messages` (status `VALIDATED`, `dedup_key` unikátní),
    - `jsvv_events` (`message_validated` a případně `duplicate_detected` při druhém spuštění),
    - `control_channel_commands` (`pause_modbus`/`stop_modbus` podle priority).
-4. Sledujte log `laravel.log` – měla by se objevit zpráva o uloženém příkazu control channel.
+4. Sledujte log `laravel.log` – měla by se objevit zpráva o uloženém příkazu control channel (`Control channel command acknowledged`).
+
+---
+
+### 4.10 Playlist z nahrávek
+1. Připravte JSON payload:
+   ```json
+   {
+     "recordings": [
+       {"id": "demo-track-1"},
+       {"id": "demo-track-2", "gapMs": 500}
+     ],
+     "locations": [55],
+     "route": [101]
+   }
+   ```
+2. Zavolejte `POST /api/live-broadcast/playlist` s tímto payloadem. Odpověď obsahuje `playlist.id`.
+3. Sledujte `stream_telemetry_entries` (typy `playlist_started`, `playlist_item_*`, `playlist_completed`) nebo `GET /api/live-broadcast/status` → sekce `control_channel` + aktuální session.
+4. Pro okamžité ukončení playlistu použijte `POST /api/live-broadcast/stop` s `reason=manual_stop`; záznamy se označí jako `cancelled`/`failed` podle výsledku.
+5. Chcete-li playlist zrušit, zavolejte `POST /api/live-broadcast/playlist/{id}/cancel` a ověřte, že telemetrie obsahuje `playlist_cancelled_runtime`.
+
+---
+
+### 4.11 GSM modul SIM7600G-H
+1. Ověřte připojení modemu (`/dev/ttyUSB2` výchozí) a spusťte démony `./run_daemons.sh start`. Log `storage/logs/daemons/gsm_listener.log` musí hlásit úspěšnou inicializaci AT rozhraní.
+2. Přidejte testovací číslo do whitelistu: `POST /api/gsm/whitelist` s JSON `{ "number": "+420123456789", "label": "Test" }`.
+3. Zavolejte na modem – po přijetí události `ringing` backend vrátí `action=answer`, daemon provede `ATA` a vyšle `accepted`. Sledujte `stream_telemetry_entries` (`gsm_call_ringing`, `gsm_call_started`).
+4. Ukončení hovoru (`NO CARRIER`) vytvoří `gsm_call_finished` a backend automaticky spustí `StreamOrchestrator->stop`. V logu se objeví `control_channel_pause`.
+5. Pro neautorizované číslo backend vrátí `action=reject`; daemon provede `ATH` a telemetrie obsahuje `gsm_call_unauthorised`.
+
+---
+
+### 4.12 Control Tab (ESP32-P4)
+1. Ověřte sériové rozhraní panelu (`/dev/ttyUSB3` dle `.env`). Spusťte démony `./run_daemons.sh start`; log `storage/logs/daemons/control_tab_listener.log` musí hlásit „Control Tab listening on …“.
+2. Stisk tlačítka → `control_tab_listener` odešle JSON na `/api/control-tab/events`. Odpověď obsahuje `action=ack` a ESP obdrží `>>>:` zprávu se stavem 1/0. Sledujte tabulku `stream_telemetry_entries` (`control_tab_button_pressed`).
+3. Textová pole: panel vyšle `text_field_request`; backend vrátí `action=text` a modul obdrží `>>>TEXT:...` s hodnotou. V DB je záznam `control_tab_text_field_request`.
+4. Ladění: v simulaci spustíte `python-client/daemons/control_tab_listener.py --simulate --webhook http://127.0.0.1/api/control-tab/events`. V CLI uvidíte příchozí a odchozí rámce.
 
 ---
 

@@ -8,11 +8,13 @@ use App\Events\JsvvMessageReceived;
 use App\Models\JsvvEvent;
 use App\Models\JsvvMessage;
 use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Cache\Repository as CacheRepository;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
-use RuntimeException;
+use Throwable;
 
 class JsvvMessageService
 {
@@ -40,42 +42,75 @@ class JsvvMessageService
         );
 
         $receivedAt = CarbonImmutable::now();
+        $cacheStore = $this->resolveDedupCacheStore();
+        $cacheKey = $cacheStore !== null ? $this->buildDedupCacheKey($dedupKey) : null;
+        $ttlSeconds = max(60, (int) config('jsvv.dedup.ttl', 600));
+        $cacheAdded = false;
+
+        if ($cacheStore !== null && $cacheKey !== null) {
+            $cacheAdded = $cacheStore->add($cacheKey, true, $ttlSeconds);
+            if ($cacheAdded === false) {
+                $existing = JsvvMessage::query()->where('dedup_key', $dedupKey)->first();
+                if ($existing !== null) {
+                    $this->recordEvent($existing, 'duplicate_detected_cache', [
+                        'payload' => $validated ?? [],
+                    ]);
+
+                    return [
+                        'message' => $existing,
+                        'duplicate' => true,
+                    ];
+                }
+            }
+        }
 
         /** @var JsvvMessage $message */
-        [$message, $duplicate] = DB::transaction(function () use ($validated, $params, $dedupKey, $receivedAt): array {
-            $existing = JsvvMessage::query()->where('dedup_key', $dedupKey)->lockForUpdate()->first();
-            if ($existing !== null) {
-                $this->recordEvent($existing, 'duplicate_detected', [
-                    'payload' => $validated ?? [],
+        try {
+            [$message, $duplicate] = DB::transaction(function () use ($validated, $params, $dedupKey, $receivedAt): array {
+                $existing = JsvvMessage::query()->where('dedup_key', $dedupKey)->lockForUpdate()->first();
+                if ($existing !== null) {
+                    $this->recordEvent($existing, 'duplicate_detected', [
+                        'payload' => $validated ?? [],
+                    ]);
+
+                    return [$existing, true];
+                }
+
+                $message = JsvvMessage::create([
+                    'network_id' => (int) $validated['networkId'],
+                    'vyc_id' => (int) $validated['vycId'],
+                    'kpps_address' => (string) $validated['kppsAddress'],
+                    'operator_id' => Arr::get($validated, 'operatorId'),
+                    'type' => (string) $validated['type'],
+                    'command' => (string) $validated['command'],
+                    'params' => $params,
+                    'priority' => (string) $validated['priority'],
+                    'payload_timestamp' => (int) $validated['timestamp'],
+                    'received_at' => $receivedAt,
+                    'raw_message' => (string) $validated['rawMessage'],
+                    'status' => 'VALIDATED',
+                    'dedup_key' => $dedupKey,
+                    'meta' => Arr::except($validated, ['params']),
                 ]);
 
-                return [$existing, true];
+                $this->recordEvent($message, 'message_validated', [
+                    'priority' => $message->priority,
+                    'type' => $message->type,
+                ]);
+
+                return [$message, false];
+            });
+        } catch (Throwable $exception) {
+            if ($cacheStore !== null && $cacheAdded && $cacheKey !== null) {
+                $cacheStore->forget($cacheKey);
             }
 
-            $message = JsvvMessage::create([
-                'network_id' => (int) $validated['networkId'],
-                'vyc_id' => (int) $validated['vycId'],
-                'kpps_address' => (string) $validated['kppsAddress'],
-                'operator_id' => Arr::get($validated, 'operatorId'),
-                'type' => (string) $validated['type'],
-                'command' => (string) $validated['command'],
-                'params' => $params,
-                'priority' => (string) $validated['priority'],
-                'payload_timestamp' => (int) $validated['timestamp'],
-                'received_at' => $receivedAt,
-                'raw_message' => (string) $validated['rawMessage'],
-                'status' => 'VALIDATED',
-                'dedup_key' => $dedupKey,
-                'meta' => Arr::except($validated, ['params']),
-            ]);
+            throw $exception;
+        }
 
-            $this->recordEvent($message, 'message_validated', [
-                'priority' => $message->priority,
-                'type' => $message->type,
-            ]);
-
-            return [$message, false];
-        });
+        if ($cacheStore !== null && $cacheKey !== null) {
+            $cacheStore->put($cacheKey, true, $ttlSeconds);
+        }
 
         event(new JsvvMessageReceived($message, $duplicate));
 
@@ -162,5 +197,25 @@ class JsvvMessageService
                 'payload' => $payload,
             ],
         ]);
+    }
+
+    private function resolveDedupCacheStore(): ?CacheRepository
+    {
+        $storeName = config('jsvv.dedup.cache_store') ?: null;
+        if ($storeName === null) {
+            return null;
+        }
+
+        try {
+            return Cache::store($storeName);
+        } catch (Throwable $exception) {
+            report($exception);
+            return null;
+        }
+    }
+
+    private function buildDedupCacheKey(string $dedupKey): string
+    {
+        return sprintf('jsvv:dedup:%s', $dedupKey);
     }
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\StreamTelemetryEntry;
 use App\Services\ControlTabService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -35,20 +36,76 @@ class ControlTabController extends Controller
 
         $data = $validator->validated();
         $type = $data['type'];
+        $screen = (int) ($data['screen'] ?? 0);
+        $panel = (int) ($data['panel'] ?? 0);
+        $sessionId = $request->string('sessionId')->toString() ?: null;
 
-        return match ($type) {
-            'panel_loaded' => response()->json($this->service->handlePanelLoaded(
-                (int) ($data['screen'] ?? 0),
-                (int) ($data['panel'] ?? 0),
-            )),
-            'button_pressed' => response()->json($this->service->handleButtonPress(
-                (int) $data['button_id'],
-                $data,
-            )),
-            'text_field_request' => response()->json($this->service->handleTextRequest(
-                (int) $data['field_id'],
-            )),
-            default => response()->json(['status' => 'unsupported'], 400),
+        $result = match ($type) {
+            'panel_loaded' => $this->service->handlePanelLoaded($screen, $panel),
+            'button_pressed' => $this->service->handleButtonPress((int) $data['button_id'], $data),
+            'text_field_request' => $this->service->handleTextRequest((int) $data['field_id']),
+            default => ['status' => 'unsupported'],
         };
+
+        $status = (string) ($result['status'] ?? 'ok');
+        $action = 'ack';
+        $responsePayload = [
+            'status' => $status,
+            'sessionId' => $sessionId,
+            'action' => 'ack',
+            'ack' => [
+                'screen' => $screen,
+                'panel' => $panel,
+                'eventType' => $this->mapEventType($type),
+                'status' => $this->ackStatus($status),
+            ],
+        ];
+
+        if ($type === 'text_field_request' && ($result['status'] ?? null) === 'ok') {
+            $responsePayload['action'] = $action = 'text';
+            $responsePayload['text'] = [
+                'fieldId' => (int) ($result['field_id'] ?? $data['field_id'] ?? 0),
+                'text' => (string) ($result['text'] ?? ''),
+            ];
+        }
+
+        if (isset($result['message'])) {
+            $responsePayload['ack']['message'] = $result['message'];
+        }
+
+        $this->recordTelemetry($type, $data, $result, $responsePayload);
+
+        return response()->json($responsePayload, $status === 'unsupported' ? 400 : 200);
+    }
+
+    private function ackStatus(string $status): int
+    {
+        $failureStatuses = ['error', 'invalid_request', 'unsupported', 'validation_error', 'jsvv_active'];
+        return in_array($status, $failureStatuses, true) ? 0 : 1;
+    }
+
+    private function mapEventType(string $type): int
+    {
+        return match ($type) {
+            'panel_loaded' => 1,
+            'button_pressed' => 2,
+            'text_field_request' => 3,
+            default => 0,
+        };
+    }
+
+    private function recordTelemetry(string $type, array $requestData, array $serviceResult, array $response): void
+    {
+        $payload = [
+            'request' => $requestData,
+            'result' => $serviceResult,
+            'response' => $response,
+        ];
+
+        StreamTelemetryEntry::create([
+            'type' => 'control_tab_' . $type,
+            'payload' => $payload,
+            'recorded_at' => now(),
+        ]);
     }
 }

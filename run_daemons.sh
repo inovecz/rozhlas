@@ -35,11 +35,43 @@ stop_daemon() {
 
 case "${1:-}" in
   start)
-    start_daemon "gsm_listener" "$ROOT_DIR/python-client/daemons/gsm_listener.py" --webhook "${GSM_WEBHOOK:-http://127.0.0.1/api/gsm/events}"
-    start_daemon "jsvv_listener" "$ROOT_DIR/python-client/daemons/jsvv_listener.py" --webhook "${JSVV_WEBHOOK:-http://127.0.0.1/api/jsvv/events}"
+    start_daemon "control_channel_worker" "$ROOT_DIR/python-client/daemons/control_channel_worker.py" --endpoint "${CONTROL_CHANNEL_ENDPOINT:-unix:///var/run/jsvv-control.sock}"
+    start_daemon "gsm_listener" "$ROOT_DIR/python-client/daemons/gsm_listener.py" \
+      --webhook "${GSM_WEBHOOK:-http://127.0.0.1/api/gsm/events}" \
+      --token "${GSM_TOKEN:-}" \
+      --port "${GSM_SERIAL_PORT:-/dev/ttyUSB2}" \
+      --baudrate "${GSM_SERIAL_BAUDRATE:-115200}" \
+      --bytesize "${GSM_SERIAL_BYTESIZE:-8}" \
+      --parity "${GSM_SERIAL_PARITY:-N}" \
+      --stopbits "${GSM_SERIAL_STOPBITS:-1}" \
+      --timeout "${GSM_WEBHOOK_TIMEOUT:-5}" \
+      --timeout-serial "${GSM_SERIAL_TIMEOUT:-0.5}" \
+      --write-timeout "${GSM_SERIAL_WRITE_TIMEOUT:-1}" \
+      --poll "${GSM_POLL_INTERVAL:-0.2}" \
+      --graceful "${GSM_GRACEFUL_TIMEOUT:-5}" \
+      --signal-interval "${GSM_SIGNAL_INTERVAL:-30}" \
+      --answer-delay "${GSM_AUTO_ANSWER_DELAY_MS:-1000}" \
+      --max-ring "${GSM_MAX_RING_ATTEMPTS:-6}"
+    start_daemon "control_tab_listener" "$ROOT_DIR/python-client/daemons/control_tab_listener.py" \
+      --webhook "${CONTROL_TAB_WEBHOOK:-http://127.0.0.1/api/control-tab/events}" \
+      --token "${CONTROL_TAB_TOKEN:-}" \
+      --port "${CONTROL_TAB_SERIAL_PORT:-/dev/ttyUSB3}" \
+      --baudrate "${CONTROL_TAB_SERIAL_BAUDRATE:-115200}" \
+      --bytesize "${CONTROL_TAB_SERIAL_BYTESIZE:-8}" \
+      --parity "${CONTROL_TAB_SERIAL_PARITY:-N}" \
+      --stopbits "${CONTROL_TAB_SERIAL_STOPBITS:-1}" \
+      --timeout "${CONTROL_TAB_TIMEOUT:-5}" \
+      --timeout-serial "${CONTROL_TAB_SERIAL_TIMEOUT:-0.2}" \
+      --write-timeout "${CONTROL_TAB_SERIAL_WRITE_TIMEOUT:-1}" \
+      --poll "${CONTROL_TAB_POLL_INTERVAL:-0.05}" \
+      --graceful "${CONTROL_TAB_GRACEFUL_TIMEOUT:-5}" \
+      --retry-backoff "${CONTROL_TAB_RETRY_BACKOFF_MS:-250}"
+    start_daemon "jsvv_listener" "$ROOT_DIR/python-client/daemons/jsvv_listener.py"
     ;;
   stop)
+    stop_daemon "control_channel_worker"
     stop_daemon "gsm_listener"
+    stop_daemon "control_tab_listener"
     stop_daemon "jsvv_listener"
     ;;
   restart)
@@ -48,7 +80,7 @@ case "${1:-}" in
     "$0" start
     ;;
   status)
-    for name in gsm_listener jsvv_listener; do
+    for name in control_channel_worker gsm_listener control_tab_listener jsvv_listener; do
       pid_file="$LOG_DIR/${name}.pid"
       if [[ -f "$pid_file" ]]; then
         pid=$(cat "$pid_file")

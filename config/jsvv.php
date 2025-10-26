@@ -15,4 +15,8 @@ return [
         ],
         'duration_cache_ttl' => (int) env('JSVV_DURATION_CACHE_SECONDS', 86400),
     ],
+    'dedup' => [
+        'cache_store' => env('JSVV_DEDUP_CACHE_STORE'),
+        'ttl' => (int) env('JSVV_DEDUP_CACHE_TTL', 600),
+    ],
 ];
