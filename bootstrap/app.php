@@ -1,5 +1,8 @@
 <?php
 
+use App\Console\Commands\Audio\SetInputCommand;
+use App\Console\Commands\Audio\SetOutputCommand;
+use App\Console\Commands\Audio\SetVolumeCommand;
 use App\Console\Commands\InstallApplication;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -21,5 +24,8 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withCommands([
         InstallApplication::class,
+        SetInputCommand::class,
+        SetOutputCommand::class,
+        SetVolumeCommand::class,
     ])
     ->create();

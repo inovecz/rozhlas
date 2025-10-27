@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Exceptions\ControlChannelTimeoutException;
+use App\Services\ControlChannelProcessManager;
 use App\Exceptions\ControlChannelTransportException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
@@ -17,6 +18,7 @@ class ControlChannelTransport
         private readonly int $timeoutMs,
         private readonly int $retryAttempts,
         private readonly int $handshakeTimeoutMs,
+        private readonly ?ControlChannelProcessManager $processManager = null,
     ) {
     }
 
@@ -66,6 +68,9 @@ class ControlChannelTransport
         $start = microtime(true);
         $timeoutSeconds = $this->timeoutSeconds();
         $timeoutMicros = $this->timeoutMicros();
+        $attemptedAutoStart = false;
+
+        connect:
         $resource = @stream_socket_client(
             $this->endpoint,
             $errno,
@@ -75,6 +80,13 @@ class ControlChannelTransport
         );
 
         if (!is_resource($resource)) {
+            if (!$attemptedAutoStart && $this->processManager !== null && $this->processManager->shouldHandleError((int) $errno)) {
+                $attemptedAutoStart = true;
+                $this->processManager->ensureOnline();
+                usleep(100_000);
+                goto connect;
+            }
+
             throw new ControlChannelTransportException(sprintf(
                 'Failed to connect to control channel %s: [%d] %s',
                 $this->endpoint,

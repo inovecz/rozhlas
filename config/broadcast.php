@@ -63,6 +63,9 @@ return [
             'pc_webrtc' => [
                 'args' => ['preset', 'pc-webrtc'],
             ],
+            'system_audio' => [
+                'args' => ['preset', 'pc-webrtc'],
+            ],
             'input_2' => [
                 'args' => ['preset', 'input-2'],
             ],

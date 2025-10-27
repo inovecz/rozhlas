@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\JsvvSequenceController;
 use App\Http\Controllers\Api\LiveBroadcastApiController;
 use App\Http\Controllers\Api\ManualControlController;
 use App\Http\Controllers\Api\TelemetryController;
+use App\Http\Controllers\Api\AudioIoController;
 
 Route::group(['prefix' => 'auth', 'middleware' => ['api', 'auth:api']], static function () {
     Route::post('/login', [AuthController::class, 'login'])->withoutMiddleware(['auth:api']);
@@ -73,6 +74,13 @@ Route::group(['middleware' => ['api']], static function () {
         Route::post('/volume', [LiveBroadcastApiController::class, 'updateVolumeLevel']);
         Route::post('/volume/runtime', [LiveBroadcastApiController::class, 'applyRuntimeVolumeLevel']);
         Route::get('/audio-devices', [LiveBroadcastApiController::class, 'audioDevices']);
+    });
+
+    Route::group(['prefix' => 'audio'], static function () {
+        Route::get('/', [AudioIoController::class, 'status']);
+        Route::post('/input', [AudioIoController::class, 'setInput']);
+        Route::post('/output', [AudioIoController::class, 'setOutput']);
+        Route::post('/volume', [AudioIoController::class, 'setVolume']);
     });
 
     Route::group(['prefix' => 'jsvv'], static function () {

@@ -13,6 +13,7 @@ import SettingsService from "../../services/SettingsService.js";
 import RecordSelectDialog from "../../components/modals/RecordSelectDialog.vue";
 import {formatDate} from "../../helper.js";
 import VolumeService from "../../services/VolumeService.js";
+import AudioService from "../../services/AudioService.js";
 
 const toast = useToast();
 
@@ -24,6 +25,23 @@ const loading = ref(false);
 const fmInfo = ref(null);
 const syncingForm = ref(false);
 const liveUpdateInProgress = ref(false);
+const mixerStatus = ref({});
+const mixerInputs = ref([]);
+const mixerOutputs = ref([]);
+const mixerLoading = ref(false);
+const mixerSyncing = ref(false);
+const mixerInputUpdating = ref(false);
+const selectedMixerInputId = ref('');
+
+const DEFAULT_FORCED_AUDIO_OUTPUT_ID = 'lineout';
+const rawForcedOutput = (import.meta.env.VITE_FORCE_AUDIO_OUTPUT ?? DEFAULT_FORCED_AUDIO_OUTPUT_ID).toString().trim();
+const FORCE_AUDIO_OUTPUT_DISABLED_VALUES = new Set(['false', '0', 'off', 'none', 'no', 'disabled']);
+const FORCE_AUDIO_OUTPUT_ENABLED = rawForcedOutput !== '' && !FORCE_AUDIO_OUTPUT_DISABLED_VALUES.has(rawForcedOutput.toLowerCase());
+const FORCED_AUDIO_OUTPUT_ID = FORCE_AUDIO_OUTPUT_ENABLED ? rawForcedOutput : '';
+const FORCED_AUDIO_OUTPUT_LABEL = import.meta.env.VITE_FORCE_AUDIO_OUTPUT_LABEL ?? 'Line Out';
+const FORCED_MIXER_OUTPUT_ID = FORCED_AUDIO_OUTPUT_ID;
+
+const selectedMixerOutputId = ref(FORCED_MIXER_OUTPUT_ID || '');
 
 const form = reactive({
   source: '',
@@ -41,7 +59,11 @@ const selectedAudioInputId = ref(initialAudioInput?.id ?? 'default');
 
 const audioOutputDevices = ref([]);
 const initialAudioOutput = JSON.parse(localStorage.getItem('audioOutputDevice') ?? 'null');
-const selectedAudioOutputId = ref(initialAudioOutput?.id ?? 'default');
+const selectedAudioOutputId = ref(
+  FORCE_AUDIO_OUTPUT_ENABLED && FORCED_AUDIO_OUTPUT_ID
+    ? FORCED_AUDIO_OUTPUT_ID
+    : (initialAudioOutput?.id ?? 'default')
+);
 const selectedSourceOptionId = ref('');
 const sourceLabelMap = computed(() => {
   const map = new Map();
@@ -73,6 +95,8 @@ const combinedSourceOptions = computed(() => {
     }
     switch (sourceId) {
       case 'pc_webrtc':
+        return findPulseMonitorId() ?? findPulseSourceId() ?? findAlsaCaptureId();
+      case 'system_audio':
         return findPulseMonitorId() ?? findPulseSourceId() ?? findAlsaCaptureId();
       case 'fm_radio':
         return findAlsaCaptureId() ?? findPulseSourceId() ?? findPulseMonitorId();
@@ -135,6 +159,7 @@ const volumeSlider = {
 const hardwareSourceIds = new Set([
   'microphone',
   'pc_webrtc',
+  'system_audio',
   'input_2',
   'input_3',
   'input_4',
@@ -145,6 +170,23 @@ const hardwareSourceIds = new Set([
   'fm_radio',
   'control_box',
 ]);
+
+const sourceToMixerInputMap = {
+  microphone: 'mic',
+  central_file: 'file',
+  pc_webrtc: 'system',
+  system_audio: 'system',
+  fm_radio: 'fm',
+  control_box: 'control_box',
+  input_2: 'aux2',
+  input_3: 'aux3',
+  input_4: 'aux4',
+  input_5: 'aux5',
+  input_6: 'aux6',
+  input_7: 'aux7',
+  input_8: 'aux8',
+  input_9: 'aux9',
+};
 
 const parseSimpleMixerControl = (entry) => {
   if (typeof entry !== 'string') {
@@ -225,18 +267,19 @@ const parseSourceOptionId = (identifier) => {
 };
 
 const sourceInputChannelMap = ref({
-  microphone: 'input_1',
-  central_file: 'file_playback',
-  pc_webrtc: 'pc_webrtc',
-  input_2: 'input_2',
-  input_3: 'input_3',
-  input_4: 'input_4',
-  input_5: 'input_5',
-  input_6: 'input_6',
-  input_7: 'input_7',
-  input_8: 'input_8',
-  fm_radio: 'fm_radio',
-  control_box: 'control_box',
+  microphone: 'capture_level',
+  central_file: 'capture_level',
+  pc_webrtc: 'capture_level',
+  system_audio: 'capture_level',
+  input_2: 'capture_level',
+  input_3: 'capture_level',
+  input_4: 'capture_level',
+  input_5: 'capture_level',
+  input_6: 'capture_level',
+  input_7: 'capture_level',
+  input_8: 'capture_level',
+  fm_radio: 'capture_level',
+  control_box: 'capture_level',
 });
 const sourceOutputChannelMap = ref({});
 const hardwareAudioDevices = ref({
@@ -383,13 +426,98 @@ const missingTargets = computed(() => {
   };
 });
 
+const normaliseMixerItems = (list) => {
+  if (!Array.isArray(list)) {
+    return [];
+  }
+  return list
+    .filter(item => item && typeof item.id === 'string' && item.id.length > 0)
+    .filter(item => item.available !== false)
+    .map(item => ({
+      id: item.id,
+      label: item.label ?? item.id,
+      device: item.device ?? null,
+    }));
+};
+
+const refreshMixerStatus = async (silent = false) => {
+  mixerLoading.value = true;
+  try {
+    let statusPayload = await AudioService.status();
+    statusPayload = statusPayload ?? {};
+
+    let inputs = normaliseMixerItems(statusPayload?.inputs);
+    let outputs = normaliseMixerItems(statusPayload?.outputs);
+
+    const shouldForceOutput = FORCE_AUDIO_OUTPUT_ENABLED && !!FORCED_MIXER_OUTPUT_ID;
+    const forcedOutputId = shouldForceOutput && outputs.some(item => item.id === FORCED_MIXER_OUTPUT_ID)
+      ? FORCED_MIXER_OUTPUT_ID
+      : '';
+
+    const currentOutputId = statusPayload?.current?.output?.id ?? '';
+    if (shouldForceOutput && forcedOutputId && forcedOutputId !== currentOutputId) {
+      try {
+        const updatedStatus = await AudioService.setOutput(forcedOutputId);
+        if (updatedStatus) {
+          statusPayload = updatedStatus;
+          inputs = normaliseMixerItems(updatedStatus?.inputs);
+          outputs = normaliseMixerItems(updatedStatus?.outputs);
+        }
+      } catch (setError) {
+        console.error('Failed to enforce mixer output', setError);
+        if (!silent) {
+          toast.error('Nepodařilo se nastavit výstup ústředny.');
+        }
+      }
+    }
+
+    mixerStatus.value = statusPayload;
+    mixerInputs.value = inputs;
+    mixerOutputs.value = outputs;
+
+    mixerSyncing.value = true;
+
+    const currentInputId = statusPayload?.current?.input?.id ?? '';
+
+    const resolvePreferredInput = (currentId, availableList, previousSelection) => {
+      if (currentId && availableList.some(item => item.id === currentId)) {
+        return currentId;
+      }
+      if (previousSelection && availableList.some(item => item.id === previousSelection)) {
+        return previousSelection;
+      }
+      return availableList[0]?.id ?? '';
+    };
+
+    const desiredInput = resolvePreferredInput(currentInputId, inputs, selectedMixerInputId.value);
+    if (desiredInput !== selectedMixerInputId.value) {
+      selectedMixerInputId.value = desiredInput;
+    }
+
+    if (shouldForceOutput && forcedOutputId && forcedOutputId !== selectedMixerOutputId.value) {
+      selectedMixerOutputId.value = forcedOutputId;
+    } else if (!shouldForceOutput && currentOutputId && currentOutputId !== selectedMixerOutputId.value) {
+      selectedMixerOutputId.value = currentOutputId;
+    }
+
+    mixerSyncing.value = false;
+  } catch (error) {
+    console.error('Failed to load mixer status', error);
+    if (!silent) {
+      toast.error('Nepodařilo se načíst nastavení audio směrování');
+    }
+    mixerSyncing.value = false;
+  } finally {
+    mixerLoading.value = false;
+  }
+};
+
 onMounted(async () => {
   await Promise.all([
     loadSources(),
     loadLocationGroups(),
     loadNests(),
     loadStatus(),
-    loadHardwareAudioDevices(),
     loadVolumeLevels()
   ]);
 });
@@ -406,6 +534,13 @@ watch(() => form.source, async (newSource, oldSource) => {
   if (newSource === 'central_file' && form.playlistItems.length === 0) {
     await nextTick();
     pickPlaylist();
+  }
+
+  const recommended = sourceToMixerInputMap[newSource];
+  if (recommended && recommended !== selectedMixerInputId.value && mixerInputs.value.some(item => item.id === recommended)) {
+    mixerSyncing.value = true;
+    selectedMixerInputId.value = recommended;
+    mixerSyncing.value = false;
   }
 
   if (isStreaming.value && newSource !== oldSource) {
@@ -484,27 +619,16 @@ const loadNests = async () => {
 
 const buildHardwareOutputList = (devices) => {
   const outputs = [{id: 'default', label: 'Výchozí systém'}];
+
+  if (FORCE_AUDIO_OUTPUT_ENABLED && FORCED_AUDIO_OUTPUT_ID) {
+    outputs.unshift({id: FORCED_AUDIO_OUTPUT_ID, label: FORCED_AUDIO_OUTPUT_LABEL});
+  }
   const sinks = Array.isArray(devices?.pulse?.sinks) ? devices.pulse.sinks : [];
   sinks.forEach((sink) => {
     if (sink?.name) {
       outputs.push({
         id: `pulse:${sink.name}`,
         label: sink?.pretty_name ?? sink?.description ?? `PulseAudio ${sink.name}`,
-      });
-    }
-  });
-
-  const playbackDevices = Array.isArray(devices?.playback_devices) ? devices.playback_devices : [];
-  playbackDevices.forEach((device) => {
-    const card = toNumericId(device?.card);
-    const dev = toNumericId(device?.device);
-    const cardLabel = device?.card_description ?? device?.card_name ?? (card !== null ? `Karta ${card}` : 'ALSA zařízení');
-    const id = card !== null && dev !== null ? `alsa:${card}:${dev}` : null;
-    if (id) {
-      const devLabel = device?.device_description ?? device?.device_name ?? `Zařízení ${dev}`;
-      outputs.push({
-        id,
-        label: `${cardLabel} • ${devLabel}`,
       });
     }
   });
@@ -583,8 +707,17 @@ const loadHardwareAudioDevices = async (silent = false) => {
     if (!inputs.some(device => device.id === selectedAudioInputId.value)) {
       selectedAudioInputId.value = inputs[0]?.id ?? 'default';
     }
-    if (!outputs.some(device => device.id === selectedAudioOutputId.value)) {
-      selectedAudioOutputId.value = outputs[0]?.id ?? 'default';
+    const desiredOutput = (() => {
+      if (FORCE_AUDIO_OUTPUT_ENABLED && FORCED_AUDIO_OUTPUT_ID) {
+        return outputs.find(device => device.id === FORCED_AUDIO_OUTPUT_ID) ?? outputs[0];
+      }
+      return outputs.find(device => device.id === selectedAudioOutputId.value)
+        ?? outputs.find(device => device.id === (initialAudioOutput?.id ?? ''))
+        ?? outputs[0];
+    })();
+    if (desiredOutput) {
+      selectedAudioOutputId.value = desiredOutput.id;
+      persistAudioOutput();
     }
   } catch (error) {
     console.error('Failed to detect audio hardware', error);
@@ -625,14 +758,17 @@ const loadStatus = async () => {
     }
 
     const audioInputId = optionBag.audioInputId ?? optionBag.audio_input_id ?? selectedAudioInputId.value;
+    const audioOutputId = optionBag.audioOutputId ?? optionBag.audio_output_id ?? selectedAudioOutputId.value;
     if (audioInputId) {
       selectedAudioInputId.value = audioInputId;
     }
-
-    const audioOutputId = optionBag.audioOutputId ?? optionBag.audio_output_id ?? selectedAudioOutputId.value;
-    if (audioOutputId) {
+    if (FORCE_AUDIO_OUTPUT_ENABLED && FORCED_AUDIO_OUTPUT_ID) {
+      selectedAudioOutputId.value = FORCED_AUDIO_OUTPUT_ID;
+    } else if (audioOutputId) {
       selectedAudioOutputId.value = audioOutputId;
     }
+
+    await refreshMixerStatus(true);
   } catch (error) {
     console.error(error);
     toast.error('Nepodařilo se načíst stav vysílání');
@@ -652,30 +788,29 @@ const loadFmFrequency = async () => {
   }
 };
 
-const persistAudioInput = () => {
+function persistAudioInput() {
   const device = audioInputDevices.value.find(input => input.id === selectedAudioInputId.value);
   const payload = {
     id: selectedAudioInputId.value,
     label: device?.label ?? 'Výchozí systém',
   };
   localStorage.setItem('audioInputDevice', JSON.stringify(payload));
-};
+}
 
-const persistAudioOutput = () => {
+function persistAudioOutput() {
   const device = audioOutputDevices.value.find(output => output.id === selectedAudioOutputId.value);
+  const fallbackLabel = FORCE_AUDIO_OUTPUT_ENABLED && FORCED_AUDIO_OUTPUT_ID
+    ? FORCED_AUDIO_OUTPUT_LABEL
+    : 'Výchozí systém';
   const payload = {
     id: selectedAudioOutputId.value,
-    label: device?.label ?? 'Výchozí systém',
+    label: device?.label ?? fallbackLabel,
   };
   localStorage.setItem('audioOutputDevice', JSON.stringify(payload));
-};
+}
 
 if (!initialAudioInput) {
   persistAudioInput();
-}
-
-if (!initialAudioOutput) {
-  persistAudioOutput();
 }
 
 watch(selectedSourceOptionId, (newValue, oldValue) => {
@@ -749,6 +884,35 @@ watch(selectedAudioOutputId, async (newValue, oldValue) => {
     return;
   }
   await applyLiveUpdate();
+});
+
+watch(selectedMixerInputId, async (newValue, oldValue) => {
+  if (mixerSyncing.value) {
+    return;
+  }
+  if (!newValue || newValue === oldValue) {
+    return;
+  }
+
+  const currentId = mixerStatus.value?.current?.input?.id ?? null;
+  if (currentId && newValue === currentId) {
+    return;
+  }
+
+  mixerInputUpdating.value = true;
+  try {
+    await AudioService.setInput(newValue);
+    await refreshMixerStatus(true);
+    toast.success('Vstup ústředny byl přepnut.');
+  } catch (error) {
+    console.error('Failed to switch audio input', error);
+    toast.error('Nepodařilo se přepnout audio vstup.');
+    mixerSyncing.value = true;
+    selectedMixerInputId.value = oldValue ?? '';
+    mixerSyncing.value = false;
+  } finally {
+    mixerInputUpdating.value = false;
+  }
 });
 
 const parseNumericList = (value) => {
@@ -1151,31 +1315,29 @@ const removePlaylistItem = (index) => {
       <div class="grid gap-6 md:grid-cols-2">
         <Box label="Zdroje a obsah">
           <div class="space-y-4">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Zdroj signálu</label>
-              <select
-                  v-model="selectedSourceOptionId"
-                  class="form-select w-full border border-gray-300 rounded-md bg-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-40">
-                <option
-                    v-for="option in combinedSourceOptions"
-                    :key="option.id"
-                    :value="option.id"
-                    :disabled="option.available === false && option.id !== selectedSourceOptionId"
-                    :title="option.available === false ? (option.unavailableReason ?? 'Zdroj není dostupný') : ''">
-                  {{ option.label }}{{ option.available === false && option.unavailableReason ? ' – ' + option.unavailableReason : (option.available === false ? ' – Nedostupný' : '') }}
-                </option>
-              </select>
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Výstup zvuku</label>
-              <select
-                  v-model="selectedAudioOutputId"
-                  class="form-select w-full border border-gray-300 rounded-md bg-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-40">
-                <option v-for="output in audioOutputDevices" :key="output.id" :value="output.id">
-                  {{ output.label }}
-                </option>
-              </select>
+            <div class="border border-gray-200 rounded-md bg-gray-50 p-3 space-y-3">
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-semibold text-gray-700">Směrování ústředny</span>
+                <span v-if="mixerLoading" class="text-xs text-gray-500">Načítám…</span>
+              </div>
+              <div class="grid gap-4 md:grid-cols-1">
+                <div class="flex flex-col gap-1">
+                  <label class="text-xs font-medium text-gray-600">ALSA vstup</label>
+                  <select
+                      v-model="selectedMixerInputId"
+                      class="form-select w-full border border-gray-300 rounded-md bg-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-40"
+                      :disabled="mixerInputUpdating || mixerInputs.length === 0">
+                    <option v-for="input in mixerInputs" :key="input.id" :value="input.id">
+                      {{ input.label }}
+                    </option>
+                  </select>
+                  <p v-if="mixerInputs.length === 0" class="text-xs text-gray-500">Žádné vstupy nejsou k dispozici.</p>
+                  <p v-if="mixerInputUpdating" class="text-xs text-gray-500">Přepínám vstup…</p>
+                </div>
+              </div>
+              <div class="text-xs text-gray-500">
+                Změna upraví směrování přes ovladače mixéru (např. Input Source, Playback Path) bez přerušení streamu.
+              </div>
             </div>
 
             <Textarea v-model="form.note" label="Poznámka" rows="2" placeholder="Nepovinné doplňující údaje"/>
