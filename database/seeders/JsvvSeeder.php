@@ -9,6 +9,9 @@ use App\Enums\JsvvAudioTypeEnum;
 use App\Enums\JsvvAudioGroupEnum;
 use Illuminate\Support\Facades\DB;
 use App\Enums\JsvvAudioSourceEnum;
+use App\Enums\FileSubtypeEnum;
+use App\Enums\FileTypeEnum;
+use App\Models\File;
 
 class JsvvSeeder extends Seeder
 {
@@ -73,8 +76,8 @@ class JsvvSeeder extends Seeder
             $audios[] = [
                 'symbol' => $audio['symbol'],
                 'name' => $audio['name'],
-                'group' => JsvvAudioGroupEnum::SIREN,
-                'type' => JsvvAudioTypeEnum::FILE,
+                'group' => JsvvAudioGroupEnum::SIREN->value,
+                'type' => JsvvAudioTypeEnum::FILE->value,
                 'source' => null,
                 'file_id' => null,
                 'created_at' => $timestamp,
@@ -86,8 +89,8 @@ class JsvvSeeder extends Seeder
             $audios[] = [
                 'symbol' => $audio['symbol'],
                 'name' => $audio['name'],
-                'group' => JsvvAudioGroupEnum::GONG,
-                'type' => JsvvAudioTypeEnum::FILE,
+                'group' => JsvvAudioGroupEnum::GONG->value,
+                'type' => JsvvAudioTypeEnum::FILE->value,
                 'source' => null,
                 'file_id' => null,
                 'created_at' => $timestamp,
@@ -99,8 +102,8 @@ class JsvvSeeder extends Seeder
             $audios[] = [
                 'symbol' => $audio['symbol'],
                 'name' => $audio['name'],
-                'group' => JsvvAudioGroupEnum::VERBAL,
-                'type' => JsvvAudioTypeEnum::FILE,
+                'group' => JsvvAudioGroupEnum::VERBAL->value,
+                'type' => JsvvAudioTypeEnum::FILE->value,
                 'source' => null,
                 'file_id' => null,
                 'created_at' => $timestamp,
@@ -112,9 +115,9 @@ class JsvvSeeder extends Seeder
             $audios[] = [
                 'symbol' => $audio['symbol'],
                 'name' => $audio['name'],
-                'group' => JsvvAudioGroupEnum::AUDIO,
-                'type' => $audio['type'],
-                'source' => $audio['source'],
+                'group' => JsvvAudioGroupEnum::AUDIO->value,
+                'type' => $audio['type']->value,
+                'source' => $audio['source']->value,
                 'file_id' => null,
                 'created_at' => $timestamp,
                 'updated_at' => $timestamp,
@@ -125,14 +128,64 @@ class JsvvSeeder extends Seeder
             $audios[] = [
                 'symbol' => $audio['symbol'],
                 'name' => $audio['name'],
-                'group' => JsvvAudioGroupEnum::AUDIO,
-                'type' => JsvvAudioTypeEnum::FILE,
+                'group' => JsvvAudioGroupEnum::AUDIO->value,
+                'type' => JsvvAudioTypeEnum::FILE->value,
                 'source' => null,
                 'file_id' => null,
                 'created_at' => $timestamp,
                 'updated_at' => $timestamp,
             ];
         }
+
+        $defaultFiles = [
+            '1' => 'JSVV Siréna 1 - Kolísavý tón (ES)',
+            '2' => 'JSVV Siréna 2 - Trvalý tón (ES)',
+            '4' => 'JSVV Siréna 4 - Požární poplach (ES)',
+            'A' => "JSVV Verbální informace 1 (mu\u{017E})",
+            'B' => "JSVV Verbální informace 2 (mu\u{017E})",
+            'C' => "JSVV Verbální informace 3 (mu\u{017E})",
+            'D' => "JSVV Verbální informace 4 (mu\u{017E})",
+            'E' => "JSVV Verbální informace 5 (mu\u{017E})",
+            'F' => "JSVV Verbální informace 6 (mu\u{017E})",
+            'G' => "JSVV Verbální informace 7 (mu\u{017E})",
+            'U' => "JSVV Verbální informace 13 (mu\u{017E})",
+            'V' => "JSVV Verbální informace 14 (mu\u{017E})",
+            'X' => "JSVV Verbální informace 15 (mu\u{017E})",
+            'Y' => "JSVV Verbální informace 16 (mu\u{017E})",
+        ];
+
+        $groupSubtypeMap = [
+            JsvvAudioGroupEnum::SIREN->value => FileSubtypeEnum::SIREN,
+            JsvvAudioGroupEnum::GONG->value => FileSubtypeEnum::GONG,
+            JsvvAudioGroupEnum::VERBAL->value => FileSubtypeEnum::VERBAL,
+        ];
+
+        foreach ($audios as &$audio) {
+            $symbol = $audio['symbol'];
+            $fileName = $defaultFiles[$symbol] ?? null;
+            if ($fileName === null) {
+                continue;
+            }
+
+            $groupValue = $audio['group'];
+            $subtype = $groupSubtypeMap[$groupValue] ?? null;
+            if ($subtype === null) {
+                continue;
+            }
+
+            $file = File::query()
+                ->where('name', $fileName)
+                ->where('type', FileTypeEnum::JSVV)
+                ->where('subtype', $subtype)
+                ->first();
+
+            if ($file === null) {
+                continue;
+            }
+
+            $audio['file_id'] = $file->getKey();
+        }
+        unset($audio);
 
         DB::table('jsvv_audio')->insert($audios);
         DB::table('jsvv_alarms')->insert([
