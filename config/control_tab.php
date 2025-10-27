@@ -22,10 +22,31 @@ return [
         1 => 'status_summary',
     ],
     'buttons' => [
-        // Example mapping; override in environment-specific config.
-        // 1 => ['action' => 'start_stream', 'source' => 'microphone'],
-        // 2 => ['action' => 'stop_stream'],
-        // 13 => ['action' => 'trigger_jsvv_alarm', 'button' => 2],
+        7 => [
+            'action' => 'start_stream',
+            'source' => 'microphone',
+        ],
+        8 => [
+            'action' => 'stop_jsvv',
+        ],
+        9 => [
+            'action' => 'start_stream',
+            'source' => 'control_box',
+            'options' => [
+                'label' => 'Control box',
+            ],
+        ],
+        10 => [
+            'action' => 'stop_stream',
+        ],
+        13 => [
+            'action' => 'trigger_jsvv_alarm',
+            'button' => 2,
+        ],
+        17 => [
+            'action' => 'trigger_jsvv_alarm',
+            'button' => 6,
+        ],
     ],
     'defaults' => [
         'route' => [],

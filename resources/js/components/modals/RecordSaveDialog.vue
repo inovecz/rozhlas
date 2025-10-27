@@ -1,19 +1,56 @@
 <script setup>
-import {computed, ref} from 'vue'
+import {computed, ref, watch} from 'vue'
 import {Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot,} from '@headlessui/vue'
 import Button from "../forms/Button.vue";
 import Input from "../forms/Input.vue";
 import Select from "../forms/Select.vue";
+import {FILE_SUBTYPE_OPTIONS} from "../../constants/fileSubtypeOptions.js";
 
 const isOpen = ref(true)
-const props = defineProps(['title', 'message', 'uploadedFile']);
+const props = defineProps({
+  title: {
+    type: String,
+    default: '',
+  },
+  message: {
+    type: String,
+    default: '',
+  },
+  uploadedFile: {
+    type: Object,
+    default: null,
+  },
+  defaultName: {
+    type: String,
+    default: null,
+  },
+  defaultSubtype: {
+    type: String,
+    default: 'COMMON',
+  },
+  allowSubtypeChange: {
+    type: Boolean,
+    default: true,
+  },
+});
 const emit = defineEmits(['confirm', 'cancel']);
 
-const recordSubtype = ref('COMMON');
-const recordName = ref('Nahrávka ' + new Date().toLocaleString('cs-CZ'));
-if (props.uploadedFile?.name) {
-  recordName.value = props.uploadedFile.name;
-}
+const subtypeOptions = FILE_SUBTYPE_OPTIONS;
+
+const defaultName = props.defaultName ?? props.uploadedFile?.name ?? `Nahrávka ${new Date().toLocaleString('cs-CZ')}`;
+const recordName = ref(defaultName);
+const defaultSubtypeExists = subtypeOptions.some((option) => option.value === props.defaultSubtype);
+const recordSubtype = ref(defaultSubtypeExists ? props.defaultSubtype : 'COMMON');
+
+watch(
+  () => props.defaultSubtype,
+  (value) => {
+    if (value && subtypeOptions.some((option) => option.value === value)) {
+      recordSubtype.value = value;
+    }
+  },
+);
+
 const cantSave = computed(() => recordName.value.length < 3);
 
 const closeModalWith = (value) => {
@@ -60,14 +97,13 @@ const closeModalWith = (value) => {
 
               <div class="flex flex-col">
                 <Input v-model="recordName" type="text" placeholder="Zadejte název nahrávky" label="Název nahrávky" size="sm"/>
-                <Select v-model="recordSubtype" :options="[
-                  {value: 'COMMON', label: 'Běžné hlášení'},
-                  {value: 'OPENING', label: 'Úvodní slovo'},
-                  {value: 'CLOSING', label: 'Závěrečné slovo'},
-                  {value: 'INTRO', label: 'Úvodní znělka'},
-                  {value: 'OUTRO', label: 'Závěrečná znělka'},
-                  {value: 'OTHER', label: 'Ostatní'},
-                ]" label="Typ nahrávky" size="sm"/>
+                <Select
+                    v-if="props.allowSubtypeChange"
+                    v-model="recordSubtype"
+                    :options="subtypeOptions"
+                    label="Typ nahrávky"
+                    size="sm"
+                />
               </div>
 
               <div class="flex items-center justify-end space-x-2">

@@ -1315,29 +1315,22 @@ const removePlaylistItem = (index) => {
       <div class="grid gap-6 md:grid-cols-2">
         <Box label="Zdroje a obsah">
           <div class="space-y-4">
-            <div class="border border-gray-200 rounded-md bg-gray-50 p-3 space-y-3">
-              <div class="flex items-center justify-between">
-                <span class="text-sm font-semibold text-gray-700">Směrování ústředny</span>
-                <span v-if="mixerLoading" class="text-xs text-gray-500">Načítám…</span>
-              </div>
-              <div class="grid gap-4 md:grid-cols-1">
-                <div class="flex flex-col gap-1">
-                  <label class="text-xs font-medium text-gray-600">ALSA vstup</label>
-                  <select
-                      v-model="selectedMixerInputId"
-                      class="form-select w-full border border-gray-300 rounded-md bg-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-40"
-                      :disabled="mixerInputUpdating || mixerInputs.length === 0">
-                    <option v-for="input in mixerInputs" :key="input.id" :value="input.id">
-                      {{ input.label }}
-                    </option>
-                  </select>
-                  <p v-if="mixerInputs.length === 0" class="text-xs text-gray-500">Žádné vstupy nejsou k dispozici.</p>
-                  <p v-if="mixerInputUpdating" class="text-xs text-gray-500">Přepínám vstup…</p>
-                </div>
-              </div>
-              <div class="text-xs text-gray-500">
-                Změna upraví směrování přes ovladače mixéru (např. Input Source, Playback Path) bez přerušení streamu.
-              </div>
+            <div class="space-y-1">
+              <label class="block text-sm font-medium text-gray-700">Směrování ústředny</label>
+              <select
+                  v-model="selectedMixerInputId"
+                  class="form-select w-full border border-gray-300 rounded-md bg-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-40"
+                  :disabled="mixerLoading || mixerInputUpdating || mixerInputs.length === 0">
+                <option v-for="input in mixerInputs" :key="input.id" :value="input.id">
+                  {{ input.label }}
+                </option>
+              </select>
+              <p v-if="mixerLoading" class="text-xs text-gray-500">Načítám dostupné vstupy…</p>
+              <p v-else-if="mixerInputUpdating" class="text-xs text-gray-500">Přepínám vstup…</p>
+              <p v-else-if="mixerInputs.length === 0" class="text-xs text-gray-500">Žádné vstupy nejsou k dispozici.</p>
+              <p class="text-xs text-gray-500">
+                Vybraný vstup se nastaví bez přerušení aktuálního vysílání.
+              </p>
             </div>
 
             <Textarea v-model="form.note" label="Poznámka" rows="2" placeholder="Nepovinné doplňující údaje"/>
@@ -1364,76 +1357,41 @@ const removePlaylistItem = (index) => {
             <div class="space-y-3">
               <div class="flex items-center justify-between">
                 <span class="text-sm font-semibold text-gray-700">
-                  Ovládání hlasitosti
+                  Hlasitost vstupu
                 </span>
                 <span v-if="volumeLoading" class="text-xs text-gray-500">Načítám…</span>
               </div>
               <template v-if="!volumeLoading">
-                <div class="space-y-4">
-                  <div>
-                    <div class="flex items-center justify-between">
-                      <span class="text-sm font-medium text-gray-700">
-                        Vstup
-                        <template v-if="currentInputVolumeItem">
-                          – {{ currentInputVolumeItem.label }}
-                        </template>
-                      </span>
-                      <span v-if="isInputVolumeSaving" class="text-xs text-gray-500">Ukládám…</span>
-                    </div>
-                    <template v-if="currentInputVolumeItem">
-                      <div class="text-xs text-gray-500 mt-1">
-                        Výchozí hodnota: {{ Math.round(currentInputVolumeItem.default) }} %
-                      </div>
-                      <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:min-w-[360px] mt-2">
-                        <input
-                            v-model.number="currentInputVolumeItem.value"
-                            type="range"
-                            class="range range-sm w-full sm:w-64 md:w-80"
-                            :min="volumeSlider.min"
-                            :max="volumeSlider.max"
-                            :step="volumeSlider.step"
-                            @change="handleInputVolumeChange"
-                            :disabled="isInputVolumeSaving"
-                        />
-                        <div class="flex items-center gap-2 text-sm text-gray-700">
-                          <span class="inline-block w-14 text-right">{{ Math.round(Number(currentInputVolumeItem.value)) }} %</span>
-                        </div>
-                      </div>
-                    </template>
-                    <div v-else class="text-xs text-gray-500 mt-1">Žádný vstup není dostupný.</div>
+                <div>
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm font-medium text-gray-700">
+                      <template v-if="currentInputVolumeItem">
+                        {{ currentInputVolumeItem.label }}
+                      </template>
+                      <template v-else>
+                        Vstup není dostupný
+                      </template>
+                    </span>
+                    <span v-if="isInputVolumeSaving" class="text-xs text-gray-500">Ukládám…</span>
                   </div>
-                  <div>
-                    <div class="flex items-center justify-between">
-                      <span class="text-sm font-medium text-gray-700">
-                        Výstup
-                        <template v-if="currentOutputVolumeItem">
-                          – {{ currentOutputVolumeItem.label }}
-                        </template>
-                      </span>
-                      <span v-if="isOutputVolumeSaving" class="text-xs text-gray-500">Ukládám…</span>
+                  <template v-if="currentInputVolumeItem">
+                    <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:min-w-[360px] mt-2">
+                      <input
+                          v-model.number="currentInputVolumeItem.value"
+                          type="range"
+                          class="range range-sm w-full sm:w-64 md:w-80"
+                          :min="volumeSlider.min"
+                          :max="volumeSlider.max"
+                          :step="volumeSlider.step"
+                          @change="handleInputVolumeChange"
+                          :disabled="isInputVolumeSaving"
+                      />
+                      <div class="flex items-center gap-2 text-sm text-gray-700">
+                        <span class="inline-block w-14 text-right">{{ Math.round(Number(currentInputVolumeItem.value)) }} %</span>
+                      </div>
                     </div>
-                    <template v-if="currentOutputVolumeItem">
-                      <div class="text-xs text-gray-500 mt-1">
-                        Výchozí hodnota: {{ Math.round(currentOutputVolumeItem.default) }} %
-                      </div>
-                      <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:min-w-[360px] mt-2">
-                        <input
-                            v-model.number="currentOutputVolumeItem.value"
-                            type="range"
-                            class="range range-sm w-full sm:w-64 md:w-80"
-                            :min="volumeSlider.min"
-                            :max="volumeSlider.max"
-                            :step="volumeSlider.step"
-                            @change="handleOutputVolumeChange"
-                            :disabled="isOutputVolumeSaving"
-                        />
-                        <div class="flex items-center gap-2 text-sm text-gray-700">
-                          <span class="inline-block w-14 text-right">{{ Math.round(Number(currentOutputVolumeItem.value)) }} %</span>
-                        </div>
-                      </div>
-                    </template>
-                    <div v-else class="text-xs text-gray-500 mt-1">Žádný výstup není dostupný.</div>
-                  </div>
+                  </template>
+                  <div v-else class="text-xs text-gray-500 mt-1">Žádný vstup není dostupný.</div>
                 </div>
               </template>
             </div>

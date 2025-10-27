@@ -5,12 +5,14 @@ import {createConfirmDialog} from "vuejs-confirm-dialog";
 import Button from "../../components/forms/Button.vue";
 import Box from "../../components/custom/Box.vue";
 import Textarea from "../../components/forms/Textarea.vue";
+import Select from "../../components/forms/Select.vue";
 import RecordSaveDialog from "../../components/modals/RecordSaveDialog.vue";
 import RecordList from "./RecordList.vue";
 import LiveBroadcastService from "../../services/LiveBroadcastService.js";
 import VolumeService from "../../services/VolumeService.js";
 import RecordingService from "../../services/RecordingService.js";
 import {durationToTime, formatBytes} from "../../helper.js";
+import {FILE_SUBTYPE_OPTIONS} from "../../constants/fileSubtypeOptions.js";
 
 const toast = useToast();
 
@@ -55,7 +57,10 @@ const sourceOutputChannelMap = ref({
 const form = reactive({
   source: '',
   note: '',
+  subtype: 'COMMON',
 });
+
+const subtypeOptions = FILE_SUBTYPE_OPTIONS;
 
 const recording = ref(false);
 const loading = ref(false);
@@ -117,6 +122,21 @@ const formattedDuration = computed(() => {
 const fileSizeDisplay = computed(() => (recordBlob.value ? formatBytes(recordBlob.value.size) : '–'));
 
 const noteDisplay = computed(() => (form.note && form.note.trim().length > 0 ? form.note.trim() : '—'));
+
+const subtypeLabelMap = computed(() => {
+  const map = new Map();
+  subtypeOptions.forEach((option) => {
+    map.set(option.value, option.label);
+  });
+  return map;
+});
+
+const selectedSubtypeLabel = computed(() => {
+  if (!form.subtype) {
+    return '—';
+  }
+  return subtypeLabelMap.value.get(form.subtype) ?? form.subtype;
+});
 
 const sourceChannels = computed(() => sourceInputChannelMap.value ?? {});
 
@@ -534,11 +554,14 @@ const saveRecording = () => {
     return;
   }
 
-  const {reveal, onConfirm} = createConfirmDialog(RecordSaveDialog, {});
+  const {reveal, onConfirm} = createConfirmDialog(RecordSaveDialog, {
+    defaultSubtype: form.subtype,
+  });
   reveal();
 
   onConfirm(async (data) => {
     const {name, subtype} = data;
+    form.subtype = subtype;
     const blob = recordBlob.value;
     if (!blob) {
       toast.error('Chybí data nahrávky');
@@ -621,6 +644,7 @@ onBeforeUnmount(() => {
         <div class="space-y-2">
           <div><strong>Délka:</strong> {{ formattedDuration }}</div>
           <div><strong>Velikost souboru:</strong> {{ fileSizeDisplay }}</div>
+          <div><strong>Typ nahrávky:</strong> {{ selectedSubtypeLabel }}</div>
           <div><strong>Poznámka:</strong> {{ noteDisplay }}</div>
         </div>
       </div>
@@ -673,6 +697,13 @@ onBeforeUnmount(() => {
               Pro zvolený zdroj není k dispozici ovládání hlasitosti.
             </div>
           </div>
+
+          <Select
+              v-model="form.subtype"
+              :options="subtypeOptions"
+              label="Typ nahrávky"
+              size="sm"
+          />
 
           <Textarea v-model="form.note" label="Poznámka" rows="3" placeholder="Nepovinné poznámky k této nahrávce"/>
 
