@@ -17,6 +17,7 @@ use App\Models\Schedule;
 use App\Models\StreamTelemetryEntry;
 use App\Services\Mixer\AudioRoutingService;
 use App\Services\Mixer\MixerController;
+use App\Services\Mixer\PulseLoopbackManager;
 use App\Services\ControlChannelService;
 use App\Services\VolumeManager;
 use Illuminate\Http\JsonResponse;
@@ -41,6 +42,7 @@ class StreamOrchestrator extends Service
         private readonly PythonClient $client = new PythonClient(),
         private readonly MixerController $mixer = new MixerController(),
         private readonly AudioRoutingService $audioRouting = new AudioRoutingService(),
+        private readonly PulseLoopbackManager $loopbackManager = new PulseLoopbackManager(),
         ?ControlChannelService $controlChannel = null,
     ) {
         parent::__construct();
@@ -182,6 +184,8 @@ class StreamOrchestrator extends Service
             'reason' => $reason,
         ]);
 
+        $this->loopbackManager->clear();
+
         $this->recordTelemetry([
             'type' => 'stream_stopped',
             'session_id' => $session->id,
@@ -275,7 +279,7 @@ class StreamOrchestrator extends Service
         });
 
         $hasCapturePath = $hasPhysicalCapture || $hasPulseMicrophone;
-        $hasSystemPlaybackTap = $hasPulseMonitor || collect($devices['pulse']['sinks'] ?? [])->isNotEmpty();
+        $hasSystemPlaybackTap = $hasPulseMonitor;
 
         $sources = [
             $this->makeSourceDefinition(
@@ -288,6 +292,12 @@ class StreamOrchestrator extends Service
             $this->makeSourceDefinition(
                 'pc_webrtc',
                 'Vstup z PC (WebRTC)',
+                $hasSystemPlaybackTap,
+                $hasSystemPlaybackTap ? null : 'Není dostupný systémový zvukový výstup (monitor).'
+            ),
+            $this->makeSourceDefinition(
+                'system_audio',
+                'Systémový zvuk',
                 $hasSystemPlaybackTap,
                 $hasSystemPlaybackTap ? null : 'Není dostupný systémový zvukový výstup (monitor).'
             ),
@@ -818,6 +828,20 @@ class StreamOrchestrator extends Service
             is_string($outputId) ? $outputId : null,
             $context,
         );
+
+        $inputIdentifier = is_string($inputId) ? $inputId : null;
+        $outputIdentifier = is_string($outputId) ? $outputId : null;
+
+        if ($inputIdentifier !== null
+            && $outputIdentifier !== null
+            && str_starts_with($inputIdentifier, 'pulse:')
+            && str_contains($inputIdentifier, '.monitor')
+            && str_starts_with($outputIdentifier, 'pulse:')
+        ) {
+            $this->loopbackManager->ensure($inputIdentifier, $outputIdentifier);
+        } else {
+            $this->loopbackManager->clear();
+        }
     }
 
     /**

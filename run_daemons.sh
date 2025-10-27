@@ -7,6 +7,7 @@ PYTHON_BIN=${PYTHON_BINARY:-python3}
 LOG_DIR="${ROOT_DIR}/storage/logs/daemons"
 
 mkdir -p "$LOG_DIR"
+mkdir -p "${ROOT_DIR}/storage/run"
 
 start_daemon() {
   local name="$1"
@@ -35,7 +36,17 @@ stop_daemon() {
 
 case "${1:-}" in
   start)
-    start_daemon "control_channel_worker" "$ROOT_DIR/python-client/daemons/control_channel_worker.py" --endpoint "${CONTROL_CHANNEL_ENDPOINT:-unix:///var/run/jsvv-control.sock}"
+    control_endpoint="${CONTROL_CHANNEL_ENDPOINT:-unix://storage/run/jsvv-control.sock}"
+    if [[ "${control_endpoint}" == unix://* ]]; then
+      socket_path="${control_endpoint#unix://}"
+    else
+      socket_path="${control_endpoint}"
+    fi
+    if [[ "${socket_path}" != /* ]]; then
+      socket_path="${ROOT_DIR}/${socket_path}"
+    fi
+    mkdir -p "$(dirname "${socket_path}")"
+    start_daemon "control_channel_worker" "$ROOT_DIR/python-client/daemons/control_channel_worker.py" --endpoint "${control_endpoint}"
     start_daemon "gsm_listener" "$ROOT_DIR/python-client/daemons/gsm_listener.py" \
       --webhook "${GSM_WEBHOOK:-http://127.0.0.1/api/gsm/events}" \
       --token "${GSM_TOKEN:-}" \
