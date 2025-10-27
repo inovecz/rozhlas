@@ -21,6 +21,32 @@ SRC_DIR = ROOT_DIR / "src"
 if SRC_DIR.exists() and str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+VENV_DIR = ROOT_DIR / ".venv"
+if VENV_DIR.exists():
+    for pattern in ("lib/python*/site-packages", "lib64/python*/site-packages"):
+        for candidate in VENV_DIR.glob(pattern):
+            candidate_path = str(candidate)
+            if candidate.is_dir() and candidate_path not in sys.path:
+                sys.path.insert(0, candidate_path)
+
+def load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+    for raw_line in path.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and ((value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'"))):
+            value = value[1:-1]
+        os.environ[key] = value
+
+load_env_file(ROOT_DIR.parent / ".env")
+
 from modbus_audio import ModbusAudioClient, ModbusAudioError, SerialSettings, constants  # noqa: E402
 
 
