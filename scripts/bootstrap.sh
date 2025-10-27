@@ -180,7 +180,7 @@ echo "Ensuring main scripts are executable..."
 chmod +x "$ROOT_DIR/run.sh" "$ROOT_DIR/scripts/install.sh"
 
 PYTHON_VALUE=".venv/bin/python3"
-if [[ "$OS" == "Windows_NT" || "$OSTYPE" == msys* || "$OSTYPE" == cygwin* ]]; then
+if [[ "${OS:-}" == "Windows_NT" || "$OSTYPE" == msys* || "$OSTYPE" == cygwin* ]]; then
   PYTHON_VALUE=".venv\\Scripts\\python.exe"
 fi
 set_env_value "$ROOT_DIR/.env" "PYTHON_BINARY" "$PYTHON_VALUE"

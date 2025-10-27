@@ -30,6 +30,41 @@ BACKEND_PID=""
 FRONTEND_PID=""
 ALARM_PID=""
 
+ensure_node_for_frontend() {
+  if ! command -v node >/dev/null 2>&1; then
+    echo "Error: node is required to run Vite. Install Node.js 18 or newer." >&2
+    exit 1
+  fi
+  local version
+  version=$(node -v | sed 's/^v//')
+  local major=${version%%.*}
+  if [[ -z "$major" || "$major" -lt 18 ]]; then
+    echo "Error: Node.js $version detected. Vite requires Node.js 18 or newer." >&2
+    exit 1
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "Error: npm not found. Install Node.js/npm to build frontend assets." >&2
+    exit 1
+  fi
+}
+
+ensure_production_assets() {
+  local manifest="$ROOT_DIR/public/build/manifest.json"
+  if [[ -f "$manifest" ]]; then
+    return
+  fi
+  echo "Frontend build assets not found. Running npm run build..."
+  ensure_node_for_frontend
+  (
+    cd "$ROOT_DIR"
+    npm run build >>"$FRONTEND_LOG" 2>&1
+  )
+  if [[ ! -f "$manifest" ]]; then
+    echo "Error: npm run build did not produce $manifest. Check $FRONTEND_LOG for details." >&2
+    exit 1
+  fi
+}
+
 function cleanup() {
   echo "\nStopping services..."
   if [[ -n "$BACKEND_PID" ]] && kill -0 "$BACKEND_PID" 2>/dev/null; then
@@ -52,25 +87,30 @@ function cleanup() {
 
 trap cleanup EXIT INT TERM
 
-echo "Starting Laravel backend (php artisan serve)..."
-(
-  cd "$ROOT_DIR"
-  php artisan serve --host="$LARAVEL_HOST" --port="$LARAVEL_PORT" >>"$BACKEND_LOG" 2>&1
-) &
-BACKEND_PID=$!
-
 if [[ "$RUN_VITE" == true ]]; then
+  ensure_node_for_frontend
   echo "Starting Vite dev server (npm run dev)..."
   (
     cd "$ROOT_DIR"
     npm run dev -- --host "$VITE_HOST" --port "$VITE_PORT" >>"$FRONTEND_LOG" 2>&1
   ) &
   FRONTEND_PID=$!
+  sleep 2
+  if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
+    echo "Error: Vite dev server failed to start. Check $FRONTEND_LOG for details." >&2
+    exit 1
+  fi
 else
   echo "Skipping Vite dev server start (APP_ENV=$APP_ENV_VALUE)"
+  ensure_production_assets
 fi
 
-sleep 2
+echo "Starting Laravel backend (php artisan serve)..."
+(
+  cd "$ROOT_DIR"
+  php artisan serve --host="$LARAVEL_HOST" --port="$LARAVEL_PORT" >>"$BACKEND_LOG" 2>&1
+) &
+BACKEND_PID=$!
 
 echo "Starting Python daemons..."
 "$ROOT_DIR/run_daemons.sh" start
