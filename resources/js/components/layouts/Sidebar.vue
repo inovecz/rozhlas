@@ -133,7 +133,7 @@ const sidebarItems = ref([
             v-if="!showSideBar" @click="toggleSidebar"></span>
     </div>
 
-    <div class="w-full h-full no-scrollbar">
+    <div class="w-full h-full overflow-y-auto overflow-x-hidden no-scrollbar pb-6">
       <nav class="relative mb-24">
         <div v-for="item in sidebarItems" :key="item.name">
           <SidebarItem :to="item.to"
