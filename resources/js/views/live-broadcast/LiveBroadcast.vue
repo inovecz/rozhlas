@@ -58,45 +58,30 @@ const combinedSourceOptions = computed(() => {
   const baseSources = Array.isArray(sources.value) ? sources.value : [];
   const audioInputs = Array.isArray(audioInputDevices.value) ? audioInputDevices.value : [];
 
-  const getPreferredInputId = () => {
-    if (!hardwareAudioDevices.value) {
-      return 'default';
-    }
-    const captureDevices = Array.isArray(hardwareAudioDevices.value.capture_devices)
-      ? hardwareAudioDevices.value.capture_devices
-      : [];
-    const validDevices = captureDevices
-      .map((device) => {
-        const card = toNumericId(device?.card);
-        const dev = toNumericId(device?.device);
-        if (card === null || dev === null) {
-          return null;
-        }
-        return {
-          id: `alsa:${card}:${dev}`,
-          label: device?.device_description ?? device?.device_name ?? `Karta ${card}`,
-        };
-      })
-      .filter(Boolean);
-
-    if (validDevices.length > 0) {
-      return validDevices[0].id;
-    }
-
-    const pulseSources = Array.isArray(hardwareAudioDevices.value?.pulse?.sources)
-      ? hardwareAudioDevices.value.pulse.sources
-      : [];
-    const pulseDevice = pulseSources.find(source => source?.name);
-    if (pulseDevice?.name) {
-      return `pulse:${pulseDevice.name}`;
-    }
-
-    return 'default';
+  const findFirstInputId = (predicate) => {
+    const entry = audioInputs.find((input) => predicate(input?.id ?? '', input));
+    return entry?.id ?? null;
   };
 
-  const preferredInputId = getPreferredInputId();
-  const preferredInputIsAvailable = audioInputs.some((input) => input?.id === preferredInputId);
-  const fallbackInputId = preferredInputIsAvailable ? preferredInputId : 'default';
+  const findPulseMonitorId = () => findFirstInputId((id) => id.includes('.monitor'));
+  const findPulseSourceId = () => findFirstInputId((id) => id.startsWith('pulse:') && !id.includes('.monitor'));
+  const findAlsaCaptureId = () => findFirstInputId((id) => id.startsWith('alsa:'));
+
+  const resolvePreferredInputId = (sourceId) => {
+    if (!hardwareSourceIds.has(sourceId)) {
+      return null;
+    }
+    switch (sourceId) {
+      case 'pc_webrtc':
+        return findPulseMonitorId() ?? findPulseSourceId() ?? findAlsaCaptureId();
+      case 'fm_radio':
+        return findAlsaCaptureId() ?? findPulseSourceId() ?? findPulseMonitorId();
+      case 'control_box':
+        return findAlsaCaptureId() ?? findPulseSourceId() ?? findPulseMonitorId();
+      default:
+        return findPulseSourceId() ?? findAlsaCaptureId() ?? findPulseMonitorId();
+    }
+  };
 
   baseSources.forEach((source) => {
     if (!source || typeof source.id !== 'string' || source.id.length === 0) {
@@ -107,6 +92,10 @@ const combinedSourceOptions = computed(() => {
     const unavailableReason = source.unavailable_reason ?? null;
 
     if (hardwareSourceIds.has(source.id)) {
+      const preferredId = resolvePreferredInputId(source.id);
+      const fallbackInputId = preferredId && audioInputs.some(input => input?.id === preferredId)
+        ? preferredId
+        : 'default';
       list.push({
         id: buildSourceOptionId(source.id, fallbackInputId),
         sourceId: source.id,
@@ -550,13 +539,9 @@ const buildHardwareInputList = (devices) => {
     }
     const monitorId = `pulse:${sink.name}.monitor`;
     if (!inputs.some(entry => entry?.id === monitorId)) {
-      const labelDetail = sink?.name ?? 'monitor';
-      const label = sink?.state
-        ? `Systémový zvuk (${labelDetail}, ${sink.state.toLowerCase()})`
-        : `Systémový zvuk (${labelDetail})`;
       inputs.push({
         id: monitorId,
-        label,
+        label: 'Systémový výstup',
       });
     }
   });

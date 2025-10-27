@@ -784,7 +784,7 @@ class StreamOrchestrator extends Service
      *
      * @param array<string, mixed> $options
      */
-    private function applyAudioRouting(array $options, string $source, ?int $sessionId = null): void
+    private function applyAudioRouting(array $options, string $source, int|string|null $sessionId = null): void
     {
         $inputId = Arr::get($options, 'audioInputId');
         if ($inputId === null) {
@@ -798,6 +798,12 @@ class StreamOrchestrator extends Service
 
         if (!is_string($inputId) && !is_string($outputId)) {
             return;
+        }
+
+        if (is_string($sessionId) && !ctype_digit($sessionId)) {
+            $sessionId = null;
+        } elseif ($sessionId !== null) {
+            $sessionId = (int) $sessionId;
         }
 
         $context = array_filter([
