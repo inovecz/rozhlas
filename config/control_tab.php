@@ -19,7 +19,7 @@ return [
     'graceful_timeout' => (float) env('CONTROL_TAB_GRACEFUL_TIMEOUT', 5.0),
     'retry_backoff_ms' => (int) env('CONTROL_TAB_RETRY_BACKOFF_MS', 250),
     'text_fields' => [
-        1 => static fn (): string => 'Ústředna je připravena.',
+        1 => 'status_summary',
     ],
     'buttons' => [
         // Example mapping; override in environment-specific config.

@@ -73,7 +73,7 @@ class LocationsSaveRequest extends FormRequest
                 '*.modbus_address' => 'trim|digit',
                 '*.bidirectional_address' => 'trim|digit',
                 '*.private_receiver_address' => 'trim|digit',
-                '*.components' => 'cast:json',
+                '*.components.*' => 'trim|escape',
                 '*.status' => 'trim|uppercase',
                 '*.location_group_ids.*' => 'trim|digit',
             ];
@@ -88,7 +88,7 @@ class LocationsSaveRequest extends FormRequest
             'modbus_address' => 'trim|digit',
             'bidirectional_address' => 'trim|digit',
             'private_receiver_address' => 'trim|digit',
-            'components' => 'cast:json',
+            'components.*' => 'trim|escape',
             'status' => 'trim|uppercase',
             'location_group_ids.*' => 'trim|digit',
         ];

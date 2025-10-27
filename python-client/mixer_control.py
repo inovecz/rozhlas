@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from subprocess import CalledProcessError, Popen
 from typing import Any
@@ -87,6 +88,7 @@ def parse_card_list(raw: str) -> list[dict[str, Any]]:
     return devices
 
 
+@lru_cache(maxsize=None)
 def list_controls_for_card(card: int) -> list[str]:
     code, stdout, _ = run_command(['amixer', '-c', str(card), 'controls'])
     if code != 0:
@@ -154,11 +156,16 @@ def detect_audio_devices() -> dict[str, Any]:
         capture_devices = [{'error': stderr.strip() or 'Unable to list capture devices'}]
 
     for device in playback_devices:
-        device['controls'] = list_controls_for_card(device.get('card', 0))
+        card = device.get('card')
+        if card is None:
+            continue
+        device['controls'] = list_controls_for_card(int(card))
 
     for device in capture_devices:
-        if 'card' in device:
-            device['controls'] = list_controls_for_card(device['card'])
+        card = device.get('card')
+        if card is None:
+            continue
+        device['controls'] = list_controls_for_card(int(card))
 
     pulse = list_pulse_devices()
 

@@ -42,6 +42,7 @@ const selectedAudioInputId = ref(initialAudioInput?.id ?? 'default');
 const audioOutputDevices = ref([]);
 const initialAudioOutput = JSON.parse(localStorage.getItem('audioOutputDevice') ?? 'null');
 const selectedAudioOutputId = ref(initialAudioOutput?.id ?? 'default');
+const selectedSourceOptionId = ref('');
 const sourceLabelMap = computed(() => {
   const map = new Map();
   sources.value.forEach((source) => {
@@ -52,10 +53,87 @@ const sourceLabelMap = computed(() => {
   return map;
 });
 
+const combinedSourceOptions = computed(() => {
+  const list = [];
+  const baseSources = Array.isArray(sources.value) ? sources.value : [];
+  const audioInputs = Array.isArray(audioInputDevices.value) ? audioInputDevices.value : [];
+
+  const getPreferredInputId = () => {
+    if (!hardwareAudioDevices.value) {
+      return 'default';
+    }
+    const captureDevices = Array.isArray(hardwareAudioDevices.value.capture_devices)
+      ? hardwareAudioDevices.value.capture_devices
+      : [];
+    const validDevices = captureDevices
+      .map((device) => {
+        const card = toNumericId(device?.card);
+        const dev = toNumericId(device?.device);
+        if (card === null || dev === null) {
+          return null;
+        }
+        return {
+          id: `alsa:${card}:${dev}`,
+          label: device?.device_description ?? device?.device_name ?? `Karta ${card}`,
+        };
+      })
+      .filter(Boolean);
+
+    if (validDevices.length > 0) {
+      return validDevices[0].id;
+    }
+
+    const pulseSources = Array.isArray(hardwareAudioDevices.value?.pulse?.sources)
+      ? hardwareAudioDevices.value.pulse.sources
+      : [];
+    const pulseDevice = pulseSources.find(source => source?.name);
+    if (pulseDevice?.name) {
+      return `pulse:${pulseDevice.name}`;
+    }
+
+    return 'default';
+  };
+
+  const preferredInputId = getPreferredInputId();
+  const preferredInputIsAvailable = audioInputs.some((input) => input?.id === preferredInputId);
+  const fallbackInputId = preferredInputIsAvailable ? preferredInputId : 'default';
+
+  baseSources.forEach((source) => {
+    if (!source || typeof source.id !== 'string' || source.id.length === 0) {
+      return;
+    }
+    const baseLabel = source.label ?? source.id;
+    const available = source.available !== false;
+    const unavailableReason = source.unavailable_reason ?? null;
+
+    if (hardwareSourceIds.has(source.id)) {
+      list.push({
+        id: buildSourceOptionId(source.id, fallbackInputId),
+        sourceId: source.id,
+        audioInputId: fallbackInputId,
+        label: baseLabel,
+        available,
+        unavailableReason,
+      });
+    } else {
+      list.push({
+        id: buildSourceOptionId(source.id, null),
+        sourceId: source.id,
+        audioInputId: null,
+        label: baseLabel,
+        available,
+        unavailableReason,
+      });
+    }
+  });
+
+  return list;
+});
+
 const isStreaming = computed(() => status.value?.session?.status === 'running');
 const showPlaylistControls = computed(() => form.source === 'central_file');
 const showFmInfo = computed(() => form.source === 'fm_radio');
-const hasNestsDefined = computed(() => nests.value.length > 0);
+const hasNestsDefined = computed(() => Array.isArray(nests.value) && nests.value.length > 0);
 const volumeGroups = ref([]);
 const volumeLoading = ref(false);
 const volumeSaving = reactive({});
@@ -64,6 +142,99 @@ const volumeSlider = {
   max: 100,
   step: 1,
 };
+
+const hardwareSourceIds = new Set([
+  'microphone',
+  'pc_webrtc',
+  'input_2',
+  'input_3',
+  'input_4',
+  'input_5',
+  'input_6',
+  'input_7',
+  'input_8',
+  'fm_radio',
+  'control_box',
+]);
+
+const parseSimpleMixerControl = (entry) => {
+  if (typeof entry !== 'string') {
+    return null;
+  }
+  const trimmed = entry.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  const match = trimmed.match(/^Simple mixer control '([^']+)'(?:,(\d+))?/);
+  if (!match) {
+    return {
+      name: trimmed,
+      index: null,
+      raw: trimmed,
+      label: trimmed,
+    };
+  }
+
+  const name = match[1]?.trim() ?? '';
+  const indexValue = match[2] !== undefined ? Number(match[2]) : null;
+  const index = Number.isFinite(indexValue) ? indexValue : null;
+
+  if (!name) {
+    return {
+      name: trimmed,
+      index: null,
+      raw: trimmed,
+      label: trimmed,
+    };
+  }
+
+  return {
+    name,
+    index,
+    raw: trimmed,
+    label: name,
+  };
+};
+
+const toNumericId = (value) => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+const buildSourceOptionId = (sourceId, audioInputId = null) => {
+  if (!sourceId) {
+    return '';
+  }
+  if (!hardwareSourceIds.has(sourceId)) {
+    return sourceId;
+  }
+  const normalized = audioInputId && audioInputId !== '' ? audioInputId : 'default';
+  return `${sourceId}::${normalized}`;
+};
+
+const parseSourceOptionId = (identifier) => {
+  if (typeof identifier !== 'string' || identifier.length === 0) {
+    return {sourceId: '', audioInputId: null};
+  }
+  if (!identifier.includes('::')) {
+    return {
+      sourceId: identifier,
+      audioInputId: hardwareSourceIds.has(identifier) ? 'default' : null,
+    };
+  }
+  const [rawSourceId, rawAudioId] = identifier.split('::');
+  const sourceId = rawSourceId ?? '';
+  const normalizedAudio = rawAudioId && rawAudioId !== '' ? rawAudioId : 'default';
+  return {
+    sourceId,
+    audioInputId: hardwareSourceIds.has(sourceId) ? normalizedAudio : null,
+  };
+};
+
 const sourceInputChannelMap = ref({
   microphone: 'input_1',
   central_file: 'file_playback',
@@ -314,7 +485,8 @@ const loadLocationGroups = async () => {
 
 const loadNests = async () => {
   try {
-    nests.value = await LocationService.fetchNests();
+    const list = await LocationService.fetchNests();
+    nests.value = Array.isArray(list) ? list : [];
   } catch (error) {
     console.error(error);
     toast.error('Nepodařilo se načíst hnízda');
@@ -335,11 +507,11 @@ const buildHardwareOutputList = (devices) => {
 
   const playbackDevices = Array.isArray(devices?.playback_devices) ? devices.playback_devices : [];
   playbackDevices.forEach((device) => {
-    const card = Number.isFinite(device?.card) ? Number(device.card) : null;
-    const dev = Number.isFinite(device?.device) ? Number(device.device) : null;
+    const card = toNumericId(device?.card);
+    const dev = toNumericId(device?.device);
+    const cardLabel = device?.card_description ?? device?.card_name ?? (card !== null ? `Karta ${card}` : 'ALSA zařízení');
     const id = card !== null && dev !== null ? `alsa:${card}:${dev}` : null;
     if (id) {
-      const cardLabel = device?.card_description ?? device?.card_name ?? `Karta ${card}`;
       const devLabel = device?.device_description ?? device?.device_name ?? `Zařízení ${dev}`;
       outputs.push({
         id,
@@ -371,13 +543,31 @@ const buildHardwareInputList = (devices) => {
     }
   });
 
+  const pulseSinks = Array.isArray(devices?.pulse?.sinks) ? devices.pulse.sinks : [];
+  pulseSinks.forEach((sink) => {
+    if (!sink?.name) {
+      return;
+    }
+    const monitorId = `pulse:${sink.name}.monitor`;
+    if (!inputs.some(entry => entry?.id === monitorId)) {
+      const labelDetail = sink?.name ?? 'monitor';
+      const label = sink?.state
+        ? `Systémový zvuk (${labelDetail}, ${sink.state.toLowerCase()})`
+        : `Systémový zvuk (${labelDetail})`;
+      inputs.push({
+        id: monitorId,
+        label,
+      });
+    }
+  });
+
   const captureDevices = Array.isArray(devices?.capture_devices) ? devices.capture_devices : [];
   captureDevices.forEach((device) => {
-    const card = Number.isFinite(device?.card) ? Number(device.card) : null;
-    const dev = Number.isFinite(device?.device) ? Number(device.device) : null;
+    const card = toNumericId(device?.card);
+    const dev = toNumericId(device?.device);
+    const cardLabel = device?.card_description ?? device?.card_name ?? (card !== null ? `Karta ${card}` : 'ALSA zařízení');
     const id = card !== null && dev !== null ? `alsa:${card}:${dev}` : null;
     if (id) {
-      const cardLabel = device?.card_description ?? device?.card_name ?? `Karta ${card}`;
       const devLabel = device?.device_description ?? device?.device_name ?? `Zařízení ${dev}`;
       inputs.push({
         id,
@@ -502,6 +692,45 @@ if (!initialAudioInput) {
 if (!initialAudioOutput) {
   persistAudioOutput();
 }
+
+watch(selectedSourceOptionId, (newValue, oldValue) => {
+  if (!newValue || newValue === oldValue) {
+    return;
+  }
+  const {sourceId, audioInputId} = parseSourceOptionId(newValue);
+  if (sourceId && sourceId !== form.source) {
+    form.source = sourceId;
+  }
+  if (audioInputId && audioInputId !== selectedAudioInputId.value) {
+    selectedAudioInputId.value = audioInputId;
+    return;
+  }
+  if (!audioInputId && hardwareSourceIds.has(sourceId) && selectedAudioInputId.value !== 'default') {
+    selectedAudioInputId.value = 'default';
+  }
+});
+
+watch(
+  [() => combinedSourceOptions.value, () => form.source, () => selectedAudioInputId.value],
+  () => {
+    const options = combinedSourceOptions.value;
+    if (!Array.isArray(options) || options.length === 0) {
+      return;
+    }
+    const desiredId = buildSourceOptionId(form.source, selectedAudioInputId.value);
+    let target = options.find(option => option.id === desiredId);
+    if (!target && form.source) {
+      target = options.find(option => option.sourceId === form.source);
+    }
+    if (!target) {
+      target = options[0];
+    }
+    if (target && target.id !== selectedSourceOptionId.value) {
+      selectedSourceOptionId.value = target.id;
+    }
+  },
+  {immediate: true}
+);
 
 watch(selectedAudioInputId, async (newValue, oldValue) => {
   persistAudioInput();
@@ -940,21 +1169,15 @@ const removePlaylistItem = (index) => {
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Zdroj signálu</label>
               <select
-                  v-model="form.source"
+                  v-model="selectedSourceOptionId"
                   class="form-select w-full border border-gray-300 rounded-md bg-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-40">
-                <option v-for="source in sources" :key="source.id" :value="source.id" :disabled="source.available === false && source.id !== form.source" :title="source.available === false ? (source.unavailable_reason ?? 'Zdroj není dostupný') : ''">
-                  {{ source.label }}{{ source.available === false && source.unavailable_reason ? ' – ' + source.unavailable_reason : (source.available === false ? ' – Nedostupný' : '') }}
-                </option>
-              </select>
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Vstup zvuku</label>
-              <select
-                  v-model="selectedAudioInputId"
-                  class="form-select w-full border border-gray-300 rounded-md bg-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-40">
-                <option v-for="input in audioInputDevices" :key="input.id" :value="input.id">
-                  {{ input.label }}
+                <option
+                    v-for="option in combinedSourceOptions"
+                    :key="option.id"
+                    :value="option.id"
+                    :disabled="option.available === false && option.id !== selectedSourceOptionId"
+                    :title="option.available === false ? (option.unavailableReason ?? 'Zdroj není dostupný') : ''">
+                  {{ option.label }}{{ option.available === false && option.unavailableReason ? ' – ' + option.unavailableReason : (option.available === false ? ' – Nedostupný' : '') }}
                 </option>
               </select>
             </div>
@@ -1084,17 +1307,19 @@ const removePlaylistItem = (index) => {
               </select>
             </div>
 
-            <div v-if="hasNestsDefined">
+            <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Hnízda</label>
               <select
                   v-model="form.selectedNests"
                   multiple
-                  class="form-select w-full h-32 border border-gray-300 rounded-md bg-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-40">
+                  :disabled="!hasNestsDefined"
+                  class="form-select w-full h-32 border border-gray-300 rounded-md bg-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-40 disabled:bg-gray-100 disabled:text-gray-500">
                 <option v-for="nest in nests" :key="nest.id" :value="String(nest.id)">
                   {{ nest.name }}{{ nest.modbus_address ? ' (adresa ' + nest.modbus_address + ')' : '' }}
                 </option>
               </select>
-              <p class="text-xs text-gray-500">Vybraná hnízda se přidají mezi cílové zóny vysílání.</p>
+              <p v-if="hasNestsDefined" class="text-xs text-gray-500">Vybraná hnízda se přidají mezi cílové zóny vysílání.</p>
+              <p v-else class="text-xs text-gray-500">Žádná hnízda nejsou dostupná pro výběr.</p>
             </div>
 
             <Input v-if="false" v-model="form.routeText" label="Route (čísla oddělená čárkou)" placeholder="např.: 1,2,3"/>

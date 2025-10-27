@@ -510,7 +510,7 @@ class StreamOrchestrator extends Service
         }
     }
 
-    private function recordControlChannelTelemetry(string $action, ?ControlChannelCommand $command, ?int $sessionId = null): void
+    private function recordControlChannelTelemetry(string $action, ?ControlChannelCommand $command, int|string|null $sessionId = null): void
     {
         if ($command === null) {
             return;
@@ -530,6 +530,14 @@ class StreamOrchestrator extends Service
             'type' => 'control_channel_' . $action,
             'payload' => $payload,
         ];
+
+        if ($sessionId !== null) {
+            if (is_string($sessionId) && !ctype_digit($sessionId)) {
+                $sessionId = null;
+            } elseif ($sessionId !== null) {
+                $sessionId = (int) $sessionId;
+            }
+        }
 
         if ($sessionId !== null) {
             $entry['session_id'] = $sessionId;
