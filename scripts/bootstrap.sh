@@ -1,3 +1,4 @@
+# bootstra file
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -155,10 +156,22 @@ if [ ! -d "$VENV_DIR" ]; then
   python3 -m venv "$VENV_DIR"
 fi
 
-"$VENV_DIR/bin/pip" install --upgrade pip >/dev/null 2>&1 || true
+VENV_PYTHON="$VENV_DIR/bin/python3"
+if [ ! -x "$VENV_PYTHON" ]; then
+  VENV_PYTHON="$VENV_DIR/bin/python"
+fi
+if [ ! -x "$VENV_PYTHON" ]; then
+  VENV_PYTHON="$VENV_DIR/Scripts/python.exe"
+fi
+if [ ! -x "$VENV_PYTHON" ]; then
+  echo "Python executable not found in virtual environment at $VENV_DIR" >&2
+  exit 1
+fi
+
+"$VENV_PYTHON" -m pip install --upgrade pip >/dev/null 2>&1 || true
 if [ -f "$ROOT_DIR/python-client/requirements.txt" ]; then
   echo "Installing Python dependencies (python-client/requirements.txt)..."
-  "$VENV_DIR/bin/pip" install -r "$ROOT_DIR/python-client/requirements.txt"
+  "$VENV_PYTHON" -m pip install -r "$ROOT_DIR/python-client/requirements.txt"
 else
   echo "Warning: python-client/requirements.txt not found, skipping Python dependency installation." >&2
 fi
