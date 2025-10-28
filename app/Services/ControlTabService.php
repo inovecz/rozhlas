@@ -10,9 +10,12 @@ use App\Models\BroadcastSession;
 use App\Models\JsvvAlarm;
 use App\Models\JsvvAudio;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Cache;
 
 class ControlTabService extends Service
 {
+    private const SELECTED_ALARM_CACHE_KEY = 'control_tab:selected_jsvv_alarm';
+
     public function __construct(
         private readonly StreamOrchestrator $orchestrator = new StreamOrchestrator(),
         private readonly JsvvSequenceService $jsvvSequenceService = new JsvvSequenceService(),
@@ -32,9 +35,14 @@ class ControlTabService extends Service
 
         return match ($mapping['action'] ?? null) {
             'start_stream' => $this->startStream($mapping),
-            'stop_stream' => $this->stopStream(),
+            'stop_stream' => $this->stopStream($mapping),
             'trigger_jsvv_alarm' => $this->triggerJsvvAlarm($mapping),
-            'stop_jsvv' => $this->stopJsvv(),
+            'trigger_selected_jsvv_alarm' => $this->triggerSelectedJsvvAlarm($mapping),
+            'select_jsvv_alarm' => $this->selectJsvvAlarm($mapping),
+            'stop_jsvv' => $this->stopJsvv($mapping),
+            'ack_message' => $this->acknowledgeMessage($mapping),
+            'lock_panel' => $this->lockPanel($mapping),
+            'cancel_selection' => $this->cancelSelection($mapping),
             default => [
                 'status' => 'unsupported',
                 'message' => sprintf('Akce %s zatím není implementována.', $mapping['action'] ?? 'neznámá'),
@@ -101,12 +109,12 @@ class ControlTabService extends Service
 
         return [
             'status' => 'ok',
-            'message' => 'Vysílání bylo spuštěno přes Control Tab.',
+            'message' => Arr::get($config, 'success_message', 'Vysílání bylo spuštěno přes Control Tab.'),
             'session' => $session,
         ];
     }
 
-    private function stopStream(): array
+    private function stopStream(array $config = []): array
     {
         $session = BroadcastSession::query()
             ->where('status', 'running')
@@ -116,7 +124,7 @@ class ControlTabService extends Service
         if ($session === null) {
             return [
                 'status' => 'idle',
-                'message' => 'Žádné vysílání neběží.',
+                'message' => Arr::get($config, 'idle_message', 'Žádné vysílání neběží.'),
             ];
         }
 
@@ -124,7 +132,7 @@ class ControlTabService extends Service
 
         return [
             'status' => 'ok',
-            'message' => 'Vysílání bylo zastaveno.',
+            'message' => Arr::get($config, 'success_message', 'Vysílání bylo zastaveno.'),
         ];
     }
 
@@ -154,6 +162,8 @@ class ControlTabService extends Service
             ];
         }
 
+        $label = $config['label'] ?? $alarm->name ?? null;
+
         $sequence = $this->jsvvSequenceService->plan($items, [
             'priority' => $alarm->priority ?? 'P2',
             'zones' => $alarm->zones ?? [],
@@ -168,16 +178,26 @@ class ControlTabService extends Service
             ];
         }
 
+        $message = match ($result['status']) {
+            'queued' => $label !== null
+                ? sprintf('Poplach "%s" byl zařazen do fronty.', $label)
+                : 'Poplach byl zařazen do fronty.',
+            'running', 'completed' => $label !== null
+                ? sprintf('Poplach "%s" byl spuštěn.', $label)
+                : 'Poplach byl spuštěn.',
+            default => $label !== null
+                ? sprintf('Poplach "%s" byl vyhodnocen.', $label)
+                : 'Poplach byl vyhodnocen.',
+        };
+
         return [
             'status' => $result['status'],
-            'message' => $result['status'] === 'queued'
-                ? 'Poplach byl zařazen do fronty.'
-                : 'Poplach byl spuštěn.',
+            'message' => $message,
             'sequence' => $result,
         ];
     }
 
-    private function stopJsvv(): array
+    private function stopJsvv(array $config = []): array
     {
         $session = BroadcastSession::query()
             ->where('status', 'running')
@@ -187,7 +207,7 @@ class ControlTabService extends Service
         if ($session === null || $session->source !== 'jsvv') {
             return [
                 'status' => 'idle',
-                'message' => 'Poplach JSVV není aktivní.',
+                'message' => Arr::get($config, 'idle_message', 'Poplach JSVV není aktivní.'),
             ];
         }
 
@@ -195,7 +215,91 @@ class ControlTabService extends Service
 
         return [
             'status' => 'ok',
-            'message' => 'Poplach JSVV byl zastaven.',
+            'message' => Arr::get($config, 'success_message', 'Poplach JSVV byl zastaven.'),
+        ];
+    }
+
+    private function triggerSelectedJsvvAlarm(array $config): array
+    {
+        /** @var array<string, mixed>|null $selected */
+        $selected = Cache::get(self::SELECTED_ALARM_CACHE_KEY);
+        $button = (int) ($selected['button'] ?? $config['fallback_button'] ?? $config['button'] ?? 0);
+
+        if ($button <= 0) {
+            return [
+                'status' => 'error',
+                'message' => 'Vyberte nejprve typ poplachu.',
+            ];
+        }
+
+        $payload = $config;
+        $payload['button'] = $button;
+        if (!isset($payload['label']) && isset($selected['label'])) {
+            $payload['label'] = $selected['label'];
+        }
+
+        return $this->triggerJsvvAlarm($payload);
+    }
+
+    private function selectJsvvAlarm(array $config): array
+    {
+        $button = (int) ($config['button'] ?? 0);
+        if ($button <= 0) {
+            return [
+                'status' => 'error',
+                'message' => 'Konfigurace poplachu je neplatná.',
+            ];
+        }
+
+        $label = $config['label'] ?? null;
+
+        Cache::put(
+            self::SELECTED_ALARM_CACHE_KEY,
+            [
+                'button' => $button,
+                'label' => $label,
+            ],
+            now()->addMinutes(10)
+        );
+
+        $message = Arr::get(
+            $config,
+            'success_message',
+            $label !== null
+                ? sprintf('Vybrán poplach "%s". Stiskněte "Spustit poplach JSVV".', $label)
+                : 'Poplach byl vybrán. Stiskněte "Spustit poplach JSVV".'
+        );
+
+        return [
+            'status' => 'ok',
+            'message' => $message,
+            'selected_button' => $button,
+        ];
+    }
+
+    private function acknowledgeMessage(array $config): array
+    {
+        return [
+            'status' => 'ok',
+            'message' => Arr::get($config, 'message', 'Akce byla potvrzena.'),
+        ];
+    }
+
+    private function lockPanel(array $config): array
+    {
+        return [
+            'status' => 'ok',
+            'message' => Arr::get($config, 'message', 'Panel byl uzamčen.'),
+        ];
+    }
+
+    private function cancelSelection(array $config): array
+    {
+        Cache::forget(self::SELECTED_ALARM_CACHE_KEY);
+
+        return [
+            'status' => 'ok',
+            'message' => Arr::get($config, 'message', 'Výběr poplachu byl zrušen.'),
         ];
     }
 

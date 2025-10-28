@@ -20,32 +20,106 @@ return [
     'retry_backoff_ms' => (int) env('CONTROL_TAB_RETRY_BACKOFF_MS', 250),
     'text_fields' => [
         1 => 'status_summary',
+        2 => 'running_duration',
+        3 => 'running_length',
+        4 => 'planned_duration',
+        5 => 'active_locations',
+        6 => 'active_playlist_item',
     ],
     'buttons' => [
+        1 => [
+            'action' => 'start_stream',
+            'source' => 'control_box',
+            'success_message' => 'Hlášení bylo spuštěno.',
+        ],
+        2 => [
+            'action' => 'trigger_jsvv_alarm',
+            'button' => 1,
+            'label' => 'Zkouška sirén',
+        ],
+        3 => [
+            'action' => 'select_jsvv_alarm',
+            'button' => 5,
+            'label' => 'Chemická havárie',
+        ],
+        4 => [
+            'action' => 'select_jsvv_alarm',
+            'button' => 2,
+            'label' => 'Všeobecná výstraha',
+        ],
+        5 => [
+            'action' => 'select_jsvv_alarm',
+            'button' => 3,
+            'label' => 'Požární poplach',
+        ],
+        6 => [
+            'action' => 'select_jsvv_alarm',
+            'button' => 4,
+            'label' => 'Zátopová vlna',
+        ],
         7 => [
             'action' => 'start_stream',
             'source' => 'microphone',
+            'success_message' => 'Mikrofon byl aktivován.',
         ],
         8 => [
             'action' => 'stop_jsvv',
+            'success_message' => 'Poplach JSVV byl zastaven.',
         ],
         9 => [
             'action' => 'start_stream',
             'source' => 'control_box',
-            'options' => [
-                'label' => 'Control box',
-            ],
+            'success_message' => 'Vysílání bylo spuštěno.',
         ],
         10 => [
             'action' => 'stop_stream',
+            'success_message' => 'Vysílání bylo zastaveno.',
+        ],
+        11 => [
+            'action' => 'start_stream',
+            'source' => 'microphone',
+            'options' => [
+                'origin' => 'prime_hlaseni',
+            ],
+            'success_message' => 'Přímé hlášení bylo spuštěno.',
+        ],
+        12 => [
+            'action' => 'stop_stream',
+            'success_message' => 'Přímé hlášení bylo ukončeno.',
         ],
         13 => [
-            'action' => 'trigger_jsvv_alarm',
-            'button' => 2,
+            'action' => 'trigger_selected_jsvv_alarm',
+            'fallback_button' => 2,
+            'label' => 'Poplach JSVV',
+        ],
+        14 => [
+            'action' => 'ack_message',
+            'message' => 'Funkce „Ostatní“ není v této verzi dostupná.',
+        ],
+        15 => [
+            'action' => 'stop_stream',
+            'success_message' => 'Hlášení bylo zastaveno.',
+        ],
+        16 => [
+            'action' => 'lock_panel',
+            'message' => 'Panel byl uzamčen. Pro odemknutí použijte kód na zařízení.',
         ],
         17 => [
-            'action' => 'trigger_jsvv_alarm',
+            'action' => 'select_jsvv_alarm',
             'button' => 6,
+            'label' => 'Radiační poplach',
+        ],
+        18 => [
+            'action' => 'cancel_selection',
+            'message' => 'Výběr poplachu byl zrušen.',
+        ],
+        19 => [
+            'action' => 'ack_message',
+            'message' => 'Výběr znělky proveďte v aplikaci.',
+        ],
+        20 => [
+            'action' => 'ack_message',
+            'message' => 'Výběr lokality proveďte v aplikaci.',
         ],
     ],
     'defaults' => [

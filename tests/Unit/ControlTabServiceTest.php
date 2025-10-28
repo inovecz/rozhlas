@@ -16,6 +16,7 @@ use App\Services\JsvvSequenceService;
 use App\Services\StreamOrchestrator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Cache;
 use Mockery;
 use Mockery\MockInterface;
 use Tests\TestCase;
@@ -126,6 +127,85 @@ class ControlTabServiceTest extends TestCase
                 Bus::dispatch(new RunJsvvSequence('seq-id'));
 
                 return ['id' => 'seq-id', 'status' => 'queued', 'queue_position' => 1];
+            });
+
+        $service = new ControlTabService(Mockery::mock(StreamOrchestrator::class), $seqService);
+
+        $response = $service->handleButtonPress(13);
+
+        $this->assertSame('queued', $response['status']);
+        Bus::assertDispatched(RunJsvvSequence::class);
+    }
+
+    public function test_select_jsvv_alarm_stores_choice(): void
+    {
+        Cache::flush();
+
+        config([
+            'control_tab.buttons' => [
+                3 => ['action' => 'select_jsvv_alarm', 'button' => 5, 'label' => 'Chemická havárie'],
+            ],
+        ]);
+
+        $service = new ControlTabService(Mockery::mock(StreamOrchestrator::class), Mockery::mock(JsvvSequenceService::class));
+
+        $response = $service->handleButtonPress(3);
+
+        $this->assertSame('ok', $response['status']);
+        $selected = Cache::get('control_tab:selected_jsvv_alarm');
+        $this->assertIsArray($selected);
+        $this->assertSame(5, $selected['button']);
+    }
+
+    public function test_trigger_selected_jsvv_alarm_uses_cached_selection(): void
+    {
+        Cache::flush();
+
+        config([
+            'control_tab.buttons' => [
+                13 => ['action' => 'trigger_selected_jsvv_alarm', 'fallback_button' => 2],
+            ],
+        ]);
+
+        JsvvAudio::create([
+            'symbol' => '1',
+            'name' => 'Kolísavý tón',
+            'type' => JsvvAudioTypeEnum::FILE,
+            'group' => JsvvAudioGroupEnum::SIREN,
+        ]);
+        JsvvAudio::create([
+            'symbol' => '8',
+            'name' => 'Gong 1',
+            'type' => JsvvAudioTypeEnum::FILE,
+            'group' => JsvvAudioGroupEnum::VERBAL,
+        ]);
+
+        JsvvAlarm::create([
+            'name' => 'Požární poplach',
+            'sequence_1' => '1',
+            'sequence_2' => '8',
+            'button' => 3,
+            'mobile_button' => 3,
+        ]);
+
+        Cache::put('control_tab:selected_jsvv_alarm', [
+            'button' => 3,
+            'label' => 'Požární poplach',
+        ], now()->addMinute());
+
+        Bus::fake();
+
+        /** @var MockInterface $seqService */
+        $seqService = Mockery::mock(JsvvSequenceService::class);
+        $seqService->shouldReceive('plan')
+            ->once()
+            ->andReturn(['id' => 'seq-fire', 'status' => 'planned']);
+        $seqService->shouldReceive('trigger')
+            ->once()
+            ->andReturnUsing(function () {
+                Bus::dispatch(new RunJsvvSequence('seq-fire'));
+
+                return ['id' => 'seq-fire', 'status' => 'queued', 'queue_position' => 1];
             });
 
         $service = new ControlTabService(Mockery::mock(StreamOrchestrator::class), $seqService);
