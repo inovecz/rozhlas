@@ -29,41 +29,37 @@ return [
     ],
     'buttons' => [
         1 => [
-            'action' => 'start_stream',
-            'source' => 'control_box',
-            'locations' => [(int) env('CONTROL_TAB_DEFAULT_LOCATION_GROUP_ID', 1)],
-            'success_message' => 'Hlášení bylo spuštěno.',
+            'action' => 'ack_message',
+            'message' => 'Vyberte „Spustit přímé hlášení“ v dalším kroku.',
         ],
         2 => [
             'action' => 'trigger_jsvv_alarm',
-            'button' => 1,
+            'button' => 2,
             'label' => 'Zkouška sirén',
         ],
         3 => [
             'action' => 'select_jsvv_alarm',
-            'button' => 5,
+            'button' => 3,
             'label' => 'Chemická havárie',
         ],
         4 => [
             'action' => 'select_jsvv_alarm',
-            'button' => 2,
+            'button' => 4,
             'label' => 'Všeobecná výstraha',
         ],
         5 => [
             'action' => 'select_jsvv_alarm',
-            'button' => 3,
+            'button' => 5,
             'label' => 'Požární poplach',
         ],
         6 => [
             'action' => 'select_jsvv_alarm',
-            'button' => 4,
+            'button' => 6,
             'label' => 'Zátopová vlna',
         ],
         7 => [
-            'action' => 'start_stream',
-            'source' => 'microphone',
-            'locations' => [(int) env('CONTROL_TAB_DEFAULT_LOCATION_GROUP_ID', 1)],
-            'success_message' => 'Mikrofon byl aktivován.',
+            'action' => 'ack_message',
+            'message' => 'Zvolte „Spustit přímé hlášení“ na další obrazovce.',
         ],
         8 => [
             'action' => 'stop_jsvv',
@@ -111,7 +107,7 @@ return [
         ],
         17 => [
             'action' => 'select_jsvv_alarm',
-            'button' => 6,
+            'button' => 17,
             'label' => 'Radiační poplach',
         ],
         18 => [

@@ -10,9 +10,11 @@ use Symfony\Component\Process\Process;
 class AudioDeviceService
 {
     private string $binary;
+    private bool $enabled;
 
     public function __construct(?string $binary = null)
     {
+        $this->enabled = (bool) config('broadcast.mixer.enabled', false);
         $configured = $binary ?? config('broadcast.mixer.binary');
         $this->binary = $this->normalizeBinaryPath($configured ?? 'python-client/mixer_control.py');
     }
@@ -22,6 +24,10 @@ class AudioDeviceService
      */
     public function listDevices(): array
     {
+        if (!$this->enabled) {
+            return [];
+        }
+
         $process = new Process([$this->binary, 'devices']);
         $process->setTimeout((float) config('broadcast.mixer.timeout', 10));
 

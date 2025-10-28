@@ -8,13 +8,16 @@ use App\Jobs\ProcessRecordingPlaylist;
 use App\Jobs\RunJsvvSequence;
 use App\Libraries\PythonClient;
 use App\Models\BroadcastPlaylist;
+use App\Models\BroadcastPlaylistItem;
 use App\Models\BroadcastSession;
 use App\Models\JsvvAudio;
+use App\Models\LocationGroup;
 use App\Models\JsvvEvent;
 use App\Models\JsvvSequence;
 use App\Models\JsvvSequenceItem;
 use App\Models\StreamTelemetryEntry;
 use App\Services\EmailNotificationService;
+use App\Services\PlaylistAudioPlayer;
 use App\Services\SmsNotificationService;
 use App\Settings\JsvvSettings;
 use App\Services\StreamOrchestrator;
@@ -25,6 +28,7 @@ use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
+use RuntimeException;
 use Throwable;
 
 class JsvvSequenceService extends Service
@@ -37,6 +41,7 @@ class JsvvSequenceService extends Service
     public function __construct(
         private readonly PythonClient $client = new PythonClient(),
         private readonly StreamOrchestrator $orchestrator = new StreamOrchestrator(),
+        private readonly PlaylistAudioPlayer $audioPlayer = new PlaylistAudioPlayer(),
         private readonly SmsNotificationService $smsService = new SmsNotificationService(),
         private readonly EmailNotificationService $emailService = new EmailNotificationService(),
     ) {
@@ -257,11 +262,12 @@ class JsvvSequenceService extends Service
             $options['jsvv_sequence_id'] = $sequence->id;
         }
 
+        $remoteStreamStarted = false;
+        $remoteStartMeta = null;
+
         try {
             $this->setActiveSequenceLock($sequence->id);
-            if ($useLocalStream) {
-                $this->preemptActiveSession();
-            }
+            $this->preemptActiveSession();
 
             $items = $sequence->sequenceItems()->orderBy('position')->get();
 
@@ -274,41 +280,65 @@ class JsvvSequenceService extends Service
                     'options' => $options,
                 ]);
                 $sessionId = is_array($session) ? Arr::get($session, 'id') : null;
+            } else {
+                $startResponse = $this->client->startStream(
+                    $route !== [] ? $route : null,
+                    $zones !== [] ? $zones : null,
+                    null,
+                    $route !== []
+                );
+
+                if (($startResponse['success'] ?? false) === false) {
+                    throw new RuntimeException($startResponse['json']['message'] ?? 'Modbus start-stream failed');
+                }
+
+                $remoteStartMeta = Arr::get($startResponse, 'json.data', Arr::get($startResponse, 'json'));
+                $remoteStreamStarted = true;
+                $this->refreshActiveSequenceLock($sequence->id);
             }
 
-            $this->logSequenceEvent($sequence, 'started', [
+            $startEventExtra = [
                 'playback_mode' => $useLocalStream ? 'local_stream' : 'remote_trigger',
                 'estimated_duration_seconds' => $estimatedDuration,
-            ], $sessionId);
+                'route' => $route,
+                'zones' => $zones,
+            ];
+            if (!$useLocalStream && $remoteStartMeta !== null) {
+                $startEventExtra['remote_start'] = $remoteStartMeta;
+            }
+
+            $this->logSequenceEvent($sequence, 'started', $startEventExtra, $sessionId);
 
             $this->notifyJsvvSms($sequence);
             $this->notifyJsvvEmail($sequence);
 
-            $sendFramesToUnits = !$useLocalStream;
-            foreach ($items as $item) {
-                $this->refreshActiveSequenceLock($sequence->id);
-                $category = $item->category;
-                $slot = $item->slot;
-                $repeat = (int) max(1, $item->repeat);
-
-                for ($i = 0; $i < $repeat; $i++) {
-                    if ($category === 'siren') {
-                        $this->client->triggerJsvvFrame('SIREN', [(string) $slot], $sendFramesToUnits, true);
-                    } else {
-                        $voice = $item->voice ?? 'male';
-                        $this->client->triggerJsvvFrame('VERBAL', [(string) $slot, $voice], $sendFramesToUnits, true);
-                    }
-                }
-            }
+            $actualDuration = 0.0;
 
             if ($useLocalStream) {
-                $this->waitForLocalPlayback($sequence, $estimatedDuration);
+                foreach ($items as $item) {
+                    $this->refreshActiveSequenceLock($sequence->id);
+                    $actualDuration += $this->playLocalSequenceItem($item);
+                }
+
+                $actualDuration += $this->applyLocalGapDelay($sequence);
                 $this->stopIfCurrentSourceIsJsvv('jsvv_sequence_completed');
+
+                if ($actualDuration <= 0.0) {
+                    $actualDuration = max(0.0, microtime(true) - $sequenceStart);
+                }
             } else {
                 $this->waitForRemotePlayback($sequence, $estimatedDuration);
-            }
+                $actualDuration = max(0.0, microtime(true) - $sequenceStart);
 
-            $actualDuration = max(0.0, microtime(true) - $sequenceStart);
+                $stopResponse = $this->client->stopStream();
+                if (($stopResponse['success'] ?? true) === false) {
+                    Log::warning('JSVV remote stop-stream reported error', [
+                        'sequence_id' => $sequence->id,
+                        'response' => Arr::get($stopResponse, 'json', []),
+                    ]);
+                }
+                $remoteStreamStarted = false;
+            }
 
             $sequence->update([
                 'status' => 'completed',
@@ -322,6 +352,18 @@ class JsvvSequenceService extends Service
                 'actual_duration_seconds' => $actualDuration,
             ], $sessionId);
         } catch (Throwable $throwable) {
+            if (!$useLocalStream && $remoteStreamStarted) {
+                try {
+                    $this->client->stopStream();
+                } catch (Throwable $stopException) {
+                    Log::warning('Failed to stop remote JSVV stream after exception', [
+                        'sequence_id' => $sequence->id,
+                        'error' => $stopException->getMessage(),
+                    ]);
+                }
+                $remoteStreamStarted = false;
+            }
+
             Log::error('JSVV sequence failed', [
                 'sequence_id' => $sequence->id,
                 'exception' => $throwable,
@@ -340,6 +382,16 @@ class JsvvSequenceService extends Service
                 'estimated_duration_seconds' => $estimatedDuration,
             ], $sessionId);
         } finally {
+            if (!$useLocalStream && $remoteStreamStarted) {
+                try {
+                    $this->client->stopStream();
+                } catch (Throwable $stopException) {
+                    Log::warning('Failed to stop remote JSVV stream in finally block', [
+                        'sequence_id' => $sequence->id,
+                        'error' => $stopException->getMessage(),
+                    ]);
+                }
+            }
             $this->clearActiveSequenceLock();
         }
     }
@@ -836,6 +888,84 @@ class JsvvSequenceService extends Service
         return $normalized !== '' ? $normalized : null;
     }
 
+    private function playLocalSequenceItem(JsvvSequenceItem $item): float
+    {
+        $metadata = $item->metadata ?? [];
+        $path = Arr::get($metadata, 'path');
+
+        if (!is_string($path) || trim($path) === '' || !is_file($path)) {
+            Log::warning('JSVV local playback skipped due to missing asset path', [
+                'sequence_item_id' => $item->id,
+                'slot' => $item->slot,
+                'path' => $path,
+            ]);
+            throw new RuntimeException('Chybí audio soubor pro JSVV sekvenci (slot ' . ($item->slot ?? '?') . ').');
+        }
+
+        $repeat = (int) max(1, $item->repeat);
+        $totalDuration = 0.0;
+        $durationHint = $this->ensureItemDuration($item);
+
+        $playerOverrides = Arr::get($metadata, 'player');
+        $metadataPayload = ['absolute_path' => $path];
+        if (is_array($playerOverrides) && $playerOverrides !== []) {
+            $metadataPayload['player'] = $playerOverrides;
+        }
+
+        $sequenceId = $item->sequence_id ? (string) $item->sequence_id : null;
+
+        for ($index = 0; $index < $repeat; $index++) {
+            $playlistItem = new BroadcastPlaylistItem([
+                'recording_id' => sprintf('jsvv-%s', $item->slot ?? 'asset'),
+                'metadata' => $metadataPayload,
+                'duration_seconds' => $durationHint,
+                'gap_ms' => 0,
+            ]);
+
+            $result = $this->audioPlayer->play($playlistItem);
+
+            if (!$result->success) {
+                Log::warning('JSVV local playback failed', [
+                    'sequence_item_id' => $item->id,
+                    'slot' => $item->slot,
+                    'status' => $result->status,
+                    'context' => $result->context,
+                ]);
+
+                throw new RuntimeException('JSVV lokální přehrávání selhalo: ' . $result->status);
+            }
+
+            $totalDuration += (float) ($result->context['duration_seconds'] ?? $durationHint ?? 0.0);
+
+            if ($sequenceId !== null) {
+                $this->refreshActiveSequenceLock($sequenceId);
+            }
+        }
+
+        return $totalDuration;
+    }
+
+    private function applyLocalGapDelay(JsvvSequence $sequence): float
+    {
+        $options = $sequence->options ?? [];
+        $holdSeconds = 0.0;
+        if (is_array($options)) {
+            $holdSecondsValue = Arr::get($options, 'holdSeconds', Arr::get($options, 'hold_seconds'));
+            if (is_numeric($holdSecondsValue)) {
+                $holdSeconds = (float) $holdSecondsValue;
+            }
+        }
+
+        $gapSeconds = (float) config('jsvv.sequence.local_gap_seconds', 0.0);
+        $delay = max(0.0, $holdSeconds) + max(0.0, $gapSeconds);
+
+        if ($delay > 0) {
+            usleep((int) round($delay * 1_000_000));
+        }
+
+        return $delay;
+    }
+
     private function buildSequenceItemMetadata(array $normalizedItem, ?array $resolvedItem, array $originalRequest = []): array
     {
         $metadata = [];
@@ -965,38 +1095,6 @@ class JsvvSequenceService extends Service
         return $total;
     }
 
-    private function waitForLocalPlayback(JsvvSequence $sequence, float $durationSeconds): void
-    {
-        $duration = max(1.0, $durationSeconds);
-        $start = microtime(true);
-
-        while (true) {
-            $elapsed = microtime(true) - $start;
-            if ($elapsed >= $duration) {
-                break;
-            }
-
-            $session = BroadcastSession::query()
-                ->where('status', 'running')
-                ->latest('started_at')
-                ->first();
-
-            if ($session === null || $session->source !== 'jsvv') {
-                break;
-            }
-
-            $remaining = $duration - $elapsed;
-            $interval = (float) max(0.5, min(5.0, $remaining));
-            usleep((int) round($interval * 1_000_000));
-            $this->refreshActiveSequenceLock($sequence->id);
-        }
-
-        $gapSeconds = (float) config('jsvv.sequence.local_gap_seconds', 0.0);
-        if ($gapSeconds > 0) {
-            usleep((int) round($gapSeconds * 1_000_000));
-        }
-    }
-
     private function waitForRemotePlayback(JsvvSequence $sequence, float $durationSeconds): void
     {
         $duration = max(1.0, $durationSeconds);
@@ -1113,19 +1211,27 @@ class JsvvSequenceService extends Service
 
     private function applySettingsDefaults(array $options): array
     {
+        $locations = $options['locations'] ?? [];
+        if (!is_array($locations)) {
+            $locations = [$locations];
+        }
+        $locations = array_filter(
+            array_map(static fn($value) => is_numeric($value) ? (int) $value : null, $locations),
+            static fn($value) => $value !== null
+        );
+
         $settings = app(JsvvSettings::class);
         $locationGroupId = $settings->locationGroupId;
         if ($locationGroupId !== null) {
-            $locations = $options['locations'] ?? [];
-            if (!is_array($locations)) {
-                $locations = [$locations];
-            }
             $locations[] = (int) $locationGroupId;
-            $options['locations'] = array_values(array_unique(array_filter(
-                array_map(static fn($value) => is_numeric($value) ? (int) $value : null, $locations),
-                static fn($value) => $value !== null
-            )));
+        } elseif ($locations === []) {
+            $locations = LocationGroup::query()
+                ->pluck('id')
+                ->map(static fn($id) => (int) $id)
+                ->all();
         }
+
+        $options['locations'] = array_values(array_unique($locations));
 
         return $options;
     }

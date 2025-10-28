@@ -25,8 +25,23 @@ class ControlTabService extends Service
 
     public function handleButtonPress(int $buttonId, array $context = []): array
     {
+        $context['button_id'] = $buttonId;
         $mapping = config("control_tab.buttons.{$buttonId}");
-        if ($mapping === null) {
+
+        $alarm = JsvvAlarm::query()->where('button', $buttonId)->first();
+        if ($alarm !== null) {
+            $context['jsvv_alarm'] = $alarm;
+            $currentAction = $mapping['action'] ?? null;
+            if ($mapping === null || $currentAction === 'trigger_jsvv_alarm') {
+                $mapping = array_merge($mapping ?? [], [
+                    'action' => 'trigger_jsvv_alarm',
+                    'button' => $alarm->getButton(),
+                    'label' => $mapping['label'] ?? $alarm->getName(),
+                ]);
+            }
+        }
+
+        if ($mapping === null && $alarm === null) {
             return [
                 'status' => 'unsupported',
                 'message' => sprintf('Neznámé tlačítko (%d).', $buttonId),
@@ -36,8 +51,8 @@ class ControlTabService extends Service
         return match ($mapping['action'] ?? null) {
             'start_stream' => $this->startStream($mapping),
             'stop_stream' => $this->stopStream($mapping),
-            'trigger_jsvv_alarm' => $this->triggerJsvvAlarm($mapping),
-            'trigger_selected_jsvv_alarm' => $this->triggerSelectedJsvvAlarm($mapping),
+            'trigger_jsvv_alarm' => $this->triggerJsvvAlarm($mapping, $context),
+            'trigger_selected_jsvv_alarm' => $this->triggerSelectedJsvvAlarm($mapping, $context),
             'select_jsvv_alarm' => $this->selectJsvvAlarm($mapping),
             'stop_jsvv' => $this->stopJsvv($mapping),
             'ack_message' => $this->acknowledgeMessage($mapping),
@@ -136,9 +151,9 @@ class ControlTabService extends Service
         ];
     }
 
-    private function triggerJsvvAlarm(array $config): array
+    private function triggerJsvvAlarm(array $config, array $context = []): array
     {
-        $button = (int) ($config['button'] ?? 0);
+        $button = (int) ($config['button'] ?? ($context['button_id'] ?? 0));
         if ($button <= 0) {
             return [
                 'status' => 'error',
@@ -146,7 +161,10 @@ class ControlTabService extends Service
             ];
         }
 
-        $alarm = JsvvAlarm::query()->where('button', $button)->first();
+        $alarm = $context['jsvv_alarm'] ?? null;
+        if (!$alarm instanceof JsvvAlarm) {
+            $alarm = JsvvAlarm::query()->where('button', $button)->first();
+        }
         if ($alarm === null) {
             return [
                 'status' => 'error',
@@ -219,7 +237,7 @@ class ControlTabService extends Service
         ];
     }
 
-    private function triggerSelectedJsvvAlarm(array $config): array
+    private function triggerSelectedJsvvAlarm(array $config, array $context = []): array
     {
         /** @var array<string, mixed>|null $selected */
         $selected = Cache::get(self::SELECTED_ALARM_CACHE_KEY);
@@ -238,7 +256,7 @@ class ControlTabService extends Service
             $payload['label'] = $selected['label'];
         }
 
-        return $this->triggerJsvvAlarm($payload);
+        return $this->triggerJsvvAlarm($payload, $context);
     }
 
     private function selectJsvvAlarm(array $config): array
