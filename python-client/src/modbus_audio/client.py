@@ -294,6 +294,25 @@ class ModbusAudioClient:
             'data': words[2:],
         }
 
+    def read_nest_status(self, nest_address: int, *, route: Iterable[int] | None = None) -> dict[str, int]:
+        """Configure hop route and read status/error registers for a specific nest."""
+
+        route_list = list(route) if route is not None else []
+        if nest_address not in route_list:
+            route_list.append(nest_address)
+
+        if route_list:
+            self.configure_route(route_list)
+
+        status_value = self.read_register(constants.STATUS_REGISTER)
+        error_value = self.read_register(constants.ERROR_REGISTER)
+
+        return {
+            'status': status_value,
+            'error': error_value,
+            'route': route_list,
+        }
+
     def dump_documented_registers(self) -> list[tuple[str, str, str, str]]:
         """Return a table of documented registers and their current values."""
 

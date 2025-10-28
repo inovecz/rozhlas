@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\LiveBroadcastApiController;
 use App\Http\Controllers\Api\ManualControlController;
 use App\Http\Controllers\Api\TelemetryController;
 use App\Http\Controllers\Api\AudioIoController;
+use App\Http\Controllers\Api\SystemStatusController;
 
 Route::group(['prefix' => 'auth', 'middleware' => ['api', 'auth:api']], static function () {
     Route::post('/login', [AuthController::class, 'login'])->withoutMiddleware(['auth:api']);
@@ -136,12 +137,15 @@ Route::group(['middleware' => ['api']], static function () {
 
     Route::group(['prefix' => 'records'], static function () {
         Route::post('/list', [FileController::class, 'list']);
+        Route::post('/copy-from-central-file', [FileController::class, 'copyFromCentralFile']);
         Route::group(['prefix' => '{file}', 'where' => ['file' => '\d+']], static function () {
             Route::delete('/', [FileController::class, 'delete']);
             Route::put('/rename', [FileController::class, 'renameFile']);
             Route::get('/get-blob', [FileController::class, 'getRecordWithBlob']);
         });
     });
+
+    Route::get('/system/status', [SystemStatusController::class, 'overview']);
 
     Route::group(['prefix' => 'schedules'], static function () {
         Route::group(['prefix' => '{schedule}', 'where' => ['schedule' => '\d+',]], static function () {

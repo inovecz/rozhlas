@@ -1,4 +1,6 @@
-#!/home/mirek/rozhlas/.venv/bin/python3
+#!/bin/sh
+'''exec' "/Users/jankozusnik/Projekty - Dev/rozhlas-test/rozhlas/.venv/bin/python3.13" "$0" "$@"
+' '''
 import sys
 from pymodbus.repl.client.main import main
 if __name__ == '__main__':

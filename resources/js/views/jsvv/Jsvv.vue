@@ -1,5 +1,5 @@
 <script setup>
-import {computed, nextTick, onMounted, reactive, ref, watch} from "vue";
+import {computed, nextTick, onMounted, onBeforeUnmount, reactive, ref, watch} from "vue";
 import {createConfirmDialog} from "vuejs-confirm-dialog";
 import ModalDialog from "../../components/modals/ModalDialog.vue";
 import {useToast} from "vue-toastification";
@@ -7,8 +7,12 @@ import router from "../../router.js";
 import PageContent from "../../components/custom/PageContent.vue";
 import Box from "../../components/custom/Box.vue";
 import Button from "../../components/forms/Button.vue";
+import Checkbox from "../../components/forms/Checkbox.vue";
+import Input from "../../components/forms/Input.vue";
 import JsvvAlarmService from "../../services/JsvvAlarmService.js";
 import JsvvSequenceService from "../../services/JsvvSequenceService.js";
+import SettingsService from "../../services/SettingsService.js";
+import LiveBroadcastService from "../../services/LiveBroadcastService.js";
 import {moveItemDown, moveItemUp} from "../../helper.js";
 import {JSVV_BUTTON_DEFAULTS} from "../../constants/jsvvDefaults.js";
 
@@ -18,6 +22,15 @@ const jsvvAlarms = ref([]);
 const jsvvAudios = ref([]);
 const loadingQuick = ref(false);
 const sendingCustom = ref(false);
+const fmInfo = ref(null);
+const fmLoading = ref(false);
+const fmPreviewLoading = ref(false);
+const fmPreviewActive = ref(false);
+
+const playbackControls = reactive({
+  useFmRadio: false,
+  fmFrequency: '',
+});
 
 const quickAlarmsDefinition = JSVV_BUTTON_DEFAULTS.map((item) => ({
   button: item.button,
@@ -32,10 +45,33 @@ const builderFilters = reactive({
   search: '',
 });
 
-onMounted(() => {
-  fetchJsvvAlarms();
-  fetchJsvvAudios();
+onMounted(async () => {
+  await Promise.all([fetchJsvvAlarms(), fetchJsvvAudios()]);
+  await loadFmSettings();
 });
+
+onBeforeUnmount(() => {
+  if (fmPreviewActive.value) {
+    stopFmPreview();
+  }
+});
+
+async function loadFmSettings() {
+  fmLoading.value = true;
+  try {
+    const response = await SettingsService.fetchFMSettings();
+    fmInfo.value = response;
+    const frequency = response?.frequency ?? response?.frequency_mhz ?? null;
+    if (!playbackControls.fmFrequency && frequency !== null && frequency !== '') {
+      playbackControls.fmFrequency = String(frequency);
+    }
+  } catch (error) {
+    console.error(error);
+    toast.error('Nepodařilo se načíst frekvenci FM rádia');
+  } finally {
+    fmLoading.value = false;
+  }
+}
 
 watch(showCustomBuilder, (visible) => {
   if (!visible) {
@@ -49,8 +85,34 @@ watch(showCustomBuilder, (visible) => {
   }
 });
 
+watch(
+  () => playbackControls.fmFrequency,
+  (value) => {
+    if (typeof value !== 'string') {
+      return;
+    }
+    const trimmed = value.trim();
+    const sanitized = trimmed.replace(',', '.').replace(/[^0-9.]/g, '');
+    if (sanitized !== value) {
+      playbackControls.fmFrequency = sanitized;
+    }
+  }
+);
+
+watch(
+  () => playbackControls.useFmRadio,
+  (enabled) => {
+    if (enabled && !playbackControls.fmFrequency && fmInfo.value?.frequency) {
+      playbackControls.fmFrequency = String(fmInfo.value.frequency);
+    }
+    if (!enabled && fmPreviewActive.value) {
+      stopFmPreview();
+    }
+  }
+);
+
 function fetchJsvvAlarms() {
-  JsvvAlarmService.fetchJsvvAlarms()
+  return JsvvAlarmService.fetchJsvvAlarms()
       .then((response) => {
         jsvvAlarms.value = response.data;
       })
@@ -61,7 +123,7 @@ function fetchJsvvAlarms() {
 }
 
 function fetchJsvvAudios() {
-  JsvvAlarmService.getJsvvAudios()
+  return JsvvAlarmService.getJsvvAudios()
       .then((response) => {
         jsvvAudios.value = response;
       })
@@ -74,10 +136,109 @@ function fetchJsvvAudios() {
 const audioMap = computed(() => {
   const map = new Map();
   jsvvAudios.value.forEach((audio) => {
-    map.set(String(audio.symbol), audio);
+    const key = String(audio.symbol ?? '').trim().toUpperCase();
+    if (key) {
+      map.set(key, audio);
+    }
   });
   return map;
 });
+
+function normaliseSymbol(symbol) {
+  return String(symbol ?? '').trim().toUpperCase();
+}
+
+function resolveAudioForSymbol(symbol) {
+  const key = normaliseSymbol(symbol);
+  if (!key) {
+    return undefined;
+  }
+  return audioMap.value.get(key);
+}
+
+function extractSlot(candidate) {
+  if (candidate == null) {
+    return null;
+  }
+  if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+    return candidate;
+  }
+  if (typeof candidate === 'string') {
+    const match = candidate.match(/(\d+)/);
+    if (match) {
+      const value = Number.parseInt(match[1], 10);
+      return Number.isNaN(value) ? null : value;
+    }
+  }
+  return null;
+}
+
+function resolveSlotForSymbol(symbol, audio) {
+  const normalized = normaliseSymbol(symbol);
+  if (!normalized) {
+    return null;
+  }
+  if (/^\d+$/.test(normalized)) {
+    return Number.parseInt(normalized, 10);
+  }
+  const candidates = [];
+  if (audio) {
+    if (typeof audio.slot !== 'undefined') {
+      candidates.push(audio.slot);
+    }
+    if (audio.file) {
+      candidates.push(audio.file.metadata?.slot, audio.file.name, audio.file.filename);
+    }
+    candidates.push(audio.name);
+  }
+  candidates.push(symbol);
+  for (const candidate of candidates) {
+    const resolved = extractSlot(candidate);
+    if (resolved != null) {
+      return resolved;
+    }
+  }
+  return null;
+}
+
+function normaliseCategory(category, audio) {
+  const source = category ?? audio?.group ?? 'VERBAL';
+  return String(source).trim().toLowerCase() === 'siren' ? 'siren' : 'verbal';
+}
+
+function normaliseRepeat(value) {
+  const parsed = Number.parseInt(value ?? 1, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) {
+    return 1;
+  }
+  return parsed;
+}
+
+function buildRequestItem(raw) {
+  const symbol = raw?.symbol ?? raw?.slot ?? raw;
+  const normalizedSymbol = normaliseSymbol(symbol);
+  if (!normalizedSymbol) {
+    throw new Error('Sekvence obsahuje prázdný symbol.');
+  }
+  const audio = resolveAudioForSymbol(normalizedSymbol);
+  const slot = resolveSlotForSymbol(normalizedSymbol, audio);
+  if (slot == null) {
+    throw new Error(`Symbol ${normalizedSymbol} není přiřazen k žádnému slotu JSVV.`);
+  }
+  const category = normaliseCategory(raw?.category, audio);
+  const repeat = normaliseRepeat(raw?.repeat);
+  const item = {
+    slot,
+    category,
+    repeat,
+    symbol: normalizedSymbol,
+  };
+  const voice = raw?.voice ?? audio?.voice ?? audio?.default_voice;
+  if (voice && category !== 'siren') {
+    item.voice = voice;
+  }
+  return item;
+}
 
 const groupedAudios = computed(() => {
   const order = ['SIREN', 'GONG', 'VERBAL', 'AUDIO'];
@@ -160,54 +321,39 @@ function manageAlarm(alarm) {
   router.push({name: 'EditJSVV', params: {id: alarm.id}});
 }
 
+function expandSequenceDefinition(rawSequence, fallbackSymbol) {
+  if (Array.isArray(rawSequence)) {
+    return rawSequence;
+  }
+  if (typeof rawSequence === 'string') {
+    const trimmed = rawSequence.trim();
+    if (!trimmed) {
+      return [fallbackSymbol];
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch (error) {
+      // Not a JSON array; fall back to symbol string.
+    }
+    return trimmed
+        .split('')
+        .map((symbol) => symbol.trim())
+        .filter((symbol) => symbol.length > 0);
+  }
+  if (rawSequence == null) {
+    return [fallbackSymbol];
+  }
+  return [rawSequence];
+}
+
 function buildSequenceItems(alarm) {
   const rawSequence = alarm.sequence_json || alarm.sequence;
   const fallbackSymbol = alarm.slot ?? alarm.button ?? alarm.id ?? 1;
-
-  const normaliseItem = (entry) => {
-    if (entry == null) {
-      return null;
-    }
-    if (typeof entry === 'object') {
-      const symbol = entry.slot ?? entry.symbol ?? entry;
-      const audio = audioMap.value.get(String(symbol));
-      return {
-        slot: String(symbol),
-        category: entry.category ?? audio?.group ?? undefined,
-        repeat: entry.repeat ?? 1,
-      };
-    }
-    const symbol = String(entry);
-    const audio = audioMap.value.get(symbol);
-    return {
-      slot: symbol,
-      category: audio?.group ?? undefined,
-      repeat: 1,
-    };
-  };
-
-  if (Array.isArray(rawSequence)) {
-    return rawSequence.map(normaliseItem).filter(Boolean);
-  }
-
-  if (typeof rawSequence === 'string') {
-    try {
-      const parsed = JSON.parse(rawSequence);
-      if (Array.isArray(parsed)) {
-        return parsed.map(normaliseItem).filter(Boolean);
-      }
-    } catch (error) {
-      // fallback to plain string below
-    }
-    return rawSequence
-        .split('')
-        .map((symbol) => symbol.trim())
-        .filter((symbol) => symbol.length > 0)
-        .map(normaliseItem)
-        .filter(Boolean);
-  }
-
-  return [normaliseItem(fallbackSymbol)].filter(Boolean);
+  const entries = expandSequenceDefinition(rawSequence, fallbackSymbol);
+  return entries.map((entry) => buildRequestItem(entry));
 }
 
 const buildSequenceFromSymbols = (sequenceString) => {
@@ -219,14 +365,7 @@ const buildSequenceFromSymbols = (sequenceString) => {
       .split('')
       .map((symbol) => symbol.trim())
       .filter((symbol) => symbol.length > 0)
-      .map((symbol) => {
-        const audio = audioMap.value.get(symbol);
-        return {
-          slot: symbol,
-          category: audio?.group ?? undefined,
-          repeat: 1,
-        };
-      });
+      .map((symbol) => buildRequestItem(symbol));
 };
 
 function notifySequenceTrigger(result) {
@@ -256,6 +395,87 @@ function notifySequenceTrigger(result) {
   toast.success('Požadavek na poplach byl přijat.');
 }
 
+function buildSequenceOptions(base = {}) {
+  const options = {...base};
+  if (playbackControls.useFmRadio) {
+    options.audioInputId = 'fm';
+    options.playbackSource = 'fm_radio';
+    if (playbackControls.fmFrequency) {
+      options.frequency = playbackControls.fmFrequency;
+    }
+  }
+  return options;
+}
+
+function formatFrequencyDisplay(value) {
+  if (value === null || value === undefined) {
+    return 'Neznámá';
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return String(value);
+  }
+  if (numeric > 1000) {
+    const mhz = numeric / 1_000_000;
+    return `${mhz.toFixed(2)} MHz (${numeric.toFixed(0)} Hz)`;
+  }
+  return `${numeric.toFixed(2)} MHz`;
+}
+
+async function startFmPreview() {
+  if (fmPreviewLoading.value || fmPreviewActive.value) {
+    return;
+  }
+  if (!playbackControls.fmFrequency) {
+    toast.warning('Zadejte frekvenci FM rádia.');
+    return;
+  }
+
+  fmPreviewLoading.value = true;
+  try {
+    const parsed = Number(playbackControls.fmFrequency);
+    const frequency = Number.isFinite(parsed) ? parsed : playbackControls.fmFrequency;
+    const options = {
+      frequency,
+      playbackSource: 'fm_radio',
+      audioInputId: 'fm',
+    };
+    await LiveBroadcastService.startBroadcast({
+      source: 'fm_radio',
+      route: [],
+      locations: [],
+      nests: [],
+      options,
+    });
+    fmPreviewActive.value = true;
+    toast.success('FM stream byl spuštěn.');
+  } catch (error) {
+    console.error(error);
+    const message = error?.response?.data?.message ?? 'Nepodařilo se spustit FM stream.';
+    toast.error(message);
+  } finally {
+    fmPreviewLoading.value = false;
+  }
+}
+
+async function stopFmPreview() {
+  if (fmPreviewLoading.value || !fmPreviewActive.value) {
+    return;
+  }
+  fmPreviewLoading.value = true;
+  try {
+    await LiveBroadcastService.stopBroadcast('fm_preview_stop');
+    toast.info('FM stream byl zastaven.');
+  } catch (error) {
+    console.error(error);
+    const message = error?.response?.data?.message ?? 'Nepodařilo se zastavit FM stream.';
+    toast.error(message);
+  } finally {
+    fmPreviewLoading.value = false;
+    fmPreviewActive.value = false;
+  }
+}
+
 async function triggerQuickAlarm(definition) {
   if (loadingQuick.value) {
     return;
@@ -272,22 +492,22 @@ async function triggerQuickAlarm(definition) {
   });
   reveal();
   onConfirm(async () => {
-    loadingQuick.value = true;
-    try {
-      const items = alarm ? buildSequenceItems(alarm) : buildSequenceFromSymbols(sequenceString);
-      const sequence = await JsvvSequenceService.planSequence(items, {
-        priority: alarm?.priority ?? 'P2',
-        zones: alarm?.zones ?? [],
-      });
-      const sequenceId = sequence?.id ?? sequence?.sequence?.id;
-      if (!sequenceId) {
-        throw new Error('Sequence ID missing');
-      }
-      const triggerResult = await JsvvSequenceService.triggerSequence(sequenceId);
+      loadingQuick.value = true;
+      try {
+        const items = alarm ? buildSequenceItems(alarm) : buildSequenceFromSymbols(sequenceString);
+        const sequence = await JsvvSequenceService.planSequence(items, buildSequenceOptions({
+          priority: alarm?.priority ?? 'P2',
+          zones: alarm?.zones ?? [],
+        }));
+        const sequenceId = sequence?.id ?? sequence?.sequence?.id;
+        if (!sequenceId) {
+          throw new Error('Sequence ID missing');
+        }
+        const triggerResult = await JsvvSequenceService.triggerSequence(sequenceId);
       notifySequenceTrigger(triggerResult);
     } catch (error) {
       console.error(error);
-      toast.error('Nepodařilo se odeslat alarm');
+      toast.error(error?.message ?? 'Nepodařilo se odeslat alarm');
     } finally {
       loadingQuick.value = false;
     }
@@ -333,14 +553,19 @@ async function sendCustomSequence() {
     toast.warning('Sestavte nejprve vlastní poplach.');
     return;
   }
-  const items = customSequence.value.map((entry) => ({
-    slot: entry.symbol,
-    category: entry.group ?? undefined,
-    repeat: 1,
-  }));
+  let items;
+  try {
+    items = customSequence.value.map((entry) =>
+        buildRequestItem({slot: entry.symbol, category: entry.group, repeat: 1})
+    );
+  } catch (error) {
+    console.error(error);
+    toast.error(error?.message ?? 'Sekvenci se nepodařilo připravit.');
+    return;
+  }
   sendingCustom.value = true;
   try {
-    const sequence = await JsvvSequenceService.planSequence(items, {});
+    const sequence = await JsvvSequenceService.planSequence(items, buildSequenceOptions({}));
     const sequenceId = sequence?.id ?? sequence?.sequence?.id;
     if (!sequenceId) {
       throw new Error('Sequence ID missing');
@@ -350,7 +575,7 @@ async function sendCustomSequence() {
     customSequence.value = [];
   } catch (error) {
     console.error(error);
-    toast.error('Nepodařilo se odeslat vlastní poplach');
+    toast.error(error?.message ?? 'Nepodařilo se odeslat vlastní poplach');
   } finally {
     sendingCustom.value = false;
   }
@@ -379,6 +604,53 @@ function openProtocol() {
           Vlastní poplach
         </Button>
       </div>
+
+      <Box label="Nastavení přehrávání">
+        <div class="space-y-4">
+          <Checkbox v-model="playbackControls.useFmRadio" label="Přehrávat poplach přes FM rádio"/>
+          <div
+              v-if="playbackControls.useFmRadio"
+              class="grid gap-4 sm:grid-cols-[minmax(0,220px),1fr] items-start">
+            <Input
+                v-model="playbackControls.fmFrequency"
+                label="Frekvence rádia"
+                placeholder="Např.: 104.3"
+                badge="MHz"
+                data-class="input-bordered input-sm"
+            />
+            <div class="text-xs text-gray-500 space-y-1">
+              <div v-if="fmLoading">
+                Načítám aktuální nastavení FM přijímače…
+              </div>
+              <div v-else-if="fmInfo?.frequency">
+                Aktuální frekvence přijímače: <span class="font-semibold">{{ formatFrequencyDisplay(fmInfo.frequency) }}</span>
+              </div>
+              <div v-else>
+                Zadejte požadovanou frekvenci v&nbsp;MHz. Pokud pole ponecháte prázdné, použije se výchozí nastavení přijímače.
+              </div>
+              <div class="flex flex-wrap gap-2 pt-2">
+                <Button
+                    v-if="!fmPreviewActive"
+                    icon="mdi-play"
+                    size="sm"
+                    :disabled="fmPreviewLoading"
+                    @click="startFmPreview">
+                  Spustit prehravani
+                </Button>
+                <Button
+                    v-else
+                    icon="mdi-stop"
+                    size="sm"
+                    variant="danger"
+                    :disabled="fmPreviewLoading"
+                    @click="stopFmPreview">
+                  Zastavit FM stream
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Box>
 
       <Box label="Tlačítka JSVV">
         <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

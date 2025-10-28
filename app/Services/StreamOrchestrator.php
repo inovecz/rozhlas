@@ -19,6 +19,7 @@ use App\Services\Mixer\AudioRoutingService;
 use App\Services\Mixer\MixerController;
 use App\Services\Mixer\PulseLoopbackManager;
 use App\Services\ControlChannelService;
+use App\Services\FmRadioService;
 use App\Services\VolumeManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Arr;
@@ -43,6 +44,7 @@ class StreamOrchestrator extends Service
         private readonly MixerController $mixer = new MixerController(),
         private readonly AudioRoutingService $audioRouting = new AudioRoutingService(),
         private readonly PulseLoopbackManager $loopbackManager = new PulseLoopbackManager(),
+        private readonly FmRadioService $fmRadio = new FmRadioService(),
         ?ControlChannelService $controlChannel = null,
     ) {
         parent::__construct();
@@ -63,6 +65,7 @@ class StreamOrchestrator extends Service
         $route = $this->resolveRoute($manualRoute, $targets);
         $zones = $targets['zones'];
         $augmentedOptions = $this->augmentOptions($options, $manualRoute, $locationGroupIds, $nestIds, $targets);
+        $augmentedOptions = $this->applyFrequencyOption($augmentedOptions);
         if ($zones === []) {
             throw new InvalidArgumentException('Destination zones must be defined before starting broadcast.');
         }
@@ -891,6 +894,118 @@ class StreamOrchestrator extends Service
         }
 
         return $options;
+    }
+
+    /**
+     * Apply FM frequency option if requested.
+     *
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function applyFrequencyOption(array $options): array
+    {
+        $frequencyHz = $this->extractFrequencyHz($options);
+        if ($frequencyHz === null) {
+            return $options;
+        }
+
+        $alreadyApplied = Arr::get($options, '_frequency.applied_hz');
+        if (is_numeric($alreadyApplied) && abs((float) $alreadyApplied - $frequencyHz) < 0.5) {
+            return $options;
+        }
+
+        try {
+            $result = $this->fmRadio->setFrequency($frequencyHz);
+            $appliedHz = (float) ($result['frequency'] ?? $frequencyHz);
+
+            $options['_frequency'] = [
+                'requested_hz' => $frequencyHz,
+                'requested_mhz' => $frequencyHz / 1_000_000,
+                'applied_hz' => $appliedHz,
+                'applied_mhz' => $appliedHz / 1_000_000,
+            ];
+
+            if (isset($result['python'])) {
+                $options['_frequency']['python'] = $result['python'];
+            }
+        } catch (\Throwable $exception) {
+            Log::error('Unable to set FM frequency for broadcast session.', [
+                'exception' => $exception->getMessage(),
+                'frequency_hz' => $frequencyHz,
+            ]);
+            $options['_frequency_error'] = $exception->getMessage();
+        }
+
+        return $options;
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     */
+    private function extractFrequencyHz(array $options): ?float
+    {
+        $candidates = [
+            ['value' => $options['frequency_hz'] ?? null, 'unit' => 'hz'],
+            ['value' => $options['frequencyHz'] ?? null, 'unit' => 'hz'],
+            ['value' => $options['frequency_mhz'] ?? null, 'unit' => 'mhz'],
+            ['value' => $options['frequencyMhz'] ?? null, 'unit' => 'mhz'],
+            ['value' => $options['frequency'] ?? null, 'unit' => 'auto'],
+        ];
+
+        foreach ($candidates as $candidate) {
+            $hz = $this->parseFrequencyValue($candidate['value'], $candidate['unit']);
+            if ($hz !== null) {
+                return $hz;
+            }
+        }
+
+        return null;
+    }
+
+    private function parseFrequencyValue(mixed $value, string $unit = 'auto'): ?float
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $unitHint = strtolower($unit);
+        $numeric = null;
+
+        if (is_string($value)) {
+            $candidate = trim($value);
+            if ($candidate === '') {
+                return null;
+            }
+
+            $lower = strtolower($candidate);
+            if (str_contains($lower, 'mhz')) {
+                $unitHint = 'mhz';
+            } elseif (str_contains($lower, 'hz')) {
+                $unitHint = 'hz';
+            }
+
+            $sanitized = preg_replace('/[^0-9.,+-]/', '', $candidate);
+            if ($sanitized === null) {
+                return null;
+            }
+            $sanitized = str_replace(',', '.', $sanitized);
+            if ($sanitized === '' || !is_numeric($sanitized)) {
+                return null;
+            }
+            $numeric = (float) $sanitized;
+        } elseif (is_numeric($value)) {
+            $numeric = (float) $value;
+        }
+
+        if ($numeric === null || !is_finite($numeric) || $numeric <= 0) {
+            return null;
+        }
+
+        if ($unitHint === 'mhz' || ($unitHint === 'auto' && $numeric < 2000)) {
+            return $numeric * 1_000_000;
+        }
+
+        return $numeric;
     }
 
     /**

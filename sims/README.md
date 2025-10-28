@@ -9,7 +9,8 @@ Tato složka obsahuje skripty, které umožňují ověřit integraci ústředny 
  sims/
  ├── README.md               # tento soubor
  ├── control_tab_sim.py      # simulátor zpráv z Control Tabu (panel_loaded, button_pressed…)
- ├── jswv_sequence_sim.py    # simulace paralelních požadavků JSVV s různou prioritou
+ ├── jsvv_sequence_sim.py    # simulace prioritních/ FM poplachů JSVV přes REST API
+ ├── modbus_two_way_sim.py   # scénáře pro start/stop přes Modbus, čtení stavů hnízd a alarm bufferu
  └── alarm_buffer_check.py   # čte LIFO buffer 0x3000–0x3009 a ověřuje frontu alarmů
 ```
 
@@ -29,15 +30,36 @@ python sims/control_tab_sim.py --text 1       # vyžádej text panelu „infopan
 
 Skript vypíše odpověď backendu (stav, případná pozice ve frontě) a validuje CRC podle protokolu.
 
-### 2. Prioritní poplachy
+### 2. Prioritní poplachy + FM režim
 ```
-python sims/jswv_sequence_sim.py --count 3 --mix
+# mix P1–P3, přepne audio na FM vstup a nastaví frekvenci 104.3 MHz
+python sims/jsvv_sequence_sim.py --count 3 --mix --use-fm --fm-frequency 104.3 --status
 ```
 
-Spustí více JSVV sekvencí v krátkém sledu a sleduje reakci orchestrátoru (loguje frontu, priority,
-stav `BroadcastSession`).
+Skript:
+- vytvoří a spustí více JSVV sekvencí v krátkém sledu,
+- volitelně přesměruje přehrávání na FM vstup (`--use-fm`, `--fm-frequency`),
+- umožní přepsat audio routování (`--audio-input`, `--audio-output`),
+- podporuje cílení na konkrétní lokality (`--locations 12,14`) i přidání `holdSeconds`,
+- při volbě `--status` po každém triggeru vytiskne poslední `BroadcastSession`.
 
-### 3. Alarm buffer
+### 3. Modbus / obousměrná komunikace
+```
+# Start -> čekej 5 s -> stop (využije TxControl)
+python sims/modbus_two_way_sim.py scenario --wait 5
+
+# Vyčti stav hnízd A16 = 101,102 přes hub 1
+python sims/modbus_two_way_sim.py poll-nests --nest 101 102 --prefix 1
+
+# Poslouchej alarm buffer (0x3000–0x3009)
+python sims/modbus_two_way_sim.py listen-alarms --interval 1.5
+```
+
+Skript používá stejné helpers jako backend (`modbus_audio`). Nastavení portu,
+baudrate apod. lze přepsat argumenty (`--port`, `--baudrate`…), jinak se použijí
+výchozí hodnoty z knihovny.
+
+### 4. Alarm buffer
 ```
 python sims/alarm_buffer_check.py --loops 5 --delay 2
 ```
@@ -50,4 +72,3 @@ datová slova. Ověří, že po čtení se nahrává další alarm.
   Modbus port.
 - Při testování proti reálnému zařízení je nutné zajistit, aby byly nastaveny přenosové cesty
   (route + destination zones). Skripty využívají výchozí konfiguraci (`constants.DEFAULT_ROUTE`, `DEFAULT_DESTINATION_ZONES`).
-

@@ -44,7 +44,7 @@ const FORCED_MIXER_OUTPUT_ID = FORCED_AUDIO_OUTPUT_ID;
 const selectedMixerOutputId = ref(FORCED_MIXER_OUTPUT_ID || '');
 
 const form = reactive({
-  source: '',
+  source: 'system_audio',
   routeText: '',
   selectedLocationGroups: [],
   selectedNests: [],
@@ -145,6 +145,10 @@ const combinedSourceOptions = computed(() => {
 
 const isStreaming = computed(() => status.value?.session?.status === 'running');
 const showPlaylistControls = computed(() => form.source === 'central_file');
+const showCentralFilePicker = computed(() => {
+  const centralFileInputId = sourceToMixerInputMap.central_file ?? 'file';
+  return selectedMixerInputId.value === centralFileInputId;
+});
 const showFmInfo = computed(() => form.source === 'fm_radio');
 const hasNestsDefined = computed(() => Array.isArray(nests.value) && nests.value.length > 0);
 const volumeGroups = ref([]);
@@ -531,11 +535,6 @@ watch(() => form.source, async (newSource, oldSource) => {
     await loadFmFrequency();
   }
 
-  if (newSource === 'central_file' && form.playlistItems.length === 0) {
-    await nextTick();
-    pickPlaylist();
-  }
-
   const recommended = sourceToMixerInputMap[newSource];
   if (recommended && recommended !== selectedMixerInputId.value && mixerInputs.value.some(item => item.id === recommended)) {
     mixerSyncing.value = true;
@@ -570,14 +569,18 @@ const loadSources = async () => {
     sources.value = normalised;
 
     const ensureDefaultSource = () => {
-      const preferred = sources.value.find(source => source.id === 'pc_webrtc' && source.available);
+      const current = sources.value.find(source => source.id === form.source && source.available);
+      if (current) {
+        return;
+      }
+
+      const preferredOrder = ['system_audio', 'pc_webrtc'];
+      const preferred = preferredOrder
+        .map((id) => sources.value.find(source => source.id === id && source.available))
+        .find(Boolean);
       const firstAvailable = sources.value.find(source => source.available);
       const fallback = preferred ?? firstAvailable ?? sources.value[0] ?? null;
-      if (fallback) {
-        form.source = fallback.id;
-      } else {
-        form.source = '';
-      }
+      form.source = fallback ? fallback.id : '';
     };
 
     if (!form.source) {
@@ -1137,7 +1140,7 @@ const buildStartPayload = () => {
 };
 
 const startStream = async () => {
-  if (showPlaylistControls.value && form.playlistItems.length === 0) {
+  if (form.source === 'central_file' && form.playlistItems.length === 0) {
     toast.warning('Vyberte prosím soubor v ústředně.');
     return;
   }
@@ -1316,7 +1319,7 @@ const removePlaylistItem = (index) => {
         <Box label="Zdroje a obsah">
           <div class="space-y-4">
             <div class="space-y-1">
-              <label class="block text-sm font-medium text-gray-700">Směrování ústředny</label>
+              <label class="block text-sm font-medium text-gray-700">Vstup</label>
               <select
                   v-model="selectedMixerInputId"
                   class="form-select w-full border border-gray-300 rounded-md bg-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-40"
@@ -1333,9 +1336,7 @@ const removePlaylistItem = (index) => {
               </p>
             </div>
 
-            <Textarea v-model="form.note" label="Poznámka" rows="2" placeholder="Nepovinné doplňující údaje"/>
-
-            <div v-if="showPlaylistControls" class="space-y-2">
+            <div v-if="showCentralFilePicker" class="space-y-2">
               <div class="flex justify-between items-center">
                 <span class="text-sm font-medium text-gray-700">Soubor v ústředně</span>
                 <Button size="xs" icon="mdi-playlist-plus" @click="pickPlaylist">Vybrat soubor</Button>
@@ -1349,6 +1350,8 @@ const removePlaylistItem = (index) => {
               </ul>
             </div>
 
+            <Textarea v-model="form.note" label="Poznámka" rows="2" placeholder="Nepovinné doplňující údaje"/>
+
             <div v-if="showFmInfo" class="space-y-2 text-sm">
               <div><strong>Frekvence FM rádia:</strong> {{ form.fmFrequency || 'Neznámá' }}</div>
               <Button size="xs" icon="mdi-refresh" @click="loadFmFrequency">Aktualizovat frekvenci</Button>
@@ -1356,43 +1359,29 @@ const removePlaylistItem = (index) => {
 
             <div class="space-y-3">
               <div class="flex items-center justify-between">
-                <span class="text-sm font-semibold text-gray-700">
-                  Hlasitost vstupu
-                </span>
+                <span class="text-sm font-semibold text-gray-700">Hlasitost vstupu</span>
                 <span v-if="volumeLoading" class="text-xs text-gray-500">Načítám…</span>
               </div>
               <template v-if="!volumeLoading">
-                <div>
-                  <div class="flex items-center justify-between">
-                    <span class="text-sm font-medium text-gray-700">
-                      <template v-if="currentInputVolumeItem">
-                        {{ currentInputVolumeItem.label }}
-                      </template>
-                      <template v-else>
-                        Vstup není dostupný
-                      </template>
-                    </span>
-                    <span v-if="isInputVolumeSaving" class="text-xs text-gray-500">Ukládám…</span>
-                  </div>
-                  <template v-if="currentInputVolumeItem">
-                    <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:min-w-[360px] mt-2">
-                      <input
-                          v-model.number="currentInputVolumeItem.value"
-                          type="range"
-                          class="range range-sm w-full sm:w-64 md:w-80"
-                          :min="volumeSlider.min"
-                          :max="volumeSlider.max"
-                          :step="volumeSlider.step"
-                          @change="handleInputVolumeChange"
-                          :disabled="isInputVolumeSaving"
-                      />
-                      <div class="flex items-center gap-2 text-sm text-gray-700">
-                        <span class="inline-block w-14 text-right">{{ Math.round(Number(currentInputVolumeItem.value)) }} %</span>
-                      </div>
+                <template v-if="currentInputVolumeItem">
+                  <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:min-w-[360px] mt-2">
+                    <input
+                        v-model.number="currentInputVolumeItem.value"
+                        type="range"
+                        class="range range-sm w-full sm:w-64 md:w-80"
+                        :min="volumeSlider.min"
+                        :max="volumeSlider.max"
+                        :step="volumeSlider.step"
+                        @change="handleInputVolumeChange"
+                        :disabled="isInputVolumeSaving"
+                    />
+                    <div class="flex items-center gap-2 text-sm text-gray-700">
+                      <span class="inline-block w-14 text-right">{{ Math.round(Number(currentInputVolumeItem.value)) }} %</span>
                     </div>
-                  </template>
-                  <div v-else class="text-xs text-gray-500 mt-1">Žádný vstup není dostupný.</div>
-                </div>
+                  </div>
+                  <div v-if="isInputVolumeSaving" class="text-xs text-gray-500 text-right">Ukládám…</div>
+                </template>
+                <div v-else class="text-xs text-gray-500 mt-1">Žádný vstup není dostupný.</div>
               </template>
             </div>
           </div>

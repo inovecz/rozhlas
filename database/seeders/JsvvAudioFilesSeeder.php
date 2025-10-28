@@ -121,6 +121,18 @@ class JsvvAudioFilesSeeder extends Seeder
                 'type' => FileTypeEnum::JSVV,
                 'subtype' => FileSubtypeEnum::VERBAL,
                 'storage_path' => 'jsvv/verbal/',
+            ], [
+                'path' => resource_path('audio/jsvv/verbal-informations/Gong 1.wav'),
+                'name' => 'JSVV Gong 1',
+                'type' => FileTypeEnum::JSVV,
+                'subtype' => FileSubtypeEnum::GONG,
+                'storage_path' => 'jsvv/gongs/',
+            ], [
+                'path' => resource_path('audio/jsvv/verbal-informations/Gong 2.wav'),
+                'name' => 'JSVV Gong 2',
+                'type' => FileTypeEnum::JSVV,
+                'subtype' => FileSubtypeEnum::GONG,
+                'storage_path' => 'jsvv/gongs/',
             ],
         ];
 

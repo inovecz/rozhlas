@@ -24,12 +24,13 @@ class FmRadioService extends Service
         ];
     }
 
-    public function setFrequency(int $frequency): array
+    public function setFrequency(float $frequency): array
     {
-        $response = $this->client->setFrequency($frequency);
+        $frequencyHz = (int) round($frequency);
+        $response = $this->client->setFrequency($frequencyHz);
 
         return [
-            'frequency' => $frequency,
+            'frequency' => $frequencyHz,
             'python' => $response,
         ];
     }

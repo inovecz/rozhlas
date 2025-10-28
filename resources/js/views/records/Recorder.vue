@@ -1,5 +1,5 @@
 <script setup>
-import {computed, onBeforeUnmount, onMounted, reactive, ref} from "vue";
+import {computed, onBeforeUnmount, onMounted, reactive, ref, watch} from "vue";
 import {useToast} from "vue-toastification";
 import {createConfirmDialog} from "vuejs-confirm-dialog";
 import Button from "../../components/forms/Button.vue";
@@ -7,10 +7,12 @@ import Box from "../../components/custom/Box.vue";
 import Textarea from "../../components/forms/Textarea.vue";
 import Select from "../../components/forms/Select.vue";
 import RecordSaveDialog from "../../components/modals/RecordSaveDialog.vue";
+import RecordSelectDialog from "../../components/modals/RecordSelectDialog.vue";
 import RecordList from "./RecordList.vue";
 import LiveBroadcastService from "../../services/LiveBroadcastService.js";
 import VolumeService from "../../services/VolumeService.js";
 import RecordingService from "../../services/RecordingService.js";
+import AudioService from "../../services/AudioService.js";
 import {durationToTime, formatBytes} from "../../helper.js";
 import {FILE_SUBTYPE_OPTIONS} from "../../constants/fileSubtypeOptions.js";
 
@@ -54,11 +56,31 @@ const sourceOutputChannelMap = ref({
   control_box: 'tx_audio',
 });
 
+const sourceToMixerInputMap = {
+  microphone: 'mic',
+  central_file: 'file',
+  pc_webrtc: 'system',
+  system_audio: 'system',
+  fm_radio: 'fm',
+  control_box: 'control_box',
+  input_2: 'aux2',
+  input_3: 'aux3',
+  input_4: 'aux4',
+  input_5: 'aux5',
+  input_6: 'aux6',
+  input_7: 'aux7',
+  input_8: 'aux8',
+  input_9: 'aux9',
+};
+
+const centralFileSelection = ref(null);
 const form = reactive({
   source: '',
   note: '',
   subtype: 'COMMON',
 });
+
+const isCentralFileSource = computed(() => form.source === 'central_file');
 
 const subtypeOptions = FILE_SUBTYPE_OPTIONS;
 
@@ -74,6 +96,9 @@ const recordExtension = ref('webm');
 const previewUrl = ref(null);
 const audioPlayer = ref(null);
 const isPreviewPlaying = ref(false);
+const audioRoutingEnabled = ref(false);
+const availableMixerInputs = ref([]);
+const currentMixerInputId = ref('');
 
 const recordedChunks = ref([]);
 let mediaRecorderInstance = null;
@@ -97,9 +122,19 @@ const selectedSourceLabel = computed(() => {
   return sourceLabelMap.value.get(form.source) ?? form.source;
 });
 
-const recordingStatusLabel = computed(() => (recording.value ? 'Záznam běží' : 'Záznam není aktivní'));
+const recordingStatusLabel = computed(() => {
+  if (isCentralFileSource.value) {
+    return 'Záznam ze souboru';
+  }
+  return recording.value ? 'Záznam běží' : 'Záznam není aktivní';
+});
 
 const recordingStatusSubtitle = computed(() => {
+  if (isCentralFileSource.value) {
+    return centralFileSelection.value
+      ? `Vybraný soubor: ${centralFileSelection.value.name}`
+      : 'Vyberte soubor z ústředny pro vytvoření záznamu.';
+  }
   if (recording.value && recordStartedAt.value) {
     return `Nahrávání probíhá od ${recordStartedAt.value.toLocaleString('cs-CZ')}`;
   }
@@ -110,6 +145,13 @@ const recordingStatusSubtitle = computed(() => {
 });
 
 const formattedDuration = computed(() => {
+  if (isCentralFileSource.value && centralFileSelection.value) {
+    const duration = centralFileSelection.value.duration_seconds
+      ?? centralFileSelection.value.duration
+      ?? centralFileSelection.value?.metadata?.duration
+      ?? recordDurationSeconds.value;
+    return durationToTime(Math.max(Number(duration) || 0, 0));
+  }
   if (recording.value && recordStartedAt.value) {
     return durationToTime(Math.max(recordDurationSeconds.value, 0));
   }
@@ -119,7 +161,12 @@ const formattedDuration = computed(() => {
   return '00:00';
 });
 
-const fileSizeDisplay = computed(() => (recordBlob.value ? formatBytes(recordBlob.value.size) : '–'));
+const fileSizeDisplay = computed(() => {
+  if (isCentralFileSource.value && centralFileSelection.value?.size) {
+    return formatBytes(Number(centralFileSelection.value.size));
+  }
+  return recordBlob.value ? formatBytes(recordBlob.value.size) : '–';
+});
 
 const noteDisplay = computed(() => (form.note && form.note.trim().length > 0 ? form.note.trim() : '—'));
 
@@ -216,12 +263,38 @@ const isCurrentVolumeSaving = computed(() => {
   return key ? Boolean(volumeSaving[key]) : false;
 });
 
-const canTogglePreview = computed(() => !!recordBlob.value && !recording.value && !saving.value);
-const canSaveRecording = computed(() => !!recordBlob.value && !recording.value && !saving.value);
+const canTogglePreview = computed(() => {
+  if (isCentralFileSource.value) {
+    return false;
+  }
+  return !!recordBlob.value && !recording.value && !saving.value;
+});
 
-const bigButtonIcon = computed(() => (recording.value ? 'mdi-stop' : 'mdi-record-circle'));
-const bigButtonLabel = computed(() => (recording.value ? 'Zastavit záznam' : 'Spustit nový záznam'));
-const bigButtonVariant = computed(() => (recording.value ? 'danger' : 'primary'));
+const canSaveRecording = computed(() => {
+  if (isCentralFileSource.value) {
+    return !!centralFileSelection.value && !saving.value;
+  }
+  return !!recordBlob.value && !recording.value && !saving.value;
+});
+
+const bigButtonIcon = computed(() => {
+  if (isCentralFileSource.value) {
+    return centralFileSelection.value ? 'mdi-file-replace' : 'mdi-file-music';
+  }
+  return recording.value ? 'mdi-stop' : 'mdi-record-circle';
+});
+const bigButtonLabel = computed(() => {
+  if (isCentralFileSource.value) {
+    return centralFileSelection.value ? 'Změnit soubor' : 'Vybrat soubor';
+  }
+  return recording.value ? 'Zastavit záznam' : 'Spustit nový záznam';
+});
+const bigButtonVariant = computed(() => {
+  if (isCentralFileSource.value) {
+    return 'primary';
+  }
+  return recording.value ? 'danger' : 'primary';
+});
 
 const preferedMimeTypes = [
   {mime: 'audio/webm;codecs=opus', extension: 'webm'},
@@ -259,6 +332,80 @@ const determineExtension = (mimeType) => {
     return 'wav';
   }
   return 'webm';
+};
+
+const normaliseMixerItems = (list) => {
+  if (!Array.isArray(list)) {
+    return [];
+  }
+  return list
+    .filter((item) => item && typeof item.id === 'string' && item.id.length > 0)
+    .filter((item) => item.available !== false)
+    .map((item) => ({
+      id: item.id,
+      label: item.label ?? item.id,
+      device: item.device ?? null,
+    }));
+};
+
+const loadMixerStatus = async (silent = false) => {
+  try {
+    const statusPayload = await AudioService.status();
+    audioRoutingEnabled.value = Boolean(statusPayload?.enabled);
+    availableMixerInputs.value = normaliseMixerItems(statusPayload?.inputs);
+    currentMixerInputId.value = statusPayload?.current?.input?.id ?? '';
+    return statusPayload;
+  } catch (error) {
+    audioRoutingEnabled.value = false;
+    if (!silent) {
+      console.error('Failed to load mixer status for recorder', error);
+    } else {
+      console.debug('Mixer status unavailable for recorder', error);
+    }
+    return null;
+  }
+};
+
+const resolveMixerInputId = (sourceId) => {
+  if (!sourceId) {
+    return null;
+  }
+  return sourceToMixerInputMap[sourceId] ?? null;
+};
+
+const switchMixerInputForSource = async (sourceId, {silent = false} = {}) => {
+  if (!audioRoutingEnabled.value) {
+    return;
+  }
+  if (!sourceId || sourceId === 'central_file') {
+    return;
+  }
+  const targetInputId = resolveMixerInputId(sourceId);
+  if (!targetInputId) {
+    return;
+  }
+  if (
+    availableMixerInputs.value.length > 0
+    && !availableMixerInputs.value.some((item) => item.id === targetInputId)
+  ) {
+    return;
+  }
+  if (currentMixerInputId.value === targetInputId) {
+    return;
+  }
+
+  try {
+    await AudioService.setInput(targetInputId);
+    await loadMixerStatus(true);
+    if (!silent) {
+      toast.success('Vstup ústředny byl přepnut pro záznam.');
+    }
+  } catch (error) {
+    console.error('Failed to switch mixer input for recording', error);
+    if (!silent) {
+      toast.error('Nepodařilo se přepnout vstup ústředny pro záznam.');
+    }
+  }
 };
 
 const loadSources = async () => {
@@ -301,6 +448,61 @@ const loadVolumeLevels = async (silent = false) => {
     volumeLoading.value = false;
   }
 };
+
+const extractFileDurationSeconds = (file) => {
+  if (!file) {
+    return 0;
+  }
+  const metadata = file.metadata ?? {};
+  const rawDuration =
+    metadata.duration
+    ?? metadata.duration_seconds
+    ?? metadata.length
+    ?? file.duration_seconds
+    ?? file.duration;
+  const parsed = Number(rawDuration);
+  if (Number.isNaN(parsed) || parsed < 0) {
+    return 0;
+  }
+  return parsed;
+};
+
+watch(
+  () => form.source,
+  async (newValue, oldValue) => {
+    if (newValue === 'central_file') {
+      resetRecordingState();
+    } else {
+      centralFileSelection.value = null;
+      recordDurationSeconds.value = 0;
+    }
+    const shouldNotify = oldValue !== undefined && oldValue !== '' && newValue !== oldValue;
+    await switchMixerInputForSource(newValue, {silent: !shouldNotify});
+  }
+);
+
+watch(
+  () => centralFileSelection.value,
+  (selection) => {
+    if (!isCentralFileSource.value) {
+      return;
+    }
+    if (selection) {
+      recordDurationSeconds.value = Math.round(extractFileDurationSeconds(selection));
+    } else {
+      recordDurationSeconds.value = 0;
+    }
+  }
+);
+
+watch(
+  () => audioRoutingEnabled.value,
+  async (enabled) => {
+    if (enabled) {
+      await switchMixerInputForSource(form.source, {silent: true});
+    }
+  }
+);
 
 const updateVolumeLevel = async (groupId, itemId, value) => {
   const key = makeVolumeKey(groupId, itemId);
@@ -393,7 +595,28 @@ const cleanupPreview = () => {
   }
 };
 
+const openCentralFilePicker = () => {
+  const {reveal, onConfirm} = createConfirmDialog(RecordSelectDialog, {
+    title: 'Vyberte soubor z ústředny',
+    typeFilter: 'ALL',
+    multiple: false,
+  });
+  reveal();
+  onConfirm((selection) => {
+    const chosen = Array.isArray(selection) ? selection[0] : selection;
+    if (!chosen) {
+      return;
+    }
+    centralFileSelection.value = chosen;
+    toast.success('Soubor byl vybrán');
+  });
+};
+
 const toggleRecording = async () => {
+  if (isCentralFileSource.value) {
+    openCentralFilePicker();
+    return;
+  }
   if (recording.value) {
     await stopRecording();
   } else {
@@ -407,6 +630,7 @@ const startRecording = async () => {
   }
   loading.value = true;
   try {
+    await switchMixerInputForSource(form.source, {silent: true});
     const constraints = {
       audio: {
         echoCancellation: false,
@@ -549,22 +773,66 @@ const resetRecordingState = () => {
 };
 
 const saveRecording = () => {
-  if (!recordBlob.value || saving.value) {
+  if (saving.value) {
+    return;
+  }
+  if (isCentralFileSource.value) {
+    if (!centralFileSelection.value) {
+      toast.warning('Nejprve vyberte soubor z ústředny.');
+      return;
+    }
+  } else if (!recordBlob.value) {
     toast.warning('Nejprve vytvořte záznam.');
     return;
   }
 
-  const {reveal, onConfirm} = createConfirmDialog(RecordSaveDialog, {
+  const dialogOptions = {
     defaultSubtype: form.subtype,
-  });
+  };
+  if (isCentralFileSource.value && centralFileSelection.value?.name) {
+    dialogOptions.defaultName = centralFileSelection.value.name;
+  }
+
+  const {reveal, onConfirm} = createConfirmDialog(RecordSaveDialog, dialogOptions);
   reveal();
 
-  onConfirm(async (data) => {
-    const {name, subtype} = data;
+  onConfirm(async ({name, subtype}) => {
     form.subtype = subtype;
+    saving.value = true;
+
+    if (isCentralFileSource.value) {
+      try {
+        const durationSeconds = Math.round(extractFileDurationSeconds(centralFileSelection.value));
+        const metadata = {
+          source: form.source ?? '',
+          note: form.note ?? '',
+        };
+        if (durationSeconds > 0) {
+          metadata.duration = durationSeconds;
+        }
+        await RecordingService.createFromCentralFile({
+          source_file_id: centralFileSelection.value.id,
+          name,
+          subtype,
+          note: form.note ?? '',
+          metadata,
+        });
+        emitter.emit('recordSaved');
+        toast.success('Záznam byl vytvořen ze souboru v ústředně');
+      } catch (error) {
+        console.error(error);
+        const message = error?.response?.data?.message ?? 'Nepodařilo se vytvořit záznam ze souboru';
+        toast.error(message);
+      } finally {
+        saving.value = false;
+      }
+      return;
+    }
+
     const blob = recordBlob.value;
     if (!blob) {
       toast.error('Chybí data nahrávky');
+      saving.value = false;
       return;
     }
 
@@ -579,7 +847,6 @@ const saveRecording = () => {
     formData.append('metadata[source]', form.source ?? '');
     formData.append('metadata[note]', form.note ?? '');
 
-    saving.value = true;
     try {
       await RecordingService.uploadRecording(formData);
       emitter.emit('recordSaved');
@@ -595,7 +862,8 @@ const saveRecording = () => {
 };
 
 onMounted(async () => {
-  await Promise.all([loadSources(), loadVolumeLevels()]);
+  await Promise.all([loadSources(), loadVolumeLevels(), loadMixerStatus(true)]);
+  await switchMixerInputForSource(form.source, {silent: true});
 });
 
 onBeforeUnmount(() => {
@@ -612,12 +880,17 @@ onBeforeUnmount(() => {
           :icon="bigButtonIcon"
           :variant="bigButtonVariant"
           :disabled="loading"
+          :aria-label="bigButtonLabel"
+          :label="bigButtonLabel"
           class="w-full flex flex-col items-start gap-2 p-5 text-left border border-primary rounded-lg shadow-lg bg-primary text-white hover:bg-primary/90 transition"
           @click="toggleRecording">
         <template #default>
-          <div class="flex w-full justify-between items-center">
-            <div class="space-y-1">
-              <div class="text-lg font-semibold">
+            <div class="flex w-full justify-between items-center">
+              <div class="space-y-1">
+                <div class="text-xs font-semibold uppercase tracking-wide text-white/80">
+                  {{ bigButtonLabel }}
+                </div>
+                <div class="text-lg font-semibold">
                 {{ recordingStatusLabel }}
               </div>
               <div class="text-sm opacity-90">

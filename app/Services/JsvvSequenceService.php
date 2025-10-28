@@ -9,10 +9,12 @@ use App\Jobs\RunJsvvSequence;
 use App\Libraries\PythonClient;
 use App\Models\BroadcastPlaylist;
 use App\Models\BroadcastSession;
+use App\Models\JsvvAudio;
 use App\Models\JsvvEvent;
 use App\Models\JsvvSequence;
 use App\Models\JsvvSequenceItem;
 use App\Models\StreamTelemetryEntry;
+use App\Services\EmailNotificationService;
 use App\Services\SmsNotificationService;
 use App\Settings\JsvvSettings;
 use App\Services\StreamOrchestrator;
@@ -22,6 +24,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 use Throwable;
 
 class JsvvSequenceService extends Service
@@ -29,32 +32,46 @@ class JsvvSequenceService extends Service
     private const RUNNER_LOCK_KEY = 'jsvv:sequence:runner';
     private const ACTIVE_LOCK_KEY = 'jsvv:sequence:active';
     private const LOCK_TTL_SECONDS = 300;
+    private array $symbolSlotCache = [];
 
     public function __construct(
         private readonly PythonClient $client = new PythonClient(),
         private readonly StreamOrchestrator $orchestrator = new StreamOrchestrator(),
         private readonly SmsNotificationService $smsService = new SmsNotificationService(),
+        private readonly EmailNotificationService $emailService = new EmailNotificationService(),
     ) {
         parent::__construct();
     }
 
     public function plan(array $items, array $options = []): array
     {
-        $response = $this->client->planJsvvSequence($items, $options);
+        $normalizedItems = $this->normalizeSequenceItems($items);
+        $normalizedOptions = $this->normalizeSequenceOptions($options);
+        $normalizedOptions = $this->applySettingsDefaults($normalizedOptions);
+
+        [$normalizedItems, $normalizedOptions, $response] = $this->planWithAssetFallback($normalizedItems, $normalizedOptions);
+
+        if ($normalizedItems === []) {
+            throw new InvalidArgumentException('Sekvence neobsahuje žádné přehratelné položky.');
+        }
+
+        $storageItems = $this->stripInternalKeysFromItems($normalizedItems);
+
         $data = $response['json']['data'] ?? $response['json'] ?? [];
         $resolvedSequence = Arr::get($data, 'sequence', []);
 
-        return DB::transaction(function () use ($data, $items, $options, $resolvedSequence): array {
+        return DB::transaction(function () use ($data, $normalizedItems, $normalizedOptions, $resolvedSequence, $items, $storageItems): array {
             $sequence = JsvvSequence::create([
-                'items' => $items,
-                'options' => $options,
-                'priority' => Arr::get($options, 'priority'),
+                'items' => $storageItems,
+                'options' => $normalizedOptions,
+                'priority' => Arr::get($normalizedOptions, 'priority'),
                 'status' => 'planned',
             ]);
 
             $totalEstimatedDuration = 0.0;
 
-            foreach ($items as $index => $item) {
+            foreach ($normalizedItems as $index => $item) {
+                $cleanItem = $this->stripInternalKeys($item);
                 $resolved = $resolvedSequence[$index] ?? null;
                 if ($resolved === null) {
                     Log::warning('JSVV sequence planning resolved metadata missing', [
@@ -63,9 +80,13 @@ class JsvvSequenceService extends Service
                         'item' => $item,
                     ]);
                 }
-                $metadata = $this->buildSequenceItemMetadata($item, $resolved);
-                $repeat = (int) max(1, $item['repeat'] ?? 1);
-                $perItemDuration = $this->detectItemDurationSeconds($item['category'] ?? 'verbal', $metadata);
+                $originalRequest = $item['__source'] ?? ($items[$index] ?? $cleanItem);
+                if (!is_array($originalRequest)) {
+                    $originalRequest = (array) $originalRequest;
+                }
+                $metadata = $this->buildSequenceItemMetadata($cleanItem, $resolved, $originalRequest);
+                $repeat = (int) max(1, $cleanItem['repeat'] ?? 1);
+                $perItemDuration = $this->detectItemDurationSeconds($cleanItem['category'] ?? 'verbal', $metadata);
                 if ($perItemDuration !== null) {
                     $metadata['duration_seconds'] = $perItemDuration;
                 }
@@ -76,15 +97,15 @@ class JsvvSequenceService extends Service
                 JsvvSequenceItem::create([
                     'sequence_id' => $sequence->id,
                     'position' => $index,
-                    'category' => $item['category'] ?? 'verbal',
-                    'slot' => $item['slot'],
-                    'voice' => $item['voice'] ?? null,
-                    'repeat' => (int) max(1, $item['repeat'] ?? 1),
+                    'category' => $cleanItem['category'] ?? 'verbal',
+                    'slot' => $cleanItem['slot'],
+                    'voice' => $cleanItem['voice'] ?? null,
+                    'repeat' => (int) max(1, $cleanItem['repeat'] ?? 1),
                     'metadata' => $metadata,
                 ]);
             }
 
-            $holdSeconds = (float) Arr::get($data, 'holdSeconds', 0);
+            $holdSeconds = (float) Arr::get($data, 'holdSeconds', Arr::get($normalizedOptions, 'holdSeconds', 0));
             if ($holdSeconds > 0) {
                 $totalEstimatedDuration += $holdSeconds;
             }
@@ -211,6 +232,31 @@ class JsvvSequenceService extends Service
         $estimatedDuration = $this->getSequenceEstimatedDuration($sequence);
         $sessionId = null;
 
+        $options = $sequence->options ?? [];
+        if (!is_array($options)) {
+            $options = [];
+        }
+        $options['priority'] = $sequence->priority;
+
+        $route = Arr::get($sequence->options, 'route', []);
+        $zones = Arr::get($sequence->options, 'zones', []);
+        $locations = Arr::get($sequence->options, 'locations', []);
+
+        if (!is_array($route)) {
+            $route = [];
+        }
+        if (!is_array($zones)) {
+            $zones = [];
+        }
+        if (!is_array($locations)) {
+            $locations = [];
+        }
+
+        if ($useLocalStream) {
+            $options['plannedDuration'] = $estimatedDuration;
+            $options['jsvv_sequence_id'] = $sequence->id;
+        }
+
         try {
             $this->setActiveSequenceLock($sequence->id);
             if ($useLocalStream) {
@@ -222,9 +268,10 @@ class JsvvSequenceService extends Service
             if ($useLocalStream) {
                 $session = $this->orchestrator->start([
                     'source' => 'jsvv',
-                    'route' => Arr::get($sequence->options, 'route', []),
-                    'zones' => Arr::get($sequence->options, 'zones', []),
-                    'options' => ['priority' => $sequence->priority],
+                    'route' => $route,
+                    'zones' => $zones,
+                    'locations' => $locations,
+                    'options' => $options,
                 ]);
                 $sessionId = is_array($session) ? Arr::get($session, 'id') : null;
             }
@@ -235,6 +282,7 @@ class JsvvSequenceService extends Service
             ], $sessionId);
 
             $this->notifyJsvvSms($sequence);
+            $this->notifyJsvvEmail($sequence);
 
             $sendFramesToUnits = !$useLocalStream;
             foreach ($items as $item) {
@@ -253,12 +301,11 @@ class JsvvSequenceService extends Service
                 }
             }
 
-            if (!$useLocalStream) {
-                $this->waitForRemotePlayback($sequence, $estimatedDuration);
-            }
-
             if ($useLocalStream) {
+                $this->waitForLocalPlayback($sequence, $estimatedDuration);
                 $this->stopIfCurrentSourceIsJsvv('jsvv_sequence_completed');
+            } else {
+                $this->waitForRemotePlayback($sequence, $estimatedDuration);
             }
 
             $actualDuration = max(0.0, microtime(true) - $sequenceStart);
@@ -408,20 +455,401 @@ class JsvvSequenceService extends Service
         };
     }
 
-    private function buildSequenceItemMetadata(array $requestItem, ?array $resolvedItem): array
+    private function normalizeSequenceItems(array $items): array
+    {
+        if ($items === []) {
+            throw new InvalidArgumentException('Sekvence musí obsahovat alespoň jednu položku.');
+        }
+
+        $normalized = [];
+        foreach ($items as $index => $rawItem) {
+            if (!is_array($rawItem)) {
+                throw new InvalidArgumentException(sprintf('Sekvence obsahuje neplatnou položku na pozici %d.', $index + 1));
+            }
+            $slotInput = $rawItem['slot'] ?? $rawItem['symbol'] ?? null;
+            if ($slotInput === null || $slotInput === '') {
+                throw new InvalidArgumentException(sprintf('Položce %d chybí symbol.', $index + 1));
+            }
+
+            $symbolString = strtoupper(trim((string) $slotInput));
+            if ($symbolString === '') {
+                throw new InvalidArgumentException(sprintf('Položce %d chybí symbol.', $index + 1));
+            }
+
+            $category = $this->normalizeCategory($rawItem['category'] ?? null);
+            $slot = $this->resolveSlotValue($slotInput, $index, $symbolString);
+            $repeat = (int) max(1, $rawItem['repeat'] ?? 1);
+
+            $normalizedSymbol = isset($rawItem['symbol'])
+                ? strtoupper(trim((string) $rawItem['symbol']))
+                : $symbolString;
+
+            $item = [
+                'slot' => $slot,
+                'category' => $category,
+                'repeat' => $repeat,
+                'symbol' => $normalizedSymbol,
+                '__source' => $rawItem,
+            ];
+
+            $voice = $this->normalizeVoice($rawItem['voice'] ?? null, $category);
+            if ($voice !== null) {
+                $item['voice'] = $voice;
+            }
+
+            $normalized[] = $item;
+        }
+
+        return $normalized;
+    }
+
+    private function normalizeSequenceOptions(array $options): array
+    {
+        $normalized = Arr::except($options, ['items']);
+
+        if (isset($normalized['priority']) && is_string($normalized['priority'])) {
+            $normalized['priority'] = strtoupper($normalized['priority']);
+        }
+
+        if (isset($normalized['zones']) && is_array($normalized['zones'])) {
+            $normalized['zones'] = array_values($normalized['zones']);
+        }
+
+        if (isset($normalized['locations'])) {
+            $locations = $normalized['locations'];
+            if (!is_array($locations)) {
+                $locations = [$locations];
+            }
+            $normalized['locations'] = array_values(array_unique(array_filter(
+                array_map(static fn($value) => is_numeric($value) ? (int) $value : null, $locations),
+                static fn($value) => $value !== null
+            )));
+        }
+
+        if (isset($normalized['holdSeconds']) && !is_numeric($normalized['holdSeconds'])) {
+            unset($normalized['holdSeconds']);
+        }
+
+        $audioInput = $normalized['audioInputId'] ?? $normalized['audio_input_id'] ?? null;
+        if (is_string($audioInput) && $audioInput !== '') {
+            $normalized['audioInputId'] = $audioInput;
+        } elseif (isset($normalized['audioInputId']) && !is_string($normalized['audioInputId'])) {
+            unset($normalized['audioInputId']);
+        }
+        if (isset($normalized['audio_input_id'])) {
+            unset($normalized['audio_input_id']);
+        }
+
+        $audioOutput = $normalized['audioOutputId'] ?? $normalized['audio_output_id'] ?? null;
+        if (is_string($audioOutput) && $audioOutput !== '') {
+            $normalized['audioOutputId'] = $audioOutput;
+        } elseif (isset($normalized['audioOutputId']) && !is_string($normalized['audioOutputId'])) {
+            unset($normalized['audioOutputId']);
+        }
+        if (isset($normalized['audio_output_id'])) {
+            unset($normalized['audio_output_id']);
+        }
+
+        $playbackSource = $normalized['playbackSource'] ?? $normalized['playback_source'] ?? null;
+        if (is_string($playbackSource) && $playbackSource !== '') {
+            $normalized['playbackSource'] = strtolower($playbackSource);
+        }
+        if (isset($normalized['playback_source'])) {
+            unset($normalized['playback_source']);
+        }
+        if (isset($normalized['playbackSource']) && $normalized['playbackSource'] === '') {
+            unset($normalized['playbackSource']);
+        }
+        if (isset($normalized['playbackSource']) && in_array($normalized['playbackSource'], ['fm', 'fm_radio', 'radio'], true)) {
+            if (!isset($normalized['audioInputId']) || $normalized['audioInputId'] === '') {
+                $normalized['audioInputId'] = 'fm';
+            }
+        }
+
+        $frequencyCandidates = [
+            ['value' => $normalized['frequency_hz'] ?? null, 'unit' => 'hz'],
+            ['value' => $normalized['frequencyHz'] ?? null, 'unit' => 'hz'],
+            ['value' => $normalized['frequency_mhz'] ?? null, 'unit' => 'mhz'],
+            ['value' => $normalized['frequencyMhz'] ?? null, 'unit' => 'mhz'],
+            ['value' => $normalized['frequency'] ?? null, 'unit' => 'auto'],
+        ];
+
+        $frequency = null;
+        foreach ($frequencyCandidates as $candidate) {
+            $value = $candidate['value'];
+            if ($value === null || $value === '') {
+                continue;
+            }
+            $normalizedFrequency = $this->normalizeFrequencyValue($value, $candidate['unit']);
+            if ($normalizedFrequency !== null) {
+                $frequency = $normalizedFrequency;
+                break;
+            }
+        }
+
+        unset($normalized['frequencyHz'], $normalized['frequencyMhz']);
+
+        if ($frequency !== null) {
+            $normalized['frequency'] = $frequency['mhz'];
+            $normalized['frequency_mhz'] = $frequency['mhz'];
+            $normalized['frequency_hz'] = $frequency['hz'];
+            if (!isset($normalized['audioInputId']) || $normalized['audioInputId'] === '') {
+                $normalized['audioInputId'] = 'fm';
+            }
+        } else {
+            unset($normalized['frequency_hz'], $normalized['frequency_mhz']);
+        }
+
+        return $normalized;
+    }
+
+    private function planWithAssetFallback(array $items, array $options): array
+    {
+        $skipped = [];
+        $attempts = 0;
+        $response = null;
+
+        while (true) {
+            $plannerItems = $this->stripInternalKeysFromItems($items);
+            $response = $this->client->planJsvvSequence($plannerItems, $options);
+            $data = $response['json']['data'] ?? $response['json'] ?? [];
+            if (($data['status'] ?? null) !== 'error') {
+                break;
+            }
+            $slot = $this->parseMissingSlotFromMessage($data['message'] ?? null);
+            if ($slot === null) {
+                break;
+            }
+
+            $removedItems = array_filter($items, static function (array $item) use ($slot): bool {
+                return (int) ($item['slot'] ?? 0) === $slot;
+            });
+            $filtered = array_values(array_filter($items, static function (array $item) use ($slot): bool {
+                return (int) ($item['slot'] ?? 0) !== $slot;
+            }));
+
+            if (count($filtered) === count($items)) {
+                break;
+            }
+
+            foreach ($removedItems as $removed) {
+                $skipped[] = [
+                    'slot' => $slot,
+                    'symbol' => $removed['symbol'] ?? ($removed['__source']['symbol'] ?? null),
+                    'reason' => $data['message'] ?? 'Missing asset',
+                ];
+            }
+
+            Log::warning('JSVV sequence item skipped due to missing audio asset', [
+                'slot' => $slot,
+                'message' => $data['message'] ?? null,
+            ]);
+
+            $items = $filtered;
+            if ($items === []) {
+                break;
+            }
+
+            $attempts++;
+            if ($attempts >= 10) {
+                break;
+            }
+        }
+
+        if ($skipped !== []) {
+            $options['skipped_assets'] = $skipped;
+        }
+
+        return [$items, $options, $response ?? ['json' => []]];
+    }
+
+    private function parseMissingSlotFromMessage(?string $message): ?int
+    {
+        if (!is_string($message) || $message === '') {
+            return null;
+        }
+        if (preg_match('/slot\s+(\d+)/i', $message, $matches) === 1) {
+            return (int) $matches[1];
+        }
+        return null;
+    }
+
+    private function stripInternalKeys(array $item): array
+    {
+        unset($item['__source']);
+        return $item;
+    }
+
+    private function stripInternalKeysFromItems(array $items): array
+    {
+        return array_map(fn(array $item): array => $this->stripInternalKeys($item), $items);
+    }
+
+    private function resolveSlotValue(mixed $slot, int $index, ?string $normalizedSymbol = null): int
+    {
+        if (is_int($slot)) {
+            if ($slot <= 0) {
+                throw new InvalidArgumentException(sprintf('Slot u položky %d musí být kladné číslo.', $index + 1));
+            }
+            return $slot;
+        }
+
+        if (is_numeric($slot)) {
+            $value = (int) $slot;
+            if ($value <= 0) {
+                throw new InvalidArgumentException(sprintf('Slot u položky %d musí být kladné číslo.', $index + 1));
+            }
+            return $value;
+        }
+
+        $symbol = $normalizedSymbol ?? strtoupper(trim((string) $slot));
+        if ($symbol === '') {
+            throw new InvalidArgumentException(sprintf('Položce %d chybí symbol.', $index + 1));
+        }
+
+        if (preg_match('/^\d+$/', $symbol) === 1) {
+            $value = (int) $symbol;
+            if ($value <= 0) {
+                throw new InvalidArgumentException(sprintf('Slot u položky %d musí být kladné číslo.', $index + 1));
+            }
+            return $value;
+        }
+
+        if (isset($this->symbolSlotCache[$symbol])) {
+            return $this->symbolSlotCache[$symbol];
+        }
+
+        /** @var JsvvAudio|null $audio */
+        $audio = JsvvAudio::query()->with('file')->find($symbol);
+        $slotValue = $audio === null ? null : $this->extractSlotFromAudio($audio);
+
+        if ($slotValue === null || $slotValue <= 0) {
+            throw new InvalidArgumentException(sprintf('Symbol %s nelze převést na číselný slot (položka #%d).', $symbol, $index + 1));
+        }
+
+        $this->symbolSlotCache[$symbol] = $slotValue;
+
+        return $slotValue;
+    }
+
+    private function extractSlotFromAudio(JsvvAudio $audio): ?int
+    {
+        $file = $audio->file;
+        if ($file !== null) {
+            $metadata = $file->getMetadata();
+            if (is_array($metadata) && isset($metadata['slot']) && is_numeric($metadata['slot'])) {
+                return (int) $metadata['slot'];
+            }
+
+            foreach ([$file->getName(), $file->getFilename()] as $candidate) {
+                if (is_string($candidate) && preg_match('/(\d+)/', $candidate, $matches) === 1) {
+                    return (int) $matches[1];
+                }
+            }
+        }
+
+        $name = $audio->getName();
+        if (is_string($name) && preg_match('/(\d+)/', $name, $matches) === 1) {
+            return (int) $matches[1];
+        }
+
+        return null;
+    }
+
+    private function normalizeCategory(mixed $category): string
+    {
+        $value = is_string($category) ? strtolower($category) : '';
+        return $value === 'siren' ? 'siren' : 'verbal';
+    }
+
+    /**
+     * Normalise FM frequency input into Hz/MHz pair.
+     *
+     * @param mixed $value
+     * @param string $unit
+     * @return array{hz: float, mhz: float}|null
+     */
+    private function normalizeFrequencyValue(mixed $value, string $unit = 'auto'): ?array
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $unitHint = strtolower($unit);
+        $numericValue = null;
+
+        if (is_string($value)) {
+            $candidate = trim($value);
+            if ($candidate === '') {
+                return null;
+            }
+
+            $lower = strtolower($candidate);
+            if (str_contains($lower, 'mhz')) {
+                $unitHint = 'mhz';
+            } elseif (str_contains($lower, 'hz')) {
+                $unitHint = 'hz';
+            }
+
+            $sanitized = preg_replace('/[^0-9.,+-]/', '', $candidate);
+            if ($sanitized === null) {
+                return null;
+            }
+            $sanitized = str_replace(',', '.', $sanitized);
+            if ($sanitized === '' || !is_numeric($sanitized)) {
+                return null;
+            }
+            $numericValue = (float) $sanitized;
+        } elseif (is_numeric($value)) {
+            $numericValue = (float) $value;
+        }
+
+        if ($numericValue === null || !is_finite($numericValue) || $numericValue <= 0) {
+            return null;
+        }
+
+        if ($unitHint === 'mhz' || ($unitHint === 'auto' && $numericValue < 2000)) {
+            $mhz = $numericValue;
+            $hz = $mhz * 1_000_000;
+        } else {
+            $hz = $numericValue;
+            $mhz = $hz / 1_000_000;
+        }
+
+        return [
+            'hz' => $hz,
+            'mhz' => $mhz,
+        ];
+    }
+
+    private function normalizeVoice(mixed $voice, string $category): ?string
+    {
+        if ($category === 'siren') {
+            return null;
+        }
+
+        if ($voice === null || $voice === '') {
+            return null;
+        }
+
+        $normalized = strtolower((string) $voice);
+        return $normalized !== '' ? $normalized : null;
+    }
+
+    private function buildSequenceItemMetadata(array $normalizedItem, ?array $resolvedItem, array $originalRequest = []): array
     {
         $metadata = [];
         if (is_array($resolvedItem)) {
             $metadata = $resolvedItem;
         }
 
-        foreach ($requestItem as $key => $value) {
+        foreach ($normalizedItem as $key => $value) {
             if (!array_key_exists($key, $metadata) || $metadata[$key] === null) {
                 $metadata[$key] = $value;
             }
         }
 
-        $metadata['request'] = $requestItem;
+        $metadata['request'] = $originalRequest ?: $normalizedItem;
 
         return $metadata;
     }
@@ -537,6 +965,38 @@ class JsvvSequenceService extends Service
         return $total;
     }
 
+    private function waitForLocalPlayback(JsvvSequence $sequence, float $durationSeconds): void
+    {
+        $duration = max(1.0, $durationSeconds);
+        $start = microtime(true);
+
+        while (true) {
+            $elapsed = microtime(true) - $start;
+            if ($elapsed >= $duration) {
+                break;
+            }
+
+            $session = BroadcastSession::query()
+                ->where('status', 'running')
+                ->latest('started_at')
+                ->first();
+
+            if ($session === null || $session->source !== 'jsvv') {
+                break;
+            }
+
+            $remaining = $duration - $elapsed;
+            $interval = (float) max(0.5, min(5.0, $remaining));
+            usleep((int) round($interval * 1_000_000));
+            $this->refreshActiveSequenceLock($sequence->id);
+        }
+
+        $gapSeconds = (float) config('jsvv.sequence.local_gap_seconds', 0.0);
+        if ($gapSeconds > 0) {
+            usleep((int) round($gapSeconds * 1_000_000));
+        }
+    }
+
     private function waitForRemotePlayback(JsvvSequence $sequence, float $durationSeconds): void
     {
         $duration = max(1.0, $durationSeconds);
@@ -578,7 +1038,8 @@ class JsvvSequenceService extends Service
     private function notifyJsvvSms(JsvvSequence $sequence): void
     {
         $settings = app(JsvvSettings::class);
-        if (!$settings->allowSms || empty($settings->smsContacts)) {
+        $recipients = $this->normalizeRecipientList($settings->smsContacts ?? []);
+        if (!$settings->allowSms || $recipients === []) {
             return;
         }
 
@@ -589,7 +1050,83 @@ class JsvvSequenceService extends Service
             '{date}' => now()->format('d.m.Y'),
         ];
 
-        $message = str_replace(array_keys($replacements), array_values($replacements), $template);
-        $this->smsService->send($settings->smsContacts, $message);
+        $message = $this->renderTemplate($template, $replacements);
+        $this->smsService->send($recipients, $message);
+    }
+
+    private function notifyJsvvEmail(JsvvSequence $sequence): void
+    {
+        $settings = app(JsvvSettings::class);
+        $recipients = $this->normalizeRecipientList($settings->emailContacts ?? []);
+        if (!$settings->allowEmail || $recipients === []) {
+            return;
+        }
+
+        $replacements = [
+            '{priority}' => $sequence->priority ?? 'neuvedeno',
+            '{time}' => now()->format('H:i'),
+            '{date}' => now()->format('d.m.Y'),
+        ];
+
+        $subjectTemplate = $settings->emailSubject ?: 'Poplach JSVV ({priority})';
+        $bodyTemplate = $settings->emailMessage ?: 'Byl spuštěn poplach JSVV (priorita {priority}) v {time} dne {date}.';
+
+        $subject = $this->renderTemplate($subjectTemplate, $replacements);
+        $body = $this->renderTemplate($bodyTemplate, $replacements);
+
+        $this->emailService->send($recipients, $subject, $body);
+    }
+
+    private function normalizeRecipientList(array|string|null $value): array
+    {
+        if ($value === null) {
+            return [];
+        }
+
+        $items = is_array($value) ? $value : [$value];
+        $normalized = [];
+
+        foreach ($items as $item) {
+            if ($item === null) {
+                continue;
+            }
+            $parts = preg_split('/[;,]+/', (string) $item) ?: [];
+            foreach ($parts as $part) {
+                $trimmed = trim($part);
+                if ($trimmed !== '' && !in_array($trimmed, $normalized, true)) {
+                    $normalized[] = $trimmed;
+                }
+            }
+        }
+
+        return $normalized;
+    }
+
+    private function renderTemplate(string $template, array $replacements): string
+    {
+        if ($template === '') {
+            return '';
+        }
+
+        return str_replace(array_keys($replacements), array_values($replacements), $template);
+    }
+
+    private function applySettingsDefaults(array $options): array
+    {
+        $settings = app(JsvvSettings::class);
+        $locationGroupId = $settings->locationGroupId;
+        if ($locationGroupId !== null) {
+            $locations = $options['locations'] ?? [];
+            if (!is_array($locations)) {
+                $locations = [$locations];
+            }
+            $locations[] = (int) $locationGroupId;
+            $options['locations'] = array_values(array_unique(array_filter(
+                array_map(static fn($value) => is_numeric($value) ? (int) $value : null, $locations),
+                static fn($value) => $value !== null
+            )));
+        }
+
+        return $options;
     }
 }

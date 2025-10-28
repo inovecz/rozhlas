@@ -25,10 +25,14 @@ fi
 BACKEND_LOG="$LOG_DIR/backend.log"
 FRONTEND_LOG="$LOG_DIR/frontend.log"
 ALARM_LOG="$LOG_DIR/alarm-monitor.log"
+TWO_WAY_LOG="$LOG_DIR/two-way-monitor.log"
+QUEUE_LOG="$LOG_DIR/queue-worker.log"
 
 BACKEND_PID=""
 FRONTEND_PID=""
 ALARM_PID=""
+TWO_WAY_PID=""
+QUEUE_PID=""
 
 ensure_node_for_frontend() {
   if ! command -v node >/dev/null 2>&1; then
@@ -71,16 +75,31 @@ function cleanup() {
     kill "$BACKEND_PID" 2>/dev/null || true
     wait "$BACKEND_PID" 2>/dev/null || true
   fi
+  rm -f "$LOG_DIR/backend.pid"
 
   if [[ -n "$FRONTEND_PID" ]] && kill -0 "$FRONTEND_PID" 2>/dev/null; then
     kill "$FRONTEND_PID" 2>/dev/null || true
     wait "$FRONTEND_PID" 2>/dev/null || true
   fi
+  rm -f "$LOG_DIR/vite-dev.pid"
 
   if [[ -n "$ALARM_PID" ]] && kill -0 "$ALARM_PID" 2>/dev/null; then
     kill "$ALARM_PID" 2>/dev/null || true
     wait "$ALARM_PID" 2>/dev/null || true
   fi
+  rm -f "$LOG_DIR/alarm-monitor.pid"
+
+  if [[ -n "$QUEUE_PID" ]] && kill -0 "$QUEUE_PID" 2>/dev/null; then
+    kill "$QUEUE_PID" 2>/dev/null || true
+    wait "$QUEUE_PID" 2>/dev/null || true
+  fi
+  rm -f "$LOG_DIR/queue-worker.pid"
+
+  if [[ -n "$TWO_WAY_PID" ]] && kill -0 "$TWO_WAY_PID" 2>/dev/null; then
+    kill "$TWO_WAY_PID" 2>/dev/null || true
+    wait "$TWO_WAY_PID" 2>/dev/null || true
+  fi
+  rm -f "$LOG_DIR/two-way-monitor.pid"
 
   "$ROOT_DIR/run_daemons.sh" stop >/dev/null 2>&1 || true
 }
@@ -95,6 +114,7 @@ if [[ "$RUN_VITE" == true ]]; then
     npm run dev -- --host "$VITE_HOST" --port "$VITE_PORT" >>"$FRONTEND_LOG" 2>&1
   ) &
   FRONTEND_PID=$!
+  echo "$FRONTEND_PID" > "$LOG_DIR/vite-dev.pid"
   sleep 2
   if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
     echo "Error: Vite dev server failed to start. Check $FRONTEND_LOG for details." >&2
@@ -103,6 +123,7 @@ if [[ "$RUN_VITE" == true ]]; then
 else
   echo "Skipping Vite dev server start (APP_ENV=$APP_ENV_VALUE)"
   ensure_production_assets
+  rm -f "$LOG_DIR/vite-dev.pid"
 fi
 
 echo "Starting Laravel backend (php artisan serve)..."
@@ -111,8 +132,41 @@ echo "Starting Laravel backend (php artisan serve)..."
   php artisan serve --host="$LARAVEL_HOST" --port="$LARAVEL_PORT" >>"$BACKEND_LOG" 2>&1
 ) &
 BACKEND_PID=$!
+echo "$BACKEND_PID" > "$LOG_DIR/backend.pid"
 
 echo "Starting Python daemons..."
+GSM_PORT_ENV="${GSM_SERIAL_PORT:-}"
+CONTROL_TAB_PORT_ENV="${CONTROL_TAB_SERIAL_PORT:-}"
+JSVV_PORT_ENV="${JSVV_PORT:-}"
+
+if [[ -z "$GSM_PORT_ENV" ]]; then
+  if command -v socat >/dev/null 2>&1; then
+    echo "Creating virtual GSM serial port at /tmp/ttyGSM0"
+    socat -d -d pty,raw,echo=0,link=/tmp/ttyGSM0 pty,raw,echo=0 >>"$LOG_DIR/socat-gsm.log" 2>&1 &
+    GSM_SOCAT_PID=$!
+    echo $GSM_SOCAT_PID >"$LOG_DIR/socat-gsm.pid"
+    export GSM_SERIAL_PORT=/tmp/ttyGSM0
+  else
+    echo "Warning: GSM listener disabled (GSM_SERIAL_PORT unset and socat not available)."
+  fi
+fi
+
+if [[ -z "$CONTROL_TAB_PORT_ENV" ]]; then
+  if command -v socat >/dev/null 2>&1; then
+    echo "Creating virtual Control Tab serial port at /tmp/ttyCTRL0"
+    socat -d -d pty,raw,echo=0,link=/tmp/ttyCTRL0 pty,raw,echo=0 >>"$LOG_DIR/socat-control-tab.log" 2>&1 &
+    CONTROL_TAB_SOCAT_PID=$!
+    echo $CONTROL_TAB_SOCAT_PID >"$LOG_DIR/socat-control-tab.pid"
+    export CONTROL_TAB_SERIAL_PORT=/tmp/ttyCTRL0
+  else
+    echo "Warning: Control tab listener disabled (CONTROL_TAB_SERIAL_PORT unset and socat not available)."
+  fi
+fi
+
+if [[ -z "$JSVV_PORT_ENV" ]]; then
+  export JSVV_PORT=${JSVV_PORT_ENV:-"serial:/tmp/jsvv.sock"}
+fi
+
 "$ROOT_DIR/run_daemons.sh" start
 
 ALARM_MONITOR_INTERVAL=${ALARM_MONITOR_INTERVAL:-5}
@@ -122,7 +176,23 @@ echo "Starting alarm monitor (php artisan alarms:monitor --interval=$ALARM_MONIT
   php artisan alarms:monitor --interval="$ALARM_MONITOR_INTERVAL" >>"$ALARM_LOG" 2>&1
 ) &
 ALARM_PID=$!
+echo "$ALARM_PID" > "$LOG_DIR/alarm-monitor.pid"
 
+echo "Starting queue worker (php artisan queue:work)..."
+(
+  cd "$ROOT_DIR"
+  php artisan queue:work --queue="${QUEUE_NAMES:-activations-high,default}" --sleep="${QUEUE_SLEEP:-1}" --tries="${QUEUE_TRIES:-1}" >>"$QUEUE_LOG" 2>&1
+) &
+QUEUE_PID=$!
+echo "$QUEUE_PID" > "$LOG_DIR/queue-worker.pid"
+
+echo "Starting two-way nest monitor (php artisan two-way:nest-status-monitor)..."
+(
+  cd "$ROOT_DIR"
+  php artisan two-way:nest-status-monitor >>"$TWO_WAY_LOG" 2>&1
+) &
+TWO_WAY_PID=$!
+echo "$TWO_WAY_PID" > "$LOG_DIR/two-way-monitor.pid"
 echo "\nServers running:"
 echo "  Backend : http://$LARAVEL_HOST:$LARAVEL_PORT"
 if [[ "$RUN_VITE" == true ]]; then
@@ -130,6 +200,7 @@ if [[ "$RUN_VITE" == true ]]; then
 else
   echo "  Frontend: (not running in $APP_ENV_VALUE environment)"
 fi
+echo "  Queue worker: logs -> $QUEUE_LOG"
 echo "Logs stored in $LOG_DIR"
 echo "Press Ctrl+C to stop all services."
 

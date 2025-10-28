@@ -148,6 +148,15 @@ def build_parser() -> argparse.ArgumentParser:
     set_freq_cmd.add_argument("--value", type=int_from_string, required=True, help="Target frequency value")
     set_freq_cmd.add_argument("--unit-id", type=int, help="Optional unit id override")
 
+    read_nest_cmd = sub.add_parser("read-nest-status", help="Read status/error registers for a specific nest")
+    read_nest_cmd.add_argument("--nest", type=int_from_string, required=True, help="Bidirectional nest address (A16)")
+    read_nest_cmd.add_argument(
+        "--route",
+        type=int_from_string,
+        nargs="*",
+        help="Optional hop addresses to prepend before nest address (e.g. hub or repeaters)",
+    )
+
     route_cmd = sub.add_parser("set-route", help="Populate hop route registers without starting stream")
     route_cmd.add_argument(
         "--addresses",
@@ -258,6 +267,24 @@ def command_read_alarm_buffer(args: argparse.Namespace) -> dict[str, Any]:
         "port": settings.port,
         "unitId": unit_id,
         "alarm": alarm,
+    }
+
+
+def command_read_nest_status(args: argparse.Namespace) -> dict[str, Any]:
+    settings, unit_id = resolve_serial_settings(args)
+    nest_address = int(args.nest)
+    route_prefix = list(args.route) if args.route else []
+
+    with ModbusAudioClient(settings=settings, unit_id=unit_id) as client:
+        status_payload = client.read_nest_status(nest_address, route=route_prefix)
+
+    return {
+        "port": settings.port,
+        "unitId": unit_id,
+        "nest": nest_address,
+        "route": status_payload.get("route", route_prefix + [nest_address]),
+        "status": status_payload.get("status"),
+        "error": status_payload.get("error"),
     }
 
 
@@ -524,6 +551,8 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any]:
         return command_read_frequency(args)
     if args.command == "set-frequency":
         return command_set_frequency(args)
+    if args.command == "read-nest-status":
+        return command_read_nest_status(args)
     if args.command == "set-route":
         return command_set_route(args)
     if args.command == "set-zones":

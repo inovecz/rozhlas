@@ -8,6 +8,7 @@ return [
         //  - local_stream: route audio through the central stream (current behaviour)
         //  - remote_trigger: only relay frames to JSVV field units
         'playback_mode' => env('JSVV_SEQUENCE_MODE', 'local_stream'),
+        'local_gap_seconds' => (float) env('JSVV_LOCAL_GAP_SECONDS', 0.0),
         'default_durations' => [
             'verbal' => (float) env('JSVV_DEFAULT_VERBAL_SECONDS', 12.0),
             'siren' => (float) env('JSVV_DEFAULT_SIREN_SECONDS', 60.0),

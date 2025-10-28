@@ -24,14 +24,18 @@ class FmController extends Controller
     public function update(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'frequency' => ['required', 'integer', 'min:0'],
+            'frequency' => ['required', 'numeric', 'min:0'],
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $result = $this->service->setFrequency((int) $validator->validated()['frequency']);
-        return response()->json($result);
+        $frequencyMHz = (float) $validator->validated()['frequency'];
+        $result = $this->service->setFrequency($frequencyMHz * 1_000_000);
+
+        return response()->json($result + [
+            'requested_frequency_mhz' => $frequencyMHz,
+        ]);
     }
 }

@@ -25,6 +25,7 @@ import Jsvv from "./views/jsvv/Jsvv.vue";
 import JsvvEdit from "./views/jsvv/JsvvEdit.vue";
 import JSVVSettings from "./views/settings/JSVVSettings.vue";
 import VolumeSettings from "./views/settings/VolumeSettings.vue";
+import SystemStatus from "./views/status/SystemStatus.vue";
 
 const routes = [
     {
@@ -37,6 +38,7 @@ const routes = [
             {path: "/schedule", name: "Scheduler", component: Scheduler, meta: {title: "Plán vysílání"}},
             {path: '/schedule/task', name: "CreateSchedule", component: ScheduleTask, meta: {title: "Nový úkol"}},
             {path: '/schedule/task/:id', name: "EditSchedule", component: ScheduleTask, meta: {title: "Úprava úkolu"}},
+            {path: "/status", name: "SystemStatus", component: SystemStatus, meta: {title: "Systémový stav"}},
             {path: "/jsvv-list", name: "JSVV", component: Jsvv, meta: {title: "Jednotný systém varování a vyrozumění"}},
             {path: "/jsvv-list/alarm", name: "CreateJSVV", component: JsvvEdit, meta: {title: "JSVV - Nový alarm"}},
             {path: "/jsvv-list/alarm/:id", name: "EditJSVV", component: JsvvEdit, meta: {title: "JSVV - Úprava alarmu"}},
@@ -86,7 +88,7 @@ router.beforeEach((to, from, next) => {
     if (to.name !== 'Login' && to.name !== 'Register' && !localStorage.getItem('token')) {
         next({name: 'Login'});
     }
-    document.title = to.meta.title || 'Sarrah V';
+    document.title = to.meta.title || 'Sarah V';
     next();
 });
 

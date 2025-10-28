@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Response;
 use App\Http\Requests\RenameFileRequest;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use App\Http\Requests\RecordingCopyRequest;
+use App\Enums\FileSubtypeEnum;
 
 class FileController extends Controller
 {
@@ -65,5 +67,37 @@ class FileController extends Controller
     {
         $file->delete();
         return $this->success();
+    }
+
+    public function copyFromCentralFile(RecordingCopyRequest $request): FileResource
+    {
+        $sourceFile = File::findOrFail($request->input('source_file_id'));
+        $metadata = $request->input('metadata', []);
+
+        if ($request->filled('note')) {
+            $metadata['note'] = $request->input('note');
+        }
+
+        if (!isset($metadata['source'])) {
+            $metadata['source'] = 'central_file';
+        }
+
+        if (!isset($metadata['duration'])) {
+            $sourceMetadata = $sourceFile->getMetadata() ?? [];
+            $duration = data_get($sourceMetadata, 'duration', data_get($sourceMetadata, 'duration_seconds'));
+            if ($duration !== null) {
+                $metadata['duration'] = $duration;
+            }
+        }
+
+        $fileService = new FileService();
+        $file = $fileService->createRecordingFromExistingFile(
+            $sourceFile,
+            $request->input('name'),
+            FileSubtypeEnum::from($request->input('subtype')),
+            $metadata
+        );
+
+        return new FileResource($file);
     }
 }

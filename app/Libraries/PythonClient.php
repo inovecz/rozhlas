@@ -64,6 +64,16 @@ class PythonClient
         return $this->runModbus('read-alarms', [], $timeout);
     }
 
+    public function readNestStatus(int $nestAddress, array $routePrefix = [], ?float $timeout = null): array
+    {
+        $options = ['nest' => $nestAddress];
+        if ($routePrefix !== []) {
+            $options['route'] = $routePrefix;
+        }
+
+        return $this->runModbus('read-nest-status', $options, $timeout);
+    }
+
     public function getDeviceInfo(): array
     {
         return $this->runModbus('device-info');

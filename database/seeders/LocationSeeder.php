@@ -28,16 +28,6 @@ class LocationSeeder extends Seeder
                 'created_at' => now(),
                 'updated_at' => now(),
             ],
-            [
-                'name' => 'Lokalita pro privátní subtóny',
-                'modbus_group_address' => 101,
-                'is_hidden' => true,
-                'subtone_type' => 'A16',
-                'subtone_data' => '{"listen":[22],"record":[22]}',
-                'timing' => '{"total":{"start":6000,"end":9000},"ptt":{"start":4000,"end":8900},"subtone":{"start":5000,"end":100},"file":{"start":null,"end":null},"output_1":{"start":null,"end":null},"output_2":{"start":null,"end":null},"output_3":{"start":null,"end":null},"output_4":{"start":null,"end":null},"output_5":{"start":null,"end":null},"output_6":{"start":null,"end":null},"output_7":{"start":null,"end":null},"output_8":{"start":null,"end":null},"output_9":{"start":null,"end":null},"output_10":{"start":null,"end":null},"output_11":{"start":null,"end":null},"relay_1":{"start":null,"end":null},"relay_2":{"start":null,"end":null},"relay_3":{"start":null,"end":null},"relay_4":{"start":null,"end":null},"relay_5":{"start":null,"end":null}}',
-                'created_at' => now(),
-                'updated_at' => now(),
-            ],
         ]);
         DB::table('locations')->insert([
             [

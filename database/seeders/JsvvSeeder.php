@@ -141,6 +141,8 @@ class JsvvSeeder extends Seeder
             '1' => 'JSVV Siréna 1 - Kolísavý tón (ES)',
             '2' => 'JSVV Siréna 2 - Trvalý tón (ES)',
             '4' => 'JSVV Siréna 4 - Požární poplach (ES)',
+            '8' => 'JSVV Gong 1',
+            '9' => 'JSVV Gong 2',
             'A' => "JSVV Verbální informace 1 (mu\u{017E})",
             'B' => "JSVV Verbální informace 2 (mu\u{017E})",
             'C' => "JSVV Verbální informace 3 (mu\u{017E})",

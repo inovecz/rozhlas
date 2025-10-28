@@ -9,6 +9,7 @@ use App\Services\JsvvSequenceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use InvalidArgumentException;
 
 class JsvvSequenceController extends Controller
 {
@@ -20,13 +21,24 @@ class JsvvSequenceController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'items' => ['required', 'array', 'min:1'],
-            'items.*.slot' => ['required', 'integer'],
-            'items.*.category' => ['required', 'in:verbal,siren'],
+            'items.*.slot' => ['required'],
+            'items.*.category' => ['nullable', 'string'],
             'items.*.voice' => ['nullable', 'string'],
             'items.*.repeat' => ['nullable', 'integer', 'min:1'],
             'priority' => ['sometimes', 'string'],
             'zones' => ['sometimes', 'array'],
             'holdSeconds' => ['sometimes', 'numeric', 'min:0'],
+            'locations' => ['sometimes', 'array'],
+            'locations.*' => ['integer'],
+            'audioInputId' => ['sometimes', 'string'],
+            'audio_input_id' => ['sometimes', 'string'],
+            'audioOutputId' => ['sometimes', 'string'],
+            'audio_output_id' => ['sometimes', 'string'],
+            'frequency' => ['sometimes', 'numeric', 'min:0'],
+            'frequency_hz' => ['sometimes', 'numeric', 'min:0'],
+            'frequency_mhz' => ['sometimes', 'numeric', 'min:0'],
+            'playbackSource' => ['sometimes', 'string'],
+            'playback_source' => ['sometimes', 'string'],
         ]);
 
         if ($validator->fails()) {
@@ -34,7 +46,11 @@ class JsvvSequenceController extends Controller
         }
 
         $data = $validator->validated();
-        $sequence = $this->service->plan($data['items'], $data);
+        try {
+            $sequence = $this->service->plan($data['items'], $data);
+        } catch (InvalidArgumentException $exception) {
+            return response()->json(['errors' => ['items' => [$exception->getMessage()]]], 422);
+        }
 
         return response()->json(['sequence' => $sequence]);
     }

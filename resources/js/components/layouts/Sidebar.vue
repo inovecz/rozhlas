@@ -111,6 +111,11 @@ const sidebarItems = ref([
     ],
     submenuVisible: route.path.match('settings') !== null,
   }, {
+    name: 'Systémový stav',
+    icon: 'mdi-heart-pulse',
+    to: 'SystemStatus',
+    active: 'status'
+  }, {
     name: 'O aplikaci',
     icon: 'mdi-information',
     to: 'About',

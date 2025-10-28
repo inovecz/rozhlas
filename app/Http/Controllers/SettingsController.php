@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Enums\SmtpTypeEnum;
+use App\Services\FmRadioService;
 use App\Services\VolumeManager;
 use App\Settings\FMSettings;
 use App\Settings\SmtpSettings;
@@ -17,6 +18,7 @@ use App\Http\Requests\SmtpSettingsRequest;
 use App\Http\Requests\JsvvSettingsRequest;
 use App\Http\Requests\TwoWayCommSettingsRequest;
 use App\Http\Requests\VolumeSettingsRequest;
+use Illuminate\Support\Facades\Log;
 
 class SettingsController extends Controller
 {
@@ -56,12 +58,36 @@ class SettingsController extends Controller
         ]);
     }
 
-    public function saveFMSettings(FMSettingsRequest $request): JsonResponse
+    public function saveFMSettings(FMSettingsRequest $request, FmRadioService $fmRadioService): JsonResponse
     {
         $fmSettings = app(FMSettings::class);
-        $fmSettings->frequency = $request->input('frequency');
+        $frequencyMHz = (float) $request->input('frequency');
+        $fmSettings->frequency = $frequencyMHz;
         $fmSettings->save();
-        return $this->success();
+
+        $hardwareResponse = null;
+        $hardwareUpdated = false;
+
+        try {
+            $frequencyHz = (float) ($frequencyMHz * 1_000_000);
+            if ($frequencyHz > 0) {
+                $hardwareResponse = $fmRadioService->setFrequency($frequencyHz);
+                $hardwareUpdated = (bool) ($hardwareResponse['python']['success'] ?? false);
+            }
+        } catch (\Throwable $exception) {
+            Log::warning('Unable to update FM receiver frequency', [
+                'message' => $exception->getMessage(),
+            ]);
+            $hardwareResponse = [
+                'error' => $exception->getMessage(),
+            ];
+        }
+
+        return $this->success([
+            'frequency' => $frequencyMHz,
+            'hardwareUpdated' => $hardwareUpdated,
+            'hardwareResponse' => $hardwareResponse,
+        ]);
     }
 
     public function getTwoWayCommSettings(): JsonResponse
