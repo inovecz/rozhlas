@@ -44,6 +44,32 @@ $parseBool = static function ($value, bool $default = false): bool {
     return $default;
 };
 
+$parsePlayerArguments = static function ($value): ?array {
+    if ($value === null || trim((string) $value) === '') {
+        return null;
+    }
+
+    $stringValue = trim((string) $value);
+
+    if (str_starts_with($stringValue, '[')) {
+        try {
+            $decoded = json_decode($stringValue, true, 8, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            $decoded = null;
+        }
+
+        if (is_array($decoded)) {
+            return array_values(array_map(static fn ($item) => (string) $item, $decoded));
+        }
+    }
+
+    $items = str_getcsv($stringValue, ' ');
+    $items = array_map(static fn ($item) => trim($item), $items);
+    $items = array_values(array_filter($items, static fn ($item) => $item !== ''));
+
+    return $items !== [] ? $items : null;
+};
+
 return [
     'default_route' => array_values(array_filter(array_map(
         static fn ($value) => (int) trim($value),
@@ -127,7 +153,7 @@ return [
         'default_gap_ms' => (int) env('PLAYLIST_DEFAULT_GAP_MS', 250),
         'player' => [
             'binary' => env('PLAYLIST_PLAYER_BINARY', env('PLAYLIST_PLAYER', 'ffmpeg')),
-            'arguments' => [
+            'arguments' => $parsePlayerArguments(env('PLAYLIST_PLAYER_ARGUMENTS')) ?? [
                 '-nostdin',
                 '-hide_banner',
                 '-loglevel',

@@ -2,11 +2,46 @@
 
 declare(strict_types=1);
 
+$toBool = static function (mixed $value, bool $default = true): bool {
+    if ($value === null) {
+        return $default;
+    }
+
+    if (is_bool($value)) {
+        return $value;
+    }
+
+    $normalized = strtolower((string) $value);
+    if (in_array($normalized, ['1', 'true', 'yes', 'on'], true)) {
+        return true;
+    }
+
+    if (in_array($normalized, ['0', 'false', 'no', 'off'], true)) {
+        return false;
+    }
+
+    return $default;
+};
+
+$routingEnabledEnv = env('BROADCAST_AUDIO_ROUTING_ENABLED');
+if ($routingEnabledEnv === null) {
+    $routingEnabledEnv = env('BROADCAST_MIXER_ENABLED');
+}
+if ($routingEnabledEnv === null) {
+    $routingEnabledEnv = true;
+}
+
 return [
     /*
      * When false, mixer commands are skipped entirely. Falls back to the mixer toggle.
      */
-    'enabled' => env('AUDIO_IO_ENABLED', env('BROADCAST_MIXER_ENABLED', true)),
+    'enabled' => $toBool($routingEnabledEnv),
+
+    /*
+     * ALSA device that should receive audio when routing is disabled. Not applied automatically
+     * while routing is enabled (the mixer definitions take precedence).
+     */
+    'fallback_output_device' => (string) env('BROADCAST_AUDIO_FALLBACK_OUTPUT', 'default'),
 
     /*
      * Default ALSA card used when invoking amixer/aplay/arecord.

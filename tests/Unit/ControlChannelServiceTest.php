@@ -12,6 +12,7 @@ use App\Services\ControlChannelService;
 use App\Services\ControlChannelTransport;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Arr;
 use Mockery;
 use Mockery\MockInterface;
 use Tests\TestCase;
@@ -98,6 +99,37 @@ class ControlChannelServiceTest extends TestCase
         $this->assertSame('ControlChannelTimeout', $event->event);
         $this->assertSame('stop_modbus', $event->data['command']);
         $this->assertSame(1000, $event->data['since_message_ms']);
+    }
+
+    public function test_command_is_skipped_when_modbus_port_missing(): void
+    {
+        config([
+            'modbus.port' => null,
+        ]);
+
+        /** @var MockInterface&ControlChannelTransport $transport */
+        $transport = Mockery::mock(ControlChannelTransport::class);
+        $transport->shouldNotReceive('send');
+
+        $service = new ControlChannelService($transport);
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2025-01-01T00:00:05Z'));
+
+        $record = $service->resume(reason: 'No Modbus');
+
+        $this->assertInstanceOf(ControlChannelCommand::class, $record);
+        $this->assertSame('resume_modbus', $record->command);
+        $this->assertSame('SKIPPED', $record->result);
+        $this->assertSame(ControlChannelService::STATE_TRANSMITTING, $record->state_after);
+
+        $payload = $record->payload;
+        $this->assertIsArray($payload);
+        $this->assertTrue(Arr::get($payload, 'details.skipped', false));
+        $this->assertSame('modbus_port_missing', Arr::get($payload, 'details.reason'));
+
+        $event = JsvvEvent::query()->first();
+        $this->assertNotNull($event);
+        $this->assertSame('ControlChannelSkipped', $event->event);
+        $this->assertSame('resume_modbus', $event->data['command']);
     }
 
     private function createMessage(?CarbonImmutable $receivedAt = null): JsvvMessage

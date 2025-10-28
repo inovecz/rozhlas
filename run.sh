@@ -26,17 +26,22 @@ if [[ "$APP_ENV_LOWER" == "production" ]]; then
   RUN_VITE=false
 fi
 
+RUN_REDIS=${RUN_REDIS:-true}
+
 BACKEND_LOG="$LOG_DIR/backend.log"
 FRONTEND_LOG="$LOG_DIR/frontend.log"
 ALARM_LOG="$LOG_DIR/alarm-monitor.log"
 TWO_WAY_LOG="$LOG_DIR/two-way-monitor.log"
 QUEUE_LOG="$LOG_DIR/queue-worker.log"
+REDIS_LOG="$LOG_DIR/redis.log"
 
 BACKEND_PID=""
 FRONTEND_PID=""
 ALARM_PID=""
 TWO_WAY_PID=""
 QUEUE_PID=""
+REDIS_PID=""
+REDIS_MANAGED=false
 
 ensure_node_for_frontend() {
   if ! command -v node >/dev/null 2>&1; then
@@ -75,6 +80,12 @@ ensure_production_assets() {
 
 function cleanup() {
   echo "\nStopping services..."
+  if [[ "$REDIS_MANAGED" == true ]] && [[ -n "$REDIS_PID" ]] && kill -0 "$REDIS_PID" 2>/dev/null; then
+    kill "$REDIS_PID" 2>/dev/null || true
+    wait "$REDIS_PID" 2>/dev/null || true
+  fi
+  rm -f "$LOG_DIR/redis.pid"
+
   if [[ -n "$BACKEND_PID" ]] && kill -0 "$BACKEND_PID" 2>/dev/null; then
     kill "$BACKEND_PID" 2>/dev/null || true
     wait "$BACKEND_PID" 2>/dev/null || true
@@ -109,6 +120,35 @@ function cleanup() {
 }
 
 trap cleanup EXIT INT TERM
+
+start_redis() {
+  local redis_host redis_port
+  redis_host=${REDIS_HOST:-127.0.0.1}
+  redis_port=${REDIS_PORT:-6379}
+
+  if command -v redis-cli >/dev/null 2>&1; then
+    if redis-cli -h "$redis_host" -p "$redis_port" ping >/dev/null 2>&1; then
+      echo "Redis already running on ${redis_host}:${redis_port}; reusing existing instance."
+      return 0
+    fi
+  fi
+
+  if ! command -v redis-server >/dev/null 2>&1; then
+    echo "Error: redis-server not found. Install Redis or set RUN_REDIS=false to skip starting it." >&2
+    exit 1
+  fi
+
+  echo "Starting Redis server (redis-server --port ${redis_port})..."
+  redis-server --port "$redis_port" --bind "$redis_host" --save "" --appendonly no >>"$REDIS_LOG" 2>&1 &
+  REDIS_PID=$!
+  REDIS_MANAGED=true
+  echo "$REDIS_PID" > "$LOG_DIR/redis.pid"
+  sleep 1
+  if ! kill -0 "$REDIS_PID" 2>/dev/null; then
+    echo "Error: Redis server failed to start. Check $REDIS_LOG for details." >&2
+    exit 1
+  fi
+}
 
 if [[ "$RUN_VITE" == true ]]; then
   ensure_node_for_frontend
@@ -181,6 +221,12 @@ echo "Starting alarm monitor (php artisan alarms:monitor --interval=$ALARM_MONIT
 ) &
 ALARM_PID=$!
 echo "$ALARM_PID" > "$LOG_DIR/alarm-monitor.pid"
+
+if [[ "$RUN_REDIS" == true ]]; then
+  start_redis
+else
+  echo "Skipping Redis start (RUN_REDIS=${RUN_REDIS})."
+fi
 
 echo "Starting queue worker (php artisan queue:work)..."
 (

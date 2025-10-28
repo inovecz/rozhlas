@@ -24,6 +24,16 @@ class ProcessRecordingPlaylist implements ShouldQueue
     use Queueable;
     use SerializesModels;
 
+    /**
+     * Recorded playlists can span several minutes.
+     */
+    public int $timeout = 900;
+
+    /**
+     * Retries are orchestrated manually via requeue logic.
+     */
+    public int $tries = 1;
+
     public function __construct(private readonly string $playlistId)
     {
     }

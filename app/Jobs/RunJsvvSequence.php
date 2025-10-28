@@ -18,6 +18,16 @@ class RunJsvvSequence implements ShouldQueue
     use Queueable;
     use SerializesModels;
 
+    /**
+     * Allow the sequence runner to execute for up to 15 minutes.
+     */
+    public int $timeout = 900;
+
+    /**
+     * Avoid retry loops – failures are handled within the sequence service.
+     */
+    public int $tries = 1;
+
     public function handle(JsvvSequenceService $sequenceService): void
     {
         $sequenceService->processQueuedSequences();

@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
@@ -913,6 +914,18 @@ class JsvvSequenceService extends Service
         $metadata = $item->metadata ?? [];
         $path = Arr::get($metadata, 'path');
 
+        if (!$this->hasUsableAudioPath($metadata)) {
+            $fallbackSymbol = Arr::get($metadata, 'symbol') ?? (string) $item->slot;
+            $fallback = $this->resolveFallbackAudio([
+                'symbol' => $fallbackSymbol,
+            ]);
+            if ($fallback !== null) {
+                $metadata = array_merge($metadata, $fallback);
+                $item->update(['metadata' => array_merge($item->metadata ?? [], $fallback)]);
+                $path = Arr::get($metadata, 'path');
+            }
+        }
+
         if (!is_string($path) || trim($path) === '' || !is_file($path)) {
             Log::warning('JSVV local playback skipped due to missing asset path', [
                 'sequence_item_id' => $item->id,
@@ -1001,7 +1014,99 @@ class JsvvSequenceService extends Service
 
         $metadata['request'] = $originalRequest ?: $normalizedItem;
 
+        if (!$this->hasUsableAudioPath($metadata)) {
+            $fallback = $this->resolveFallbackAudio($normalizedItem, $originalRequest);
+            if ($fallback !== null) {
+                $metadata = array_merge($metadata, $fallback);
+                if (isset($fallback['symbol']) && $fallback['symbol'] !== null) {
+                    $metadata['symbol'] = $fallback['symbol'];
+                }
+            }
+        }
+
         return $metadata;
+    }
+
+    private function hasUsableAudioPath(array $metadata): bool
+    {
+        $candidates = [
+            Arr::get($metadata, 'path'),
+            Arr::get($metadata, 'absolute_path'),
+            Arr::get($metadata, 'file_path'),
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (!is_string($candidate)) {
+                continue;
+            }
+            if ($candidate === '') {
+                continue;
+            }
+            if (is_file($candidate)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function resolveFallbackAudio(array $normalizedItem, array $originalRequest = []): ?array
+    {
+        $symbol = Arr::get($normalizedItem, 'symbol');
+        $symbol = is_string($symbol) ? strtoupper(trim($symbol)) : null;
+
+        if ($symbol === null || $symbol === '' || ctype_digit($symbol)) {
+            $originalSymbol = Arr::get($originalRequest, 'symbol');
+            if (!is_string($originalSymbol) || $originalSymbol === '') {
+                $originalSymbol = Arr::get($originalRequest, 'slot');
+            }
+            if (is_string($originalSymbol)) {
+                $originalSymbol = strtoupper(trim($originalSymbol));
+                if ($originalSymbol !== '' && !ctype_digit($originalSymbol)) {
+                    $symbol = $originalSymbol;
+                }
+            }
+        }
+
+        if (!is_string($symbol) || $symbol === '') {
+            return null;
+        }
+
+        /** @var JsvvAudio|null $audio */
+        $audio = JsvvAudio::query()->with('file')->find($symbol);
+        $file = $audio?->file;
+        if ($file === null) {
+            return null;
+        }
+
+        try {
+            $absolutePath = Storage::path($file->getStoragePath());
+        } catch (\Throwable $exception) {
+            Log::warning('Unable to resolve fallback audio path for JSVV item', [
+                'symbol' => $symbol,
+                'file_id' => $file->getKey(),
+                'error' => $exception->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        if (!is_string($absolutePath) || $absolutePath === '' || !is_file($absolutePath)) {
+            return null;
+        }
+
+        $payload = [
+            'path' => $absolutePath,
+            'absolute_path' => $absolutePath,
+            'symbol' => $symbol,
+        ];
+
+        $duration = Arr::get($file->getMetadata() ?? [], 'duration');
+        if (is_numeric($duration) && (float) $duration > 0) {
+            $payload['duration_seconds'] = (float) $duration;
+        }
+
+        return $payload;
     }
 
     private function detectItemDurationSeconds(string $category, array $metadata): ?float

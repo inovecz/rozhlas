@@ -7,14 +7,22 @@ a sandbox; production needs the items below.
 
 ## Environment variables
 
-- `BROADCAST_MIXER_ENABLED=true` – mixer commands **must** execute on
-  production otherwise no ALSA routing is applied before the stream
-  starts (`config/broadcast.php:31`, `app/Services/LiveBroadcastService.php:40`).
+- `BROADCAST_AUDIO_ROUTING_ENABLED=true` – ensures ALSA routing is applied
+  before the stream starts. When set to `false`, Laravel skips the `amixer`
+  commands and the stream plays through the fallback output specified by
+  `BROADCAST_AUDIO_FALLBACK_OUTPUT` (defaults to the ALSA `default` device).
+- `BROADCAST_MIXER_ENABLED=true` – enable the external mixer preset runner
+  if production still relies on the legacy wrapper script. When disabled,
+  `MixerController` will log and skip preset invocations (routing continues
+  to be handled by `AudioIoService` as long as the first flag stays enabled).
 - `BROADCAST_MIXER_BINARY=/path/to/scripts/alsamixer-wrapper.php` – point
   this to the helper script included in the repo (or an equivalent vendor
   tool). The stock `alsamixer` TUI is interactive-only; the wrapper shells
   out to `alsactl` so the preset arguments defined in `config/broadcast.php:70`
   work in unattended mode.
+- `BROADCAST_AUDIO_FALLBACK_OUTPUT=default` – ALSA device that should receive
+  audio when routing is disabled. Change only if the sender expects a specific
+  hardware name (e.g. `hw:1,0`).
 - `BROADCAST_MIXER_CARD=<card index>` – production hardware usually
   enumerates as a different ALSA card than a laptop. Verify via
   `aplay -l` and update `.env`, because the volume template

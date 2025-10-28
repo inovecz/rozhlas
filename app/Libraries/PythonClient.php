@@ -8,6 +8,7 @@ use App\Enums\ModbusRegister;
 use InvalidArgumentException;
 use JsonException;
 use RuntimeException;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\Process\Process;
 
 class PythonClient
@@ -590,6 +591,10 @@ class PythonClient
 
     public function runModbus(string $command, array $options = [], ?float $timeout = null): array
     {
+        if (!$this->isModbusConfigured()) {
+            return $this->buildSkippedResponse($command, $options);
+        }
+
         return $this->callScript($this->modbusScript, $command, $options, $timeout);
     }
 
@@ -786,5 +791,43 @@ class PythonClient
         ], static fn ($value) => $value !== null && $value !== '');
 
         return array_merge($base, $overrides);
+    }
+
+    private function isModbusConfigured(): bool
+    {
+        $port = config('modbus.port');
+        if ($port === null) {
+            return false;
+        }
+
+        if (is_string($port)) {
+            return trim($port) !== '';
+        }
+
+        return true;
+    }
+
+    private function buildSkippedResponse(string $command, array $options): array
+    {
+        Log::info('Modbus command skipped because port is not configured', [
+            'command' => $command,
+            'options' => $options,
+        ]);
+
+        return [
+            'success' => true,
+            'exitCode' => 0,
+            'stdout' => [],
+            'stderr' => [],
+            'json' => [
+                'status' => 'ok',
+                'data' => [
+                    'skipped' => true,
+                    'reason' => 'modbus_port_missing',
+                    'command' => $command,
+                ],
+            ],
+            'skipped' => true,
+        ];
     }
 }

@@ -51,4 +51,5 @@ class AudioIoController extends Controller
             'volume' => $volume,
         ]);
     }
+
 }

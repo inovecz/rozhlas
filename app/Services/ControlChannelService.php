@@ -80,10 +80,43 @@ class ControlChannelService
             'sourceMessageId' => $message?->id,
             'deadlineMs' => max(1, (int) config('control_channel.deadline_ms', 500)),
         ];
+        $stateBefore = $this->resolveLastState($fallbackStateBefore);
+
+        if (!$this->isEnabled()) {
+            $record = ControlChannelCommand::create([
+                'command' => $command,
+                'state_before' => $stateBefore,
+                'state_after' => $expectedStateAfter,
+                'reason' => $reason,
+                'message_id' => $message?->id,
+                'result' => 'SKIPPED',
+                'payload' => [
+                    'request' => $request,
+                    'details' => [
+                        'skipped' => true,
+                        'reason' => 'modbus_port_missing',
+                    ],
+                ],
+                'issued_at' => now(),
+            ]);
+
+            $this->recordEvent($message, $command, 'ControlChannelSkipped', [
+                'state_after' => $expectedStateAfter,
+                'since_message_ms' => $this->calculateSinceMessageMs($message),
+            ]);
+
+            Log::info('Control channel command skipped because Modbus port is not configured', [
+                'command' => $command,
+                'message_id' => $message?->id,
+                'reason' => $reason,
+            ]);
+
+            return $record;
+        }
 
         $record = ControlChannelCommand::create([
             'command' => $command,
-            'state_before' => $this->resolveLastState($fallbackStateBefore),
+            'state_before' => $stateBefore,
             'state_after' => null,
             'reason' => $reason,
             'message_id' => $message?->id,
@@ -178,6 +211,20 @@ class ControlChannelService
         }
 
         return $record->fresh();
+    }
+
+    private function isEnabled(): bool
+    {
+        $port = config('modbus.port');
+        if ($port === null) {
+            return false;
+        }
+
+        if (is_string($port)) {
+            return trim($port) !== '';
+        }
+
+        return true;
     }
 
     private function resolveLastState(?string $fallback): ?string

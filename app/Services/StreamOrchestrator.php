@@ -532,6 +532,10 @@ class StreamOrchestrator extends Service
             return;
         }
 
+        if ($command->result === 'SKIPPED') {
+            return;
+        }
+
         if ($command->result !== 'OK') {
             $payload = $command->payload ?? [];
             $errorDetail = Arr::get($payload, 'error')

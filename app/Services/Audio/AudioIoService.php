@@ -20,6 +20,7 @@ class AudioIoService
     private string $aplay;
     private string $arecord;
     private float $timeout;
+    private string $fallbackOutputDevice;
     /**
      * @var array<string, string>
      */
@@ -48,6 +49,7 @@ class AudioIoService
 
         $this->enabled = $this->normalizeBoolean($config['enabled'] ?? true);
         $this->card = (string) ($config['card'] ?? '0');
+        $this->fallbackOutputDevice = (string) ($config['fallback_output_device'] ?? 'default');
 
         $binaries = Arr::get($config, 'binaries', []);
         $this->amixer = (string) ($binaries['amixer'] ?? 'amixer');
@@ -343,11 +345,20 @@ class AudioIoService
         }
 
         $currentInput = $this->enabled ? $this->detectSelection('inputs') : null;
-        $currentOutput = $this->enabled ? $this->detectSelection('outputs') : null;
+        $currentOutput = $this->enabled
+            ? $this->detectSelection('outputs')
+            : [
+                'id' => null,
+                'label' => null,
+                'raw' => null,
+                'device' => $this->fallbackOutputDevice,
+                'fallback' => true,
+            ];
 
         return [
             'enabled' => $this->enabled,
             'card' => $this->card,
+            'fallback_output_device' => $this->fallbackOutputDevice,
             'current' => [
                 'input' => $currentInput,
                 'output' => $currentOutput,
@@ -416,6 +427,7 @@ class AudioIoService
                     'id' => (string) $identifier,
                     'label' => $definition['label'] ?? $resolvedDefinition['label'] ?? (string) $identifier,
                     'raw' => $value,
+                    'device' => $definition['device'] ?? $resolvedDefinition['device'] ?? null,
                 ];
             }
         }
@@ -424,6 +436,7 @@ class AudioIoService
             'raw' => $value,
             'id' => null,
             'label' => null,
+            'device' => null,
         ];
     }
 

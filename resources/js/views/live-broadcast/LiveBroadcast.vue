@@ -143,6 +143,8 @@ const combinedSourceOptions = computed(() => {
   return list;
 });
 
+const routingEnabled = computed(() => mixerStatus.value?.enabled !== false);
+
 const isStreaming = computed(() => status.value?.session?.status === 'running');
 const showPlaylistControls = computed(() => form.source === 'central_file');
 const showCentralFilePicker = computed(() => {
@@ -453,7 +455,9 @@ const refreshMixerStatus = async (silent = false) => {
     let inputs = normaliseMixerItems(statusPayload?.inputs);
     let outputs = normaliseMixerItems(statusPayload?.outputs);
 
-    const shouldForceOutput = FORCE_AUDIO_OUTPUT_ENABLED && !!FORCED_MIXER_OUTPUT_ID;
+    const routingActive = statusPayload?.enabled !== false;
+
+    const shouldForceOutput = routingActive && FORCE_AUDIO_OUTPUT_ENABLED && !!FORCED_MIXER_OUTPUT_ID;
     const forcedOutputId = shouldForceOutput && outputs.some(item => item.id === FORCED_MIXER_OUTPUT_ID)
       ? FORCED_MIXER_OUTPUT_ID
       : '';
@@ -502,6 +506,8 @@ const refreshMixerStatus = async (silent = false) => {
       selectedMixerOutputId.value = forcedOutputId;
     } else if (!shouldForceOutput && currentOutputId && currentOutputId !== selectedMixerOutputId.value) {
       selectedMixerOutputId.value = currentOutputId;
+    } else if (!routingActive && selectedMixerOutputId.value !== '') {
+      selectedMixerOutputId.value = '';
     }
 
     mixerSyncing.value = false;
@@ -765,7 +771,8 @@ const loadStatus = async () => {
     if (audioInputId) {
       selectedAudioInputId.value = audioInputId;
     }
-    if (FORCE_AUDIO_OUTPUT_ENABLED && FORCED_AUDIO_OUTPUT_ID) {
+    const routingActive = routingEnabled.value;
+    if (routingActive && FORCE_AUDIO_OUTPUT_ENABLED && FORCED_AUDIO_OUTPUT_ID) {
       selectedAudioOutputId.value = FORCED_AUDIO_OUTPUT_ID;
     } else if (audioOutputId) {
       selectedAudioOutputId.value = audioOutputId;
@@ -802,7 +809,8 @@ function persistAudioInput() {
 
 function persistAudioOutput() {
   const device = audioOutputDevices.value.find(output => output.id === selectedAudioOutputId.value);
-  const fallbackLabel = FORCE_AUDIO_OUTPUT_ENABLED && FORCED_AUDIO_OUTPUT_ID
+  const routingActive = routingEnabled.value;
+  const fallbackLabel = routingActive && FORCE_AUDIO_OUTPUT_ENABLED && FORCED_AUDIO_OUTPUT_ID
     ? FORCED_AUDIO_OUTPUT_LABEL
     : 'Výchozí systém';
   const payload = {
@@ -891,6 +899,9 @@ watch(selectedAudioOutputId, async (newValue, oldValue) => {
 
 watch(selectedMixerInputId, async (newValue, oldValue) => {
   if (mixerSyncing.value) {
+    return;
+  }
+  if (!routingEnabled.value) {
     return;
   }
   if (!newValue || newValue === oldValue) {
@@ -1319,11 +1330,18 @@ const removePlaylistItem = (index) => {
         <Box label="Zdroje a obsah">
           <div class="space-y-4">
             <div class="space-y-1">
+              <p class="text-xs text-gray-500">
+                Směrování výstupu je {{ routingEnabled ? 'zapnuté' : 'vypnuté' }}.
+                Změnu proveďte v konfiguraci prostředí (.env).
+              </p>
+            </div>
+
+            <div class="space-y-1">
               <label class="block text-sm font-medium text-gray-700">Vstup</label>
               <select
                   v-model="selectedMixerInputId"
                   class="form-select w-full border border-gray-300 rounded-md bg-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-40"
-                  :disabled="mixerLoading || mixerInputUpdating || mixerInputs.length === 0">
+                  :disabled="mixerLoading || mixerInputUpdating || mixerInputs.length === 0 || !routingEnabled">
                 <option v-for="input in mixerInputs" :key="input.id" :value="input.id">
                   {{ input.label }}
                 </option>

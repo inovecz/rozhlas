@@ -120,6 +120,38 @@ ensure_runtime_tooling() {
       echo "Warning: ffmpeg not found. Install it manually to enable audio processing." >&2
     fi
   fi
+
+  if ! command -v redis-server >/dev/null 2>&1; then
+    if [ "$manager" = "brew" ]; then
+      install_packages "$manager" redis
+    elif [ "$manager" = "apt" ]; then
+      install_packages "$manager" redis-server
+    else
+      echo "Warning: redis-server not found. Install Redis manually or set RUN_REDIS=false in run.sh." >&2
+    fi
+  fi
+
+  if ! php -m | awk '{print tolower($0)}' | grep -q "^redis$"; then
+    if [ "$manager" = "brew" ]; then
+      if command -v pecl >/dev/null 2>&1; then
+        echo "Installing PHP Redis extension (pecl install redis) – this may prompt for input..."
+        # Accept defaults during pecl installation.
+        printf "\n" | pecl install -f redis || {
+          echo "Warning: pecl failed to install redis extension. Install it manually (pecl install redis)." >&2
+        }
+      else
+        echo "Warning: pecl command not found. Install the PHP Redis extension manually (pecl install redis)." >&2
+      fi
+    elif [ "$manager" = "apt" ]; then
+      install_packages "$manager" php-redis
+    else
+      echo "Warning: PHP Redis extension not found. Install it manually or switch REDIS_CLIENT=predis." >&2
+    fi
+
+    if ! php -m | awk '{print tolower($0)}' | grep -q "^redis$"; then
+      echo "Warning: PHP Redis extension still unavailable. Verify that extension=redis is enabled in php.ini." >&2
+    fi
+  fi
 }
 
 ensure_runtime_tooling

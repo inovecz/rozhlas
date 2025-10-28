@@ -27,6 +27,16 @@ class AudioRoutingService
 
     private function applySelection(string $type, ?string $identifier, array $map, array $context): void
     {
+        if (!config('audio.enabled', true)) {
+            if ($identifier !== null && $identifier !== '') {
+                Log::debug('Audio routing disabled, skipping selection.', [
+                    'type' => $type,
+                    'id' => $identifier,
+                ]);
+            }
+            return;
+        }
+
         if ($identifier === null || $identifier === '' || $identifier === 'default') {
             return;
         }
