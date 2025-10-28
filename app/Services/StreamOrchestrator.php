@@ -24,6 +24,7 @@ use App\Services\VolumeManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -36,6 +37,7 @@ class StreamOrchestrator extends Service
 {
     private const MAX_DEST_ZONES = 5;
     private const JSVV_ACTIVE_LOCK_KEY = 'jsvv:sequence:active';
+    private const MODBUS_LOCK_KEY = 'modbus:serial';
 
     private ?ControlChannelService $controlChannel;
 
@@ -95,10 +97,10 @@ class StreamOrchestrator extends Service
             $this->applyAudioRouting($augmentedOptions, $source, $active->id);
             $this->applySourceVolume($source);
 
-            $response = $this->client->startStream(
+            $response = $this->withModbusLock(fn (): array => $this->client->startStream(
                 $route !== [] ? $route : null,
                 $zones,
-            );
+            ));
 
             $active->update([
                 'source' => $source,
@@ -131,10 +133,10 @@ class StreamOrchestrator extends Service
         $this->applyAudioRouting($augmentedOptions, $source, null);
         $this->applySourceVolume($source);
 
-        $response = $this->client->startStream(
+        $response = $this->withModbusLock(fn (): array => $this->client->startStream(
             $route !== [] ? $route : null,
             $zones,
-        );
+        ));
 
         $session = BroadcastSession::create([
             'source' => $source,
@@ -175,7 +177,7 @@ class StreamOrchestrator extends Service
         }
 
         $controlReason = sprintf('Live broadcast stop (%s)', $reason ?? 'manual');
-        $response = $this->client->stopStream();
+        $response = $this->withModbusLock(fn (): array => $this->client->stopStream());
 
         $session->update([
             'status' => 'stopped',
@@ -453,6 +455,24 @@ class StreamOrchestrator extends Service
     public function getResponse(): JsonResponse
     {
         return response()->json($this->getStatusDetails());
+    }
+
+    /**
+     * Execute callback with exclusive Modbus access.
+     *
+     * @template TReturn
+     * @param callable():TReturn $callback
+     * @return TReturn
+     */
+    private function withModbusLock(callable $callback)
+    {
+        $lock = Cache::lock(self::MODBUS_LOCK_KEY, 10);
+
+        try {
+            return $lock->block(10, static fn () => $callback());
+        } catch (LockTimeoutException $exception) {
+            throw new RuntimeException('Unable to acquire Modbus lock', 0, $exception);
+        }
     }
 
     private function resolveControlChannel(?ControlChannelService $service): ?ControlChannelService

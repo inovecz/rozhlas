@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Libraries\PythonClient;
+use App\Models\BroadcastSession;
 use App\Services\EmailNotificationService;
 use App\Services\SmsNotificationService;
 use App\Settings\JsvvSettings;
 use Illuminate\Console\Command;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\Console\Command\SignalableCommandInterface;
 
@@ -20,6 +22,9 @@ class MonitorAlarmBuffer extends Command implements SignalableCommandInterface
     protected $description = 'Pravidelně kontroluje Modbus alarm buffer (0x3000-0x3009) a rozesílá notifikace (SMS/e-mail).';
 
     private bool $shouldExit = false;
+
+    private const MODBUS_LOCK_KEY = 'modbus:serial';
+    private const JSVV_ACTIVE_LOCK_KEY = 'jsvv:sequence:active';
 
     public function __construct(
         private readonly PythonClient $pythonClient = new PythonClient(),
@@ -47,7 +52,23 @@ class MonitorAlarmBuffer extends Command implements SignalableCommandInterface
 
     private function tick(): void
     {
-        $response = $this->pythonClient->readAlarmBuffer();
+        if ($this->shouldSkipPolling()) {
+            Log::debug('Alarm buffer polling skipped – Modbus je zaneprázdněný aktivním vysíláním.');
+            return;
+        }
+
+        $lock = Cache::lock(self::MODBUS_LOCK_KEY, 10);
+        if (!$lock->get()) {
+            Log::debug('Alarm buffer polling skipped – zámek Modbus portu je obsazen.');
+            return;
+        }
+
+        try {
+            $response = $this->pythonClient->readAlarmBuffer();
+        } finally {
+            $lock->release();
+        }
+
         if (($response['success'] ?? false) === false) {
             Log::warning('Čtení alarm bufferu selhalo', $response);
             return;
@@ -159,5 +180,15 @@ class MonitorAlarmBuffer extends Command implements SignalableCommandInterface
     {
         $this->shouldExit = true;
         return 0;
+    }
+
+    private function shouldSkipPolling(): bool
+    {
+        $jsvvActive = Cache::has(self::JSVV_ACTIVE_LOCK_KEY);
+        $streamRunning = BroadcastSession::query()
+            ->where('status', 'running')
+            ->exists();
+
+        return $jsvvActive || $streamRunning;
     }
 }

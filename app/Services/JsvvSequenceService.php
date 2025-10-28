@@ -23,6 +23,7 @@ use App\Settings\JsvvSettings;
 use App\Services\StreamOrchestrator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Arr;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
@@ -35,6 +36,7 @@ class JsvvSequenceService extends Service
 {
     private const RUNNER_LOCK_KEY = 'jsvv:sequence:runner';
     private const ACTIVE_LOCK_KEY = 'jsvv:sequence:active';
+    private const MODBUS_LOCK_KEY = 'modbus:serial';
     private const LOCK_TTL_SECONDS = 300;
     private array $symbolSlotCache = [];
 
@@ -281,12 +283,12 @@ class JsvvSequenceService extends Service
                 ]);
                 $sessionId = is_array($session) ? Arr::get($session, 'id') : null;
             } else {
-                $startResponse = $this->client->startStream(
+                $startResponse = $this->withModbusLock(fn (): array => $this->client->startStream(
                     $route !== [] ? $route : null,
                     $zones !== [] ? $zones : null,
                     null,
                     $route !== []
-                );
+                ));
 
                 if (($startResponse['success'] ?? false) === false) {
                     throw new RuntimeException($startResponse['json']['message'] ?? 'Modbus start-stream failed');
@@ -330,7 +332,7 @@ class JsvvSequenceService extends Service
                 $this->waitForRemotePlayback($sequence, $estimatedDuration);
                 $actualDuration = max(0.0, microtime(true) - $sequenceStart);
 
-                $stopResponse = $this->client->stopStream();
+                $stopResponse = $this->withModbusLock(fn (): array => $this->client->stopStream());
                 if (($stopResponse['success'] ?? true) === false) {
                     Log::warning('JSVV remote stop-stream reported error', [
                         'sequence_id' => $sequence->id,
@@ -354,7 +356,7 @@ class JsvvSequenceService extends Service
         } catch (Throwable $throwable) {
             if (!$useLocalStream && $remoteStreamStarted) {
                 try {
-                    $this->client->stopStream();
+                    $this->withModbusLock(fn (): array => $this->client->stopStream());
                 } catch (Throwable $stopException) {
                     Log::warning('Failed to stop remote JSVV stream after exception', [
                         'sequence_id' => $sequence->id,
@@ -384,7 +386,7 @@ class JsvvSequenceService extends Service
         } finally {
             if (!$useLocalStream && $remoteStreamStarted) {
                 try {
-                    $this->client->stopStream();
+                    $this->withModbusLock(fn (): array => $this->client->stopStream());
                 } catch (Throwable $stopException) {
                     Log::warning('Failed to stop remote JSVV stream in finally block', [
                         'sequence_id' => $sequence->id,
@@ -446,6 +448,24 @@ class JsvvSequenceService extends Service
 
         if ($session !== null && $session->source === 'jsvv') {
             $this->orchestrator->stop($reason);
+        }
+    }
+
+    /**
+     * Execute callback with exclusive Modbus access.
+     *
+     * @template TReturn
+     * @param callable():TReturn $callback
+     * @return TReturn
+     */
+    private function withModbusLock(callable $callback)
+    {
+        $lock = Cache::lock(self::MODBUS_LOCK_KEY, 10);
+
+        try {
+            return $lock->block(10, static fn () => $callback());
+        } catch (LockTimeoutException $exception) {
+            throw new RuntimeException('Unable to acquire Modbus lock', 0, $exception);
         }
     }
 

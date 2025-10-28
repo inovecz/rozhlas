@@ -13,7 +13,7 @@ import JsvvAlarmService from "../../services/JsvvAlarmService.js";
 import JsvvSequenceService from "../../services/JsvvSequenceService.js";
 import SettingsService from "../../services/SettingsService.js";
 import LiveBroadcastService from "../../services/LiveBroadcastService.js";
-import {moveItemDown, moveItemUp} from "../../helper.js";
+import {durationToTime, moveItemDown, moveItemUp} from "../../helper.js";
 import {JSVV_BUTTON_DEFAULTS} from "../../constants/jsvvDefaults.js";
 
 const toast = useToast();
@@ -38,6 +38,31 @@ const quickAlarmsDefinition = JSVV_BUTTON_DEFAULTS.map((item) => ({
   defaultSequence: item.sequence,
   steps: item.steps,
 }));
+
+const DEFAULT_JSVV_DURATIONS = (() => {
+  const fallback = {verbal: 12, siren: 60, fallback: 10};
+  if (typeof window !== 'undefined') {
+    const candidates = [
+      window.jsvvDefaultDurations,
+      window.APP_JSVV_DEFAULTS,
+      window.appConfig?.jsvv?.defaultDurations,
+    ];
+    for (const candidate of candidates) {
+      if (!candidate || typeof candidate !== 'object') {
+        continue;
+      }
+      const verbal = Number(candidate.verbal ?? candidate.VERBAL);
+      const siren = Number(candidate.siren ?? candidate.SIREN);
+      const fallbackValue = Number(candidate.fallback ?? candidate.FALLBACK ?? candidate.default);
+      return Object.freeze({
+        verbal: Number.isFinite(verbal) && verbal > 0 ? verbal : fallback.verbal,
+        siren: Number.isFinite(siren) && siren > 0 ? siren : fallback.siren,
+        fallback: Number.isFinite(fallbackValue) && fallbackValue > 0 ? fallbackValue : fallback.fallback,
+      });
+    }
+  }
+  return Object.freeze(fallback);
+})();
 
 const showCustomBuilder = ref(false);
 const customSequence = ref([]);
@@ -240,6 +265,68 @@ function buildRequestItem(raw) {
   return item;
 }
 
+function resolveDefaultDuration(category) {
+  if (category === 'siren') {
+    return DEFAULT_JSVV_DURATIONS.siren;
+  }
+  if (category === 'verbal') {
+    return DEFAULT_JSVV_DURATIONS.verbal;
+  }
+  return DEFAULT_JSVV_DURATIONS.fallback;
+}
+
+function extractDurationSeconds(metadata) {
+  if (!metadata || typeof metadata !== 'object') {
+    return null;
+  }
+  const keys = ['duration_seconds', 'durationSeconds', 'duration', 'length'];
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const numeric = Number.parseFloat(value);
+      if (Number.isFinite(numeric) && numeric > 0) {
+        return numeric;
+      }
+    }
+  }
+  return null;
+}
+
+function estimateSequenceDuration(sequenceItems) {
+  if (!Array.isArray(sequenceItems) || sequenceItems.length === 0) {
+    return null;
+  }
+  let total = 0;
+  let hasValue = false;
+
+  for (const entry of sequenceItems) {
+    if (!entry) {
+      continue;
+    }
+    const repeat = normaliseRepeat(entry.repeat);
+    const audio = resolveAudioForSymbol(entry.symbol);
+    const category = normaliseCategory(entry.category, audio);
+    const metadata = audio?.file?.metadata ?? audio?.metadata ?? null;
+    let duration = extractDurationSeconds(metadata);
+    if (duration == null || !Number.isFinite(duration) || duration <= 0) {
+      if (audio?.type === 'SOURCE') {
+        return null;
+      }
+      duration = resolveDefaultDuration(category);
+    }
+    if (duration == null || !Number.isFinite(duration) || duration <= 0) {
+      return null;
+    }
+    total += duration * repeat;
+    hasValue = true;
+  }
+
+  return hasValue ? total : null;
+}
+
 const groupedAudios = computed(() => {
   const order = ['SIREN', 'GONG', 'VERBAL', 'AUDIO'];
   const groupLabels = {
@@ -294,11 +381,51 @@ const alarmByButton = computed(() => {
 const quickAlarms = computed(() => quickAlarmsDefinition.map((definition) => {
   const alarm = alarmByButton.value.get(definition.button) ?? null;
   const sequence = (alarm?.sequence || definition.defaultSequence || '').toUpperCase();
+
+  let sequenceItems = [];
+  try {
+    if (alarm) {
+      sequenceItems = buildSequenceItems(alarm);
+    } else if (sequence) {
+      sequenceItems = buildSequenceFromSymbols(sequence);
+    }
+  } catch (error) {
+    console.debug('Nepodařilo se sestavit sekvenci pro tlačítko JSVV', {
+      button: definition.button,
+      error,
+    });
+    sequenceItems = [];
+  }
+
+  let durationSeconds = null;
+  const backendDuration = alarm?.estimated_duration_seconds;
+  if (typeof backendDuration === 'number' && Number.isFinite(backendDuration) && backendDuration > 0) {
+    durationSeconds = backendDuration;
+  } else if (backendDuration != null) {
+    const numeric = Number(backendDuration);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      durationSeconds = numeric;
+    }
+  }
+
+  if (durationSeconds == null) {
+    const estimated = estimateSequenceDuration(sequenceItems);
+    if (estimated != null && Number.isFinite(estimated) && estimated > 0) {
+      durationSeconds = estimated;
+    }
+  }
+
+  const durationLabel = durationSeconds != null
+    ? durationToTime(Math.round(durationSeconds))
+    : 'N/A';
+
   return {
     ...definition,
     alarm,
     sequence,
     sequenceLabel: sequence || 'Nenastaveno',
+    durationSeconds,
+    durationLabel,
   };
 }));
 
@@ -664,6 +791,9 @@ function openProtocol() {
                 <div class="font-semibold text-gray-800">{{ definition.label }}</div>
                 <div class="text-xs text-gray-500 mt-1">
                   Sekvence: <span class="font-medium">{{ definition.sequenceLabel }}</span>
+                </div>
+                <div class="text-xs text-gray-500 mt-1">
+                  Délka: <span class="font-medium">{{ definition.durationLabel }}</span>
                 </div>
                 <ul v-if="definition.steps?.length" class="mt-2 text-xs text-gray-500 space-y-1 list-disc list-inside">
                   <li v-for="(step, stepIndex) in definition.steps" :key="stepIndex">{{ step }}</li>
