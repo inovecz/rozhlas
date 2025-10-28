@@ -19,6 +19,17 @@ class ControlTabController extends Controller
 
     public function handle(Request $request): JsonResponse
     {
+        $payload = $request->all();
+        $camelToSnake = [
+            'buttonId' => 'button_id',
+            'fieldId' => 'field_id',
+        ];
+        foreach ($camelToSnake as $camel => $snake) {
+            if (!array_key_exists($snake, $payload) && array_key_exists($camel, $payload)) {
+                $request->merge([$snake => $payload[$camel]]);
+            }
+        }
+
         $validator = Validator::make($request->all(), [
             'type' => ['required', 'string', 'in:panel_loaded,button_pressed,text_field_request'],
             'screen' => ['sometimes', 'integer'],

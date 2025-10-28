@@ -54,17 +54,19 @@ class StreamOrchestrator extends Service
     public function start(array $payload): array
     {
         $manualRoute = $this->normalizeNumericArray(Arr::get($payload, 'route', []));
-        $locationGroupIds = $this->normalizeNumericArray(
+        $originalLocationGroupIds = $this->normalizeNumericArray(
             Arr::get($payload, 'locations', Arr::get($payload, 'zones', [])),
         );
-        $nestIds = $this->normalizeNumericArray(Arr::get($payload, 'nests', []));
+        [$locationGroupIds, $includeOrphanNests] = $this->prepareLocationGroupSelection($originalLocationGroupIds);
+        $originalNestIds = $this->normalizeNumericArray(Arr::get($payload, 'nests', []));
+        $nestIds = $includeOrphanNests ? $this->mergeUnassignedNestIds($originalNestIds) : $originalNestIds;
         $options = Arr::get($payload, 'options', []);
         $source = (string) Arr::get($payload, 'source', 'unknown');
 
         $targets = $this->resolveTargets($locationGroupIds, $nestIds);
         $route = $this->resolveRoute($manualRoute, $targets);
         $zones = $targets['zones'];
-        $augmentedOptions = $this->augmentOptions($options, $manualRoute, $locationGroupIds, $nestIds, $targets);
+        $augmentedOptions = $this->augmentOptions($options, $manualRoute, $originalLocationGroupIds, $originalNestIds, $targets);
         $augmentedOptions = $this->applyFrequencyOption($augmentedOptions);
         if ($zones === []) {
             throw new InvalidArgumentException('Destination zones must be defined before starting broadcast.');
@@ -348,10 +350,12 @@ class StreamOrchestrator extends Service
         return DB::transaction(function () use ($payload): array {
             $items = Arr::get($payload, 'recordings', []);
             $manualRoute = $this->normalizeNumericArray(Arr::get($payload, 'route', []));
-            $locationGroupIds = $this->normalizeNumericArray(
+            $originalLocationGroupIds = $this->normalizeNumericArray(
                 Arr::get($payload, 'locations', Arr::get($payload, 'zones', [])),
             );
-            $nestIds = $this->normalizeNumericArray(Arr::get($payload, 'nests', []));
+            [$locationGroupIds, $includeOrphanNests] = $this->prepareLocationGroupSelection($originalLocationGroupIds);
+            $originalNestIds = $this->normalizeNumericArray(Arr::get($payload, 'nests', []));
+            $nestIds = $includeOrphanNests ? $this->mergeUnassignedNestIds($originalNestIds) : $originalNestIds;
             $options = Arr::get($payload, 'options', []);
 
             $targets = $this->resolveTargets($locationGroupIds, $nestIds);
@@ -359,7 +363,7 @@ class StreamOrchestrator extends Service
             $playlist = BroadcastPlaylist::create([
                 'route' => $manualRoute,
                 'zones' => $targets['zones'],
-                'options' => $this->augmentOptions($options, $manualRoute, $locationGroupIds, $nestIds, $targets),
+                'options' => $this->augmentOptions($options, $manualRoute, $originalLocationGroupIds, $originalNestIds, $targets),
                 'status' => 'queued',
             ]);
 
@@ -599,6 +603,52 @@ class StreamOrchestrator extends Service
         $result = array_values(array_unique($result));
 
         return $result;
+    }
+
+    /**
+     * Expand special selections (e.g. Control Tab "General") and flag whether orphan nests should be included.
+     *
+     * @param array<int, int> $locationGroupIds
+     * @return array{0: array<int, int>, 1: bool}
+     */
+    private function prepareLocationGroupSelection(array $locationGroupIds): array
+    {
+        if ($locationGroupIds === []) {
+            return [$locationGroupIds, false];
+        }
+
+        $defaultGroupId = (int) config('control_tab.default_location_group_id', 0);
+        if ($defaultGroupId > 0 && in_array($defaultGroupId, $locationGroupIds, true)) {
+            $allGroupIds = LocationGroup::query()->pluck('id')->map(static fn ($id) => (int) $id)->all();
+            if ($allGroupIds !== []) {
+                return [array_values(array_unique($allGroupIds)), true];
+            }
+            return [$locationGroupIds, true];
+        }
+
+        return [$locationGroupIds, false];
+    }
+
+    /**
+     * Merge unassigned nest IDs into the selection.
+     *
+     * @param array<int, int> $nestIds
+     * @return array<int, int>
+     */
+    private function mergeUnassignedNestIds(array $nestIds): array
+    {
+        $orphanIds = Location::query()
+            ->whereNull('location_group_id')
+            ->where('type', 'NEST')
+            ->pluck('id')
+            ->map(static fn ($id) => (int) $id)
+            ->all();
+
+        if ($orphanIds === []) {
+            return $nestIds;
+        }
+
+        return array_values(array_unique(array_merge($nestIds, $orphanIds)));
     }
 
     /**

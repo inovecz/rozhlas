@@ -18,6 +18,7 @@ return [
     'poll_interval' => (float) env('CONTROL_TAB_POLL_INTERVAL', 0.05),
     'graceful_timeout' => (float) env('CONTROL_TAB_GRACEFUL_TIMEOUT', 5.0),
     'retry_backoff_ms' => (int) env('CONTROL_TAB_RETRY_BACKOFF_MS', 250),
+    'default_location_group_id' => (int) env('CONTROL_TAB_DEFAULT_LOCATION_GROUP_ID', 1),
     'text_fields' => [
         1 => 'status_summary',
         2 => 'running_duration',
@@ -30,6 +31,7 @@ return [
         1 => [
             'action' => 'start_stream',
             'source' => 'control_box',
+            'locations' => [(int) env('CONTROL_TAB_DEFAULT_LOCATION_GROUP_ID', 1)],
             'success_message' => 'Hlášení bylo spuštěno.',
         ],
         2 => [
@@ -60,6 +62,7 @@ return [
         7 => [
             'action' => 'start_stream',
             'source' => 'microphone',
+            'locations' => [(int) env('CONTROL_TAB_DEFAULT_LOCATION_GROUP_ID', 1)],
             'success_message' => 'Mikrofon byl aktivován.',
         ],
         8 => [
@@ -69,6 +72,7 @@ return [
         9 => [
             'action' => 'start_stream',
             'source' => 'control_box',
+            'locations' => [(int) env('CONTROL_TAB_DEFAULT_LOCATION_GROUP_ID', 1)],
             'success_message' => 'Vysílání bylo spuštěno.',
         ],
         10 => [
@@ -81,6 +85,7 @@ return [
             'options' => [
                 'origin' => 'prime_hlaseni',
             ],
+            'locations' => [(int) env('CONTROL_TAB_DEFAULT_LOCATION_GROUP_ID', 1)],
             'success_message' => 'Přímé hlášení bylo spuštěno.',
         ],
         12 => [
@@ -124,7 +129,7 @@ return [
     ],
     'defaults' => [
         'route' => [],
-        'locations' => [],
+        'locations' => [(int) env('CONTROL_TAB_DEFAULT_LOCATION_GROUP_ID', 1)],
         'nests' => [],
         'options' => [],
     ],

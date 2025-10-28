@@ -3,7 +3,15 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_DIR="$ROOT_DIR/storage/logs/run"
+ENV_FILE="$ROOT_DIR/.env"
+if [[ -f "$ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+fi
+
+LOG_DIR="${LOG_DIR:-$ROOT_DIR/storage/logs/run}"
 mkdir -p "$LOG_DIR"
 
 LARAVEL_HOST=${LARAVEL_HOST:-127.0.0.1}
@@ -11,11 +19,7 @@ LARAVEL_PORT=${LARAVEL_PORT:-8001}
 VITE_HOST=${VITE_HOST:-127.0.0.1}
 VITE_PORT=${VITE_PORT:-5173}
 
-APP_ENV_VALUE=${APP_ENV:-}
-if [[ -z "$APP_ENV_VALUE" && -f "$ROOT_DIR/.env" ]]; then
-  APP_ENV_VALUE=$(grep '^APP_ENV=' "$ROOT_DIR/.env" | tail -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" )
-fi
-APP_ENV_VALUE=${APP_ENV_VALUE:-local}
+APP_ENV_VALUE=${APP_ENV:-local}
 APP_ENV_LOWER=$(echo "$APP_ENV_VALUE" | tr '[:upper:]' '[:lower:]')
 RUN_VITE=true
 if [[ "$APP_ENV_LOWER" == "production" ]]; then

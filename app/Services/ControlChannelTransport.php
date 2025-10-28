@@ -66,8 +66,7 @@ class ControlChannelTransport
     private function performSend(array $payload): array
     {
         $start = microtime(true);
-        $timeoutSeconds = $this->timeoutSeconds();
-        $timeoutMicros = $this->timeoutMicros();
+        [$timeoutSeconds, $timeoutMicros] = $this->timeoutParts();
         $attemptedAutoStart = false;
 
         connect:
@@ -182,15 +181,16 @@ class ControlChannelTransport
         }
     }
 
-    private function timeoutSeconds(): float
+    /**
+     * @return array{0:int,1:int}
+     */
+    private function timeoutParts(): array
     {
-        return max(0.1, $this->timeoutMs / 1000);
-    }
+        $effectiveTimeoutMs = max(100, $this->timeoutMs);
+        $seconds = (int) floor($effectiveTimeoutMs / 1000);
+        $micros = (int) (($effectiveTimeoutMs % 1000) * 1000);
 
-    private function timeoutMicros(): int
-    {
-        $fractional = $this->timeoutMs % 1000;
-        return $fractional * 1000;
+        return [$seconds, $micros];
     }
 
     private function computeBackoffMicroseconds(int $attempt): int
