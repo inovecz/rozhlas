@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use App\Models\Log as ActivityLog;
 use Illuminate\Support\Facades\Storage;
 use InvalidArgumentException;
 use RuntimeException;
@@ -39,6 +40,113 @@ class JsvvSequenceService extends Service
     private const ACTIVE_LOCK_KEY = 'jsvv:sequence:active';
     private const MODBUS_LOCK_KEY = 'modbus:serial';
     private const LOCK_TTL_SECONDS = 300;
+    private const DTRX_SAMPLE_MAP = [
+        '1' => [
+            'sample_codes' => [1],
+            'indexes' => [1, 2],
+            'label' => 'Siréna - Všeobecná výstraha',
+        ],
+        '2' => [
+            'sample_codes' => [2],
+            'indexes' => [3, 4],
+            'label' => 'Siréna - Zkouška sirén',
+        ],
+        '4' => [
+            'sample_codes' => [3, 4],
+            'indexes' => [5, 6],
+            'label' => 'Siréna - Požární poplach',
+        ],
+        '8' => [
+            'sample_codes' => [5],
+            'indexes' => [7],
+            'label' => 'Gong 1',
+        ],
+        '9' => [
+            'sample_codes' => [6],
+            'indexes' => [8],
+            'label' => 'Gong 2',
+        ],
+        'A' => [
+            'sample_codes' => [7],
+            'indexes' => [9],
+            'label' => 'VI 1',
+        ],
+        'B' => [
+            'sample_codes' => [8],
+            'indexes' => [10],
+            'label' => 'VI 2',
+        ],
+        'C' => [
+            'sample_codes' => [9],
+            'indexes' => [11],
+            'label' => 'VI 3',
+        ],
+        'D' => [
+            'sample_codes' => [10],
+            'indexes' => [12],
+            'label' => 'VI 4',
+        ],
+        'E' => [
+            'sample_codes' => [11],
+            'indexes' => [13],
+            'label' => 'VI 5',
+        ],
+        'F' => [
+            'sample_codes' => [12],
+            'indexes' => [14],
+            'label' => 'VI 6',
+        ],
+        'G' => [
+            'sample_codes' => [13],
+            'indexes' => [15],
+            'label' => 'VI 7',
+        ],
+        'P' => [
+            'sample_codes' => [14],
+            'indexes' => [16],
+            'label' => 'VI 8 - kraj',
+        ],
+        'Q' => [
+            'sample_codes' => [15],
+            'indexes' => [17],
+            'label' => 'VI 9 - kraj',
+        ],
+        'R' => [
+            'sample_codes' => [16],
+            'indexes' => [18],
+            'label' => 'VI 10 - kraj',
+        ],
+        'S' => [
+            'sample_codes' => [17],
+            'indexes' => [19],
+            'label' => 'VI 11 - kraj',
+        ],
+        'T' => [
+            'sample_codes' => [18],
+            'indexes' => [20],
+            'label' => 'VI 12 - kraj',
+        ],
+        'U' => [
+            'sample_codes' => [19],
+            'indexes' => [21],
+            'label' => 'VI 13',
+        ],
+        'V' => [
+            'sample_codes' => [20],
+            'indexes' => [22],
+            'label' => 'VI 14',
+        ],
+        'X' => [
+            'sample_codes' => [21],
+            'indexes' => [23],
+            'label' => 'VI 15',
+        ],
+        'Y' => [
+            'sample_codes' => [22],
+            'indexes' => [24],
+            'label' => 'VI 16',
+        ],
+    ];
     private array $symbolSlotCache = [];
 
     public function __construct(
@@ -575,10 +683,50 @@ class JsvvSequenceService extends Service
                 $item['voice'] = $voice;
             }
 
+            $dtrxMapping = $this->resolveDtrxMapping($item['symbol'] ?? null);
+            if ($dtrxMapping !== null) {
+                $item['dtrx'] = $dtrxMapping;
+            }
+
             $normalized[] = $item;
         }
 
         return $normalized;
+    }
+
+    private function resolveDtrxMapping(mixed $symbol): ?array
+    {
+        if ($symbol === null) {
+            return null;
+        }
+
+        $normalized = strtoupper(trim((string) $symbol));
+        if ($normalized === '') {
+            return null;
+        }
+
+        $normalized = ltrim($normalized, ' ');
+        $normalized = ltrim($normalized, '0');
+        if ($normalized === '') {
+            $normalized = '0';
+        }
+
+        if (!array_key_exists($normalized, self::DTRX_SAMPLE_MAP)) {
+            return null;
+        }
+
+        $mapping = self::DTRX_SAMPLE_MAP[$normalized];
+        $sampleCodes = array_map('intval', $mapping['sample_codes'] ?? []);
+        $indexes = array_map('intval', $mapping['indexes'] ?? []);
+        $primary = $sampleCodes[0] ?? null;
+
+        return [
+            'symbol' => $normalized,
+            'sample_codes' => $sampleCodes,
+            'primary_sample_code' => $primary,
+            'indexes' => $indexes,
+            'description' => $mapping['label'] ?? null,
+        ];
     }
 
     private function normalizeSequenceOptions(array $options): array
@@ -626,6 +774,10 @@ class JsvvSequenceService extends Service
         }
         if (isset($normalized['audio_output_id'])) {
             unset($normalized['audio_output_id']);
+        }
+
+        if (!isset($normalized['audioOutputId']) || !is_string($normalized['audioOutputId']) || $normalized['audioOutputId'] === '') {
+            $normalized['audioOutputId'] = 'lineout';
         }
 
         $playbackSource = $normalized['playbackSource'] ?? $normalized['playback_source'] ?? null;
@@ -1049,6 +1201,14 @@ class JsvvSequenceService extends Service
 
         $metadata['request'] = $requestPayload;
 
+        $symbolForMapping = $metadata['symbol'] ?? ($normalizedItem['symbol'] ?? null);
+        $dtrxMapping = $this->resolveDtrxMapping($symbolForMapping);
+        if ($dtrxMapping !== null) {
+            $metadata['dtrx'] = $dtrxMapping;
+        } elseif (array_key_exists('dtrx', $metadata)) {
+            unset($metadata['dtrx']);
+        }
+
         if (!$this->hasUsableAudioPath($metadata)) {
             $fallback = $this->resolveFallbackAudio($normalizedItem, $originalRequest, $preferredSymbol);
             if ($fallback !== null) {
@@ -1058,6 +1218,14 @@ class JsvvSequenceService extends Service
                     $metadata['request']['symbol'] = $fallback['symbol'];
                 }
             }
+        }
+
+        $finalSymbol = $metadata['symbol'] ?? ($normalizedItem['symbol'] ?? null);
+        $finalMapping = $this->resolveDtrxMapping($finalSymbol);
+        if ($finalMapping !== null) {
+            $metadata['dtrx'] = $finalMapping;
+        } elseif (array_key_exists('dtrx', $metadata)) {
+            unset($metadata['dtrx']);
         }
 
         return $metadata;
@@ -1334,6 +1502,34 @@ class JsvvSequenceService extends Service
         ]);
 
         Log::info('JSVV sequence ' . $event, $payload);
+
+        ActivityLog::create([
+            'type' => 'jsvv',
+            'title' => $this->sequenceLogTitle($event, $sequence),
+            'description' => $this->sequenceLogDescription($event, $sequence, $playbackMode),
+            'data' => $payload,
+        ]);
+    }
+
+    private function sequenceLogTitle(string $event, JsvvSequence $sequence): string
+    {
+        return match ($event) {
+            'started' => 'JSVV sekvence spuštěna',
+            'completed' => 'JSVV sekvence dokončena',
+            'failed' => 'JSVV sekvence selhala',
+            default => 'JSVV sekvence ' . $event,
+        } . ' #' . $sequence->id;
+    }
+
+    private function sequenceLogDescription(string $event, JsvvSequence $sequence, string $playbackMode): string
+    {
+        $priority = $sequence->priority ?? 'neuvedeno';
+        return match ($event) {
+            'started' => sprintf('Sekvence (priorita %s) byla spuštěna. Režim přehrávání: %s.', $priority, $playbackMode),
+            'completed' => sprintf('Sekvence (priorita %s) doběhla do konce. Režim přehrávání: %s.', $priority, $playbackMode),
+            'failed' => sprintf('Sekvence (priorita %s) byla přerušena nebo selhala. Režim přehrávání: %s.', $priority, $playbackMode),
+            default => sprintf('Sekvence (priorita %s) změnila stav na %s. Režim: %s.', $priority, $event, $playbackMode),
+        };
     }
 
     private function notifyJsvvSms(JsvvSequence $sequence): void

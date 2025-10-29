@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Events\JsvvMessageReceived;
 use App\Listeners\CoordinateControlChannel;
+use App\Listeners\HandleJsvvFaultNotifications;
 use App\Services\ControlChannelProcessManager;
 use App\Services\ControlChannelTransport;
 use Illuminate\Contracts\Config\Repository;
@@ -54,6 +55,10 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(
             JsvvMessageReceived::class,
             CoordinateControlChannel::class,
+        );
+        Event::listen(
+            JsvvMessageReceived::class,
+            HandleJsvvFaultNotifications::class,
         );
 
         DB::connection()->getPdo()->sqliteCreateCollation('UTF8', function ($a, $b) {

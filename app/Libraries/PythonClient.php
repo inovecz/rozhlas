@@ -39,7 +39,13 @@ class PythonClient
      * Modbus helpers
      * -----------------------------------------------------------------
      */
-    public function startStream(?array $route = null, ?array $zones = null, ?float $timeout = null, bool $updateRoute = false): array
+    public function startStream(
+        ?array $route = null,
+        ?array $zones = null,
+        ?float $timeout = null,
+        bool $updateRoute = false,
+        ?int $unitId = null
+    ): array
     {
         $options = [];
         if ($route !== null) {
@@ -51,13 +57,21 @@ class PythonClient
         if ($updateRoute) {
             $options['update-route'] = true;
         }
+        if ($unitId !== null) {
+            $options['unit-id'] = $unitId;
+        }
 
         return $this->runModbus('start-stream', $options, $timeout);
     }
 
-    public function stopStream(?float $timeout = null): array
+    public function stopStream(?float $timeout = null, ?int $unitId = null): array
     {
-        return $this->runModbus('stop-stream', [], $timeout);
+        $options = [];
+        if ($unitId !== null) {
+            $options['unit-id'] = $unitId;
+        }
+
+        return $this->runModbus('stop-stream', $options, $timeout);
     }
 
     public function readAlarmBuffer(?float $timeout = null): array

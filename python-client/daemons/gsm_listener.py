@@ -97,6 +97,7 @@ class Sim7600ATClient:
         stopbits: int,
         timeout: float,
         write_timeout: float,
+        sim_pin: str | None = None,
     ) -> None:
         self._port = port
         self._baudrate = baudrate
@@ -106,6 +107,7 @@ class Sim7600ATClient:
         self._timeout = timeout
         self._write_timeout = write_timeout
         self._serial: Optional[Serial] = None
+        self._sim_pin = sim_pin.strip() if sim_pin and sim_pin.strip() else None
 
     def open(self) -> None:
         if serial is None:
@@ -127,6 +129,7 @@ class Sim7600ATClient:
         self._send_command("AT+CLIP=1")  # caller ID notifications
         self._send_command("AT+COLP=1")  # connected line identification
         self._send_command("AT+CLCC=1")  # call list notifications
+        self._ensure_sim_ready()
 
     def close(self) -> None:
         if self._serial and self._serial.is_open:
@@ -194,6 +197,43 @@ class Sim7600ATClient:
                 break
         ok = any(line == "OK" for line in lines)
         return ok, lines if lines else None
+
+    def _query_sim_status(self) -> Optional[str]:
+        ok, response = self._send_command("AT+CPIN?", expect_response=True)
+        if not ok or response is None:
+            return None
+        for line in response:
+            if line.startswith("+CPIN:"):
+                status = line.split(":", 1)[1].strip().strip('"')
+                return status.upper()
+        return None
+
+    def _ensure_sim_ready(self) -> None:
+        if self._serial is None or not self._serial.is_open:
+            return
+
+        status = self._query_sim_status()
+        if status in {None, "READY"}:
+            return
+
+        if status == "SIM PIN":
+            if self._sim_pin is None:
+                raise RuntimeError("SIM requires PIN but GSM_SIM_PIN is not configured.")
+            ok, _ = self._send_command(f'AT+CPIN="{self._sim_pin}"', expect_response=True)
+            if not ok:
+                raise RuntimeError("Submitting SIM PIN failed (AT+CPIN returned ERROR).")
+
+            for _ in range(10):
+                time.sleep(1.0)
+                status = self._query_sim_status()
+                if status == "READY":
+                    return
+            raise RuntimeError("SIM PIN sent but modem did not report READY state.")
+
+        if status == "SIM PUK":
+            raise RuntimeError("SIM requires PUK code. Unlock the card before starting the listener.")
+
+        raise RuntimeError(f"SIM not ready (status={status}).")
 
 
 class GSMListener:
@@ -441,6 +481,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--answer-delay", type=int, default=int(os.getenv("GSM_AUTO_ANSWER_DELAY_MS", "1000")))
     parser.add_argument("--max-ring", type=int, default=int(os.getenv("GSM_MAX_RING_ATTEMPTS", "6")))
     parser.add_argument("--simulate", action="store_true", help="Force simulation mode (ignore modem)")
+    parser.add_argument("--sim-pin", default=os.getenv("GSM_SIM_PIN"))
     return parser
 
 
@@ -462,6 +503,7 @@ def main() -> None:
             stopbits=args.stopbits,
             timeout=args.timeout_serial,
             write_timeout=args.write_timeout,
+            sim_pin=args.sim_pin,
         )
 
     listener = GSMListener(

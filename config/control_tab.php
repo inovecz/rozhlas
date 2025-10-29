@@ -13,6 +13,7 @@ return [
         'timeout' => (float) env('CONTROL_TAB_SERIAL_TIMEOUT', 0.2),
         'write_timeout' => (float) env('CONTROL_TAB_SERIAL_WRITE_TIMEOUT', 1.0),
     ],
+    'modbus_unit_id' => (int) env('CONTROL_TAB_MODBUS_UNIT_ID', (int) env('MODBUS_UNIT_ID', 55)),
     'webhook' => env('CONTROL_TAB_WEBHOOK', 'http://127.0.0.1/api/control-tab/events'),
     'token' => env('CONTROL_TAB_TOKEN'),
     'poll_interval' => (float) env('CONTROL_TAB_POLL_INTERVAL', 0.05),

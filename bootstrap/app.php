@@ -1,5 +1,6 @@
 <?php
 
+use App\Console\Commands\Audio\ApplyPresetCommand;
 use App\Console\Commands\Audio\SetInputCommand;
 use App\Console\Commands\Audio\SetOutputCommand;
 use App\Console\Commands\Audio\SetVolumeCommand;
@@ -23,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
         //
     })
     ->withCommands([
+        ApplyPresetCommand::class,
         InstallApplication::class,
         SetInputCommand::class,
         SetOutputCommand::class,

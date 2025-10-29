@@ -110,6 +110,10 @@ class ControlTabService extends Service
                 ['origin' => 'control_tab']
             ),
         ];
+        $modbusUnitId = (int) config('control_tab.modbus_unit_id');
+        if ($modbusUnitId > 0) {
+            $payload['options']['modbusUnitId'] = $modbusUnitId;
+        }
 
         try {
             $session = $this->orchestrator->start($payload);

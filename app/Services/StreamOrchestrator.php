@@ -70,6 +70,7 @@ class StreamOrchestrator extends Service
         $zones = $targets['zones'];
         $augmentedOptions = $this->augmentOptions($options, $manualRoute, $originalLocationGroupIds, $originalNestIds, $targets);
         $augmentedOptions = $this->applyFrequencyOption($augmentedOptions);
+        $modbusUnitId = Arr::get($augmentedOptions, 'modbusUnitId');
         if ($zones === []) {
             throw new InvalidArgumentException('Destination zones must be defined before starting broadcast.');
         }
@@ -100,6 +101,9 @@ class StreamOrchestrator extends Service
             $response = $this->withModbusLock(fn (): array => $this->client->startStream(
                 $route !== [] ? $route : null,
                 $zones,
+                null,
+                false,
+                $modbusUnitId !== null ? (int) $modbusUnitId : null
             ));
 
             $active->update([
@@ -142,6 +146,9 @@ class StreamOrchestrator extends Service
         $response = $this->withModbusLock(fn (): array => $this->client->startStream(
             $route !== [] ? $route : null,
             $zones,
+            null,
+            false,
+            $modbusUnitId !== null ? (int) $modbusUnitId : null
         ));
 
         $session = BroadcastSession::create([
@@ -189,7 +196,12 @@ class StreamOrchestrator extends Service
         }
 
         $controlReason = sprintf('Live broadcast stop (%s)', $reason ?? 'manual');
-        $response = $this->withModbusLock(fn (): array => $this->client->stopStream());
+        $sessionOptions = is_array($session->options) ? $session->options : [];
+        $modbusUnitId = Arr::get($sessionOptions, 'modbusUnitId');
+        $response = $this->withModbusLock(fn (): array => $this->client->stopStream(
+            null,
+            $modbusUnitId !== null ? (int) $modbusUnitId : null
+        ));
 
         $session->update([
             'status' => 'stopped',
@@ -337,6 +349,30 @@ class StreamOrchestrator extends Service
                 $hasSystemPlaybackTap ? null : 'Není dostupný systémový zvukový výstup (monitor).'
             ),
             ['id' => 'fm_radio', 'label' => 'FM Rádio', 'available' => true],
+            $this->makeSourceDefinition(
+                'jsvv_remote_voice',
+                'JSVV – Vzdálený hlas',
+                $hasSystemPlaybackTap,
+                $hasSystemPlaybackTap ? null : 'Není dostupný systémový zvukový výstup (monitor).'
+            ),
+            $this->makeSourceDefinition(
+                'jsvv_local_voice',
+                'JSVV – Místní mikrofon',
+                $hasCapturePath,
+                $hasCapturePath ? null : 'Nebyl nalezen žádný mikrofon nebo jiný vstup.'
+            ),
+            $this->makeSourceDefinition(
+                'jsvv_external_primary',
+                'JSVV – Externí audio (primární)',
+                $hasSystemPlaybackTap,
+                $hasSystemPlaybackTap ? null : 'Není dostupný systémový zvukový výstup (monitor).'
+            ),
+            $this->makeSourceDefinition(
+                'jsvv_external_secondary',
+                'JSVV – Externí audio (sekundární)',
+                $hasSystemPlaybackTap,
+                $hasSystemPlaybackTap ? null : 'Není dostupný systémový zvukový výstup (monitor).'
+            ),
             $this->makeSourceDefinition(
                 'control_box',
                 'Control box',
@@ -1255,7 +1291,8 @@ class StreamOrchestrator extends Service
         }
 
         try {
-            $result = $this->fmRadio->setFrequency($frequencyHz);
+            $modbusUnitId = Arr::get($options, 'modbusUnitId');
+            $result = $this->fmRadio->setFrequency($frequencyHz, $modbusUnitId !== null ? (int) $modbusUnitId : null);
             $appliedHz = (float) ($result['frequency'] ?? $frequencyHz);
 
             $options['_frequency'] = [

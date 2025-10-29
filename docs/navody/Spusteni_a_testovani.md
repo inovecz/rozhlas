@@ -213,6 +213,8 @@ Logy se ukládají do `storage/logs`:
 ---
 
 ### 4.11 GSM modul SIM7600G-H
+Před startem démonů upravte `.env`: nastavte `GSM_ENABLED=true` a vyplňte `GSM_SIM_PIN` (např. `1234`) podle vložené karty. Mixer preset `gsm` tak zajistí, že se při hovoru aktivuje vstup z modemu.
+
 1. Ověřte připojení modemu (`/dev/ttyUSB2` výchozí) a spusťte démony `./run_daemons.sh start`. Log `storage/logs/daemons/gsm_listener.log` musí hlásit úspěšnou inicializaci AT rozhraní.
 2. Přidejte testovací číslo do whitelistu: `POST /api/gsm/whitelist` s JSON `{ "number": "+420123456789", "label": "Test" }`.
 3. Zavolejte na modem – po přijetí události `ringing` backend vrátí `action=answer`, daemon provede `ATA` a vyšle `accepted`. Sledujte `stream_telemetry_entries` (`gsm_call_ringing`, `gsm_call_started`).

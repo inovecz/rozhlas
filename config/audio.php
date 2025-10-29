@@ -31,6 +31,16 @@ if ($routingEnabledEnv === null) {
     $routingEnabledEnv = true;
 }
 
+$defaultOutputIdentifier = (string) env('AUDIO_DEFAULT_OUTPUT', 'lineout');
+if ($defaultOutputIdentifier === '') {
+    $defaultOutputIdentifier = 'lineout';
+}
+
+$defaultPresetIdentifier = (string) env('AUDIO_DEFAULT_PRESET', 'microphone');
+if ($defaultPresetIdentifier === '') {
+    $defaultPresetIdentifier = 'microphone';
+}
+
 return [
     /*
      * When false, mixer commands are skipped entirely. Falls back to the mixer toggle.
@@ -78,120 +88,83 @@ return [
      * referenced definition is reused.
      */
     'inputs' => [
-        'primary_control' => 'Input Source',
-        'mute_control' => 'ADC Capture Switch',
+        'primary_control' => null,
+        'mute_control' => 'PGA',
         'items' => [
-            'system' => [
-                'label' => 'Systémový zvuk (Loopback)',
-                'controls' => [
-                    'Input Source' => 'System',
-                    'IN Source' => 'System',
-                    'Capture Source' => 'System',
-                ],
-                'device' => 'pulse',
-            ],
-            'file' => [
-                'label' => 'Soubor v ústředně',
-                'alias_of' => 'system',
-                'device' => null,
-            ],
             'mic' => [
                 'label' => 'Mikrofon',
                 'controls' => [
-                    'Input Source' => 'Mic',
-                    'IN Source' => 'Mic',
-                    'Capture Source' => 'Mic',
+                    'Left PGA Mixer Mic3L' => 'on',
+                    'Left PGA Mixer Mic3R' => 'on',
+                    'Left PGA Mixer Line2L' => 'off',
+                    'Right PGA Mixer Mic3L' => 'on',
+                    'Right PGA Mixer Mic3R' => 'on',
+                    'Right PGA Mixer Line2R' => 'off',
                 ],
                 'device' => 'tlv320aic3x',
             ],
             'fm' => [
-                'label' => 'FM rádio',
+                'label' => 'FM vstup',
                 'controls' => [
-                    'Input Source' => 'FM',
-                    'IN Source' => 'FM',
-                    'Capture Source' => 'FM',
+                    'Left PGA Mixer Mic3L' => 'off',
+                    'Left PGA Mixer Mic3R' => 'off',
+                    'Left PGA Mixer Line2L' => 'on',
+                    'Right PGA Mixer Mic3L' => 'off',
+                    'Right PGA Mixer Mic3R' => 'off',
+                    'Right PGA Mixer Line2R' => 'on',
                 ],
+                'device' => 'tlv320aic3x',
+            ],
+            'system' => [
+                'label' => 'Systémový zvuk',
+                'controls' => [
+                    'Left PGA Mixer Mic3L' => 'off',
+                    'Left PGA Mixer Mic3R' => 'off',
+                    'Left PGA Mixer Line2L' => 'on',
+                    'Right PGA Mixer Mic3L' => 'off',
+                    'Right PGA Mixer Mic3R' => 'off',
+                    'Right PGA Mixer Line2R' => 'on',
+                ],
+                'device' => 'tlv320aic3x',
+            ],
+            'gsm' => [
+                'label' => 'GSM modul',
+                'alias_of' => 'system',
+                'device' => 'tlv320aic3x',
+            ],
+            'file' => [
+                'label' => 'Soubor v ústředně',
+                'alias_of' => 'system',
+                'device' => 'tlv320aic3x',
+            ],
+            'pc_webrtc' => [
+                'label' => 'Vstup z PC (WebRTC)',
+                'alias_of' => 'system',
                 'device' => 'tlv320aic3x',
             ],
             'control_box' => [
                 'label' => 'Control box',
-                'controls' => [
-                    'Input Source' => 'Control',
-                    'IN Source' => 'Control',
-                    'Capture Source' => 'Control',
-                ],
+                'alias_of' => 'jsvv_local_voice',
                 'device' => 'tlv320aic3x',
             ],
-            'aux2' => [
-                'label' => 'Aux 2',
-                'controls' => [
-                    'Input Source' => 'Aux2',
-                    'IN Source' => 'Aux2',
-                    'Capture Source' => 'Aux2',
-                ],
+            'jsvv_remote_voice' => [
+                'label' => 'JSVV – Vzdálený hlas',
+                'alias_of' => 'pc_webrtc',
                 'device' => 'tlv320aic3x',
             ],
-            'aux3' => [
-                'label' => 'Aux 3',
-                'controls' => [
-                    'Input Source' => 'Aux3',
-                    'IN Source' => 'Aux3',
-                    'Capture Source' => 'Aux3',
-                ],
+            'jsvv_local_voice' => [
+                'label' => 'JSVV – Místní mikrofon',
+                'alias_of' => 'mic',
                 'device' => 'tlv320aic3x',
             ],
-            'aux4' => [
-                'label' => 'Aux 4',
-                'controls' => [
-                    'Input Source' => 'Aux4',
-                    'IN Source' => 'Aux4',
-                    'Capture Source' => 'Aux4',
-                ],
+            'jsvv_external_primary' => [
+                'label' => 'JSVV – Externí audio (primární)',
+                'alias_of' => 'system',
                 'device' => 'tlv320aic3x',
             ],
-            'aux5' => [
-                'label' => 'Aux 5',
-                'controls' => [
-                    'Input Source' => 'Aux5',
-                    'IN Source' => 'Aux5',
-                    'Capture Source' => 'Aux5',
-                ],
-                'device' => 'tlv320aic3x',
-            ],
-            'aux6' => [
-                'label' => 'Aux 6',
-                'controls' => [
-                    'Input Source' => 'Aux6',
-                    'IN Source' => 'Aux6',
-                    'Capture Source' => 'Aux6',
-                ],
-                'device' => 'tlv320aic3x',
-            ],
-            'aux7' => [
-                'label' => 'Aux 7',
-                'controls' => [
-                    'Input Source' => 'Aux7',
-                    'IN Source' => 'Aux7',
-                    'Capture Source' => 'Aux7',
-                ],
-                'device' => 'tlv320aic3x',
-            ],
-            'aux8' => [
-                'label' => 'Aux 8',
-                'controls' => [
-                    'Input Source' => 'Aux8',
-                    'IN Source' => 'Aux8',
-                    'Capture Source' => 'Aux8',
-                ],
-                'device' => 'tlv320aic3x',
-            ],
-            'aux9' => [
-                'label' => 'Aux 9',
-                'controls' => [
-                    'Input Source' => 'Aux9',
-                    'IN Source' => 'Aux9',
-                    'Capture Source' => 'Aux9',
-                ],
+            'jsvv_external_secondary' => [
+                'label' => 'JSVV – Externí audio (sekundární)',
+                'alias_of' => 'system',
                 'device' => 'tlv320aic3x',
             ],
         ],
@@ -201,34 +174,83 @@ return [
      * Output routing definitions. Similar structure to inputs.
      */
     'outputs' => [
-        'primary_control' => 'Playback Path',
-        'mute_control' => 'DAC Playback Switch',
+        'primary_control' => null,
+        'mute_control' => 'Line',
         'items' => [
-            'auto' => [
-                'label' => 'Automaticky',
-                'controls' => [
-                    'Playback Path' => 'Auto',
-                ],
-                'device' => 'default',
-            ],
             'lineout' => [
                 'label' => 'Line Out',
                 'controls' => [
-                    'Playback Path' => 'LineOut',
-                    'HP/LINE Select' => 'Line',
-                    'Output Mux' => 'Line',
+                    'Left Line Mixer DACL1' => 'on',
+                    'Right Line Mixer DACL1' => 'on',
+                    'Line' => 'on',
                 ],
                 'device' => 'tlv320aic3x',
             ],
-            'hdmi' => [
-                'label' => 'HDMI',
-                'controls' => [
-                    'Playback Path' => 'HDMI',
-                    'HP/LINE Select' => 'HP',
-                    'Output Mux' => 'HDMI',
-                ],
-                'device' => 'vc4hdmi',
-            ],
+        ],
+    ],
+
+    /*
+     * Logical presets combining mixer input/output selections.
+     */
+    'presets' => [
+        'microphone' => [
+            'label' => 'Mikrofon',
+            'input' => 'mic',
+            'output' => $defaultOutputIdentifier,
+        ],
+        'central_file' => [
+            'label' => 'Soubor v ústředně',
+            'input' => 'file',
+            'output' => $defaultOutputIdentifier,
+        ],
+        'pc_webrtc' => [
+            'label' => 'Vstup z PC (WebRTC)',
+            'input' => 'pc_webrtc',
+            'output' => $defaultOutputIdentifier,
+        ],
+        'system_audio' => [
+            'label' => 'Systémový zvuk',
+            'input' => 'system',
+            'output' => $defaultOutputIdentifier,
+        ],
+        'fm_radio' => [
+            'label' => 'FM rádio',
+            'input' => 'fm',
+            'output' => $defaultOutputIdentifier,
+        ],
+        'control_box' => [
+            'label' => 'Control box',
+            'input' => 'control_box',
+            'output' => $defaultOutputIdentifier,
+        ],
+        'gsm' => [
+            'label' => 'GSM modul',
+            'input' => 'gsm',
+            'output' => $defaultOutputIdentifier,
+        ],
+        'jsvv_remote_voice' => [
+            'label' => 'JSVV – Vzdálený hlas',
+            'input' => 'jsvv_remote_voice',
+            'output' => $defaultOutputIdentifier,
+        ],
+        'jsvv_local_voice' => [
+            'label' => 'JSVV – Místní mikrofon',
+            'input' => 'jsvv_local_voice',
+            'output' => $defaultOutputIdentifier,
+        ],
+        'jsvv_external_primary' => [
+            'label' => 'JSVV – Externí audio (primární)',
+            'input' => 'jsvv_external_primary',
+            'output' => $defaultOutputIdentifier,
+        ],
+        'jsvv_external_secondary' => [
+            'label' => 'JSVV – Externí audio (sekundární)',
+            'input' => 'jsvv_external_secondary',
+            'output' => $defaultOutputIdentifier,
+        ],
+        'default' => [
+            'label' => 'Výchozí',
+            'alias_of' => $defaultPresetIdentifier,
         ],
     ],
 

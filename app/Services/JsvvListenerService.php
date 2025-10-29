@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Services\JsvvMessageService;
+use App\Models\Log as ActivityLog;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Http\JsonResponse;
@@ -41,20 +42,45 @@ class JsvvListenerService extends Service
 
         if ($command === 'STOP') {
             $this->orchestrator->stop('jsvv_stop_command');
+
+            $this->recordCommandLog(
+                $command,
+                $priority,
+                $params,
+                $data,
+                'stop_executed',
+                'Příkaz STOP byl zpracován a probíhající přenos ukončen.'
+            );
             return;
         }
 
         $sequenceItems = $this->buildSequenceItemsFromCommand($command, $params);
         if ($sequenceItems === []) {
+            $this->recordCommandLog(
+                $command,
+                $priority,
+                $params,
+                $data,
+                'ignored',
+                'Příkaz nebyl mapován na žádnou sekvenci ani akci.'
+            );
             return;
         }
 
-        $options = $this->deriveSequenceOptions($params, $priority);
+        $options = $this->deriveSequenceOptions($command, $params, $priority);
 
         try {
             $sequence = $this->sequenceService->plan($sequenceItems, $options);
             $sequenceId = (string) (Arr::get($sequence, 'id') ?? Arr::get($sequence, 'sequence.id'));
             if ($sequenceId !== '') {
+                $this->recordCommandLog(
+                    $command,
+                    $priority,
+                    $params,
+                    $data,
+                    'dispatched',
+                    sprintf('Sekvence #%s byla naplánována a odeslána ke spuštění.', $sequenceId)
+                );
                 $this->sequenceService->trigger($sequenceId);
             }
         } catch (\Throwable $exception) {
@@ -63,6 +89,15 @@ class JsvvListenerService extends Service
                 'payload' => $payload,
                 'exception' => $exception->getMessage(),
             ]);
+
+            $this->recordCommandLog(
+                $command,
+                $priority,
+                $params,
+                $data,
+                'failed',
+                'Sekvenci se nepodařilo spustit: ' . $exception->getMessage()
+            );
         }
     }
 
@@ -167,7 +202,7 @@ class JsvvListenerService extends Service
      * @param array<string, mixed> $params
      * @return array<string, mixed>
      */
-    private function deriveSequenceOptions(array $params, ?string $priority): array
+    private function deriveSequenceOptions(?string $command, array $params, ?string $priority): array
     {
         $options = [];
         if ($priority !== null) {
@@ -218,7 +253,72 @@ class JsvvListenerService extends Service
             }
         }
 
+        $normalizedCommand = strtoupper((string) $command);
+        $defaultOutput = 'lineout';
+
+        $ensureOutput = static function (array &$target, string $outputId) {
+            if (!isset($target['audioOutputId']) || !is_string($target['audioOutputId']) || $target['audioOutputId'] === '') {
+                $target['audioOutputId'] = $outputId;
+            }
+        };
+
+        $ensureOutput($options, $defaultOutput);
+
+        $preferInput = static function (array &$target, string $inputId): void {
+            if (!isset($target['audioInputId']) || !is_string($target['audioInputId']) || $target['audioInputId'] === '') {
+                $target['audioInputId'] = $inputId;
+            }
+        };
+
+        $preferSource = static function (array &$target, string $sourceId): void {
+            if (!isset($target['playbackSource']) || !is_string($target['playbackSource']) || $target['playbackSource'] === '') {
+                $target['playbackSource'] = $sourceId;
+            }
+        };
+
+        switch ($normalizedCommand) {
+            case 'RADIO_BRIDGE':
+                $preferInput($options, 'fm');
+                $preferSource($options, 'fm_radio');
+                break;
+            case 'REMOTE_VOICE':
+                $preferInput($options, 'jsvv_remote_voice');
+                $preferSource($options, 'jsvv_remote_voice');
+                break;
+            case 'LOCAL_VOICE':
+                $preferInput($options, 'jsvv_local_voice');
+                $preferSource($options, 'jsvv_local_voice');
+                break;
+            case 'EXTERNAL_AUDIO_PRIMARY':
+                $preferInput($options, 'jsvv_external_primary');
+                $preferSource($options, 'jsvv_external_primary');
+                break;
+            case 'EXTERNAL_AUDIO_SECONDARY':
+                $preferInput($options, 'jsvv_external_secondary');
+                $preferSource($options, 'jsvv_external_secondary');
+                break;
+        }
+
         return $options;
+    }
+
+    private function recordCommandLog(?string $command, ?string $priority, array $params, array $payload, string $status, ?string $note = null): void
+    {
+        $commandLabel = strtoupper((string) $command);
+        $priorityLabel = $priority !== null ? (string) $priority : 'neuvedeno';
+
+        ActivityLog::create([
+            'type' => 'jsvv',
+            'title' => sprintf('JSVV příkaz: %s', $commandLabel),
+            'description' => $note ?? sprintf('Příkaz byl zpracován se statusem %s (priorita %s).', $status, $priorityLabel),
+            'data' => [
+                'command' => $command,
+                'priority' => $priority,
+                'status' => $status,
+                'params' => $params,
+                'payload' => $payload,
+            ],
+        ]);
     }
 
     /**

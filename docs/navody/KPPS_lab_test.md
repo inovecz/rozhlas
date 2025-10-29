@@ -35,14 +35,31 @@ V obou případech platí stejné sériové parametry požadované HZS: 9600 b
 
 4. Po spuštění `run.sh` sledujte `storage/logs/daemons/jsvv_listener.log` – měly by se objevovat řádky `[FRAME]` a příslušné JSONy v Laravel logu.
 
-5. Audio vstup splňující požadavky HZS:
-   - linková úroveň 316 mV RMS (±10 %),
-   - impedance 600 Ω (±10 %),
-   - přenosové pásmo 120 Hz – 8 kHz,
-   - galvanicky oddělený, nesymetrický kanál,
-   - konektor 3,5 mm jack.
+5. **Audio konektory pro externí zdroje** (požadavky HZS):
 
-   Pro laboratorní test využijte linkový výstup mixpultu nebo generátor, případně DI box pro přizpůsobení.
+   - přístupný linkový vstup (316 mV RMS, 600 Ω, 120 Hz – 8 kHz) na konektoru **3,5 mm jack – F**; softwarově vede na logický vstup `jsvv_external_primary`,
+   - přístupný vstup z VyC na stejném typu konektoru (mapuje se na `jsvv_remote_voice`),
+   - pokud je k dispozici sekundární externí vstup, vyveďte jej také (mapuje se na `jsvv_external_secondary`).
+
+   Pro laboratorní test lze použít linkový výstup mixpultu nebo generátor, případně DI box pro přizpůsobení impedancí.
+
+6. **Inicializace ALSA/TLV320** – před zkouškou nastavte mixer na kartě 2:
+
+   ```bash
+   scripts/configure_tlv320.sh 2
+   ```
+
+   Skript zapne Line Out, Mic3/Line2 a uloží stav přes `alsactl`.
+
+7. **Bezpotenciálové tlačítko „Zkouška sirén“** – připravte svorky dle schématu. Kontakt musí být bezpotenciálový; firmware očekává připojení na vybraný GPIO (`GPIO_BUTTON_CHIP`, `GPIO_BUTTON_LINE` v `.env`). Tlačítko vyvolá REST požadavek s přednastavenou VI č. 1 („Zkouška sirén“). Pro laboratorní simulaci lze použít REST volání:
+
+   ```bash
+   curl -X POST http://127.0.0.1:8001/api/jsvv/events \
+     -H 'Content-Type: application/json' \
+     -d '{"raw":"REMOTE","payload":{"networkId":1,"vycId":1,"kppsAddress":"0x0001","type":"ACTIVATION","command":"REMOTE","params":{},"priority":"P2","timestamp":'"$(date +%s)"',"rawMessage":"REMOTE"}}'
+   ```
+
+   (Slouží jako náhrada za fyzické tlačítko; upravte parametry dle potřeby.)
 
 ---
 
@@ -78,6 +95,14 @@ V obou případech platí stejné sériové parametry požadované HZS: 9600 b
    (Tento listener vypněte, než spustíte `run.sh`, aby si procesy nepřekážely.)
 
 6. Ukončete simulaci stiskem `Ctrl+C` v okně se spuštěným helper skriptem (pokud jste nepoužili volbu `--keep`).
+
+7. Pro plně automatický test (virtuální porty + listener + zápisy do logu) použijte skript:
+
+   ```bash
+   scripts/tests/jsvv_e2e.sh
+   ```
+
+   Skript vytvoří PTY pár, dočasně upraví `.env`, spustí `jsvv_listener.py`, přehraje sekvenci REMOTE/LOCAL/EXT1/STOP… a po dokončení vrátí konfiguraci do původního stavu. Výsledek sledujte v `/log` (nové položky „JSVV příkaz …“) a `storage/logs/daemons/jsvv_listener_test.log`.
 
 ---
 

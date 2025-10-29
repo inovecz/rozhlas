@@ -15,11 +15,10 @@ a sandbox; production needs the items below.
   if production still relies on the legacy wrapper script. When disabled,
   `MixerController` will log and skip preset invocations (routing continues
   to be handled by `AudioIoService` as long as the first flag stays enabled).
-- `BROADCAST_MIXER_BINARY=/path/to/scripts/alsamixer-wrapper.php` – point
-  this to the helper script included in the repo (or an equivalent vendor
-  tool). The stock `alsamixer` TUI is interactive-only; the wrapper shells
-  out to `alsactl` so the preset arguments defined in `config/broadcast.php:70`
-  work in unattended mode.
+- `BROADCAST_MIXER_BINARY` – ponechte nevyplněné pro výchozí chování (aplikace
+  použije lokální PHP interpreter a spustí `artisan audio:preset …`). Pokud je
+  potřeba externí wrapper, přepište proměnnou cestou ke skriptu a upravte
+  argumenty v `config/broadcast.php`.
 - `BROADCAST_AUDIO_FALLBACK_OUTPUT=default` – ALSA device that should receive
   audio when routing is disabled. Change only if the sender expects a specific
   hardware name (e.g. `hw:1,0`).
@@ -48,18 +47,23 @@ php artisan config:cache
 
 ## Mixer presets
 
-The preset names in `config/broadcast.php:70` are passed straight to
-the mixer binary (`app/Services/Mixer/MixerController.php:36`). If the
-production device does not ship with a CLI that understands `preset
-<name>`, capture the expected register changes with `alsactl store` or
-`amixer` and wrap them in a custom script. Point
-`BROADCAST_MIXER_BINARY` to that script so the Laravel service keeps
-working unchanged.
+Předvolby definované v `config/audio.php` a `config/broadcast.php`
+spouští příkaz `php artisan audio:preset <preset>`, který zajistí
+přepnutí vstupu/výstupu přes ALSA (pomocí `amixer`) a zároveň aplikuje
+aktuálně uložené hlasitosti (`VolumeManager`). Ověření:
+
+```bash
+php artisan audio:preset microphone
+php artisan audio:preset system_audio
+php artisan audio:preset fm_radio
+```
+
+Pro skriptové použití je k dispozici helper `scripts/audio/apply-preset.sh`.
 
 To validate a preset:
 
 ```bash
-sudo -u www-data /path/to/mixer-binary preset pc-webrtc
+sudo -u www-data php artisan audio:preset pc_webrtc
 amixer -c "$BROADCAST_MIXER_CARD" sget 'PC WebRTC'
 ```
 
@@ -79,19 +83,8 @@ external amplifiers, etc.) as they come up.
 
 ### Wrapper binary
 
-Set `BROADCAST_MIXER_BINARY` to the project helper script:
-
-```bash
-BROADCAST_MIXER_BINARY=${PROJECT_ROOT}/scripts/alsamixer-wrapper.php
-```
-
-The wrapper expects `.state` files under `storage/mixer-presets`.
-Create them on the production box with:
-
-```bash
-php scripts/alsamixer-wrapper.php save microphone
-```
-
-and edit as needed with `alsamixer` before running the `save` command.
-Use `reset` (defaults to the `default.state` file) to return the mixer
-into a safe idle configuration after each broadcast.
+Výchozí implementace již nepotřebuje externí wrapper – jednotlivé
+presety obslouží artisan příkaz zmíněný výše. Pokud by bylo nutné
+použít specializovaný nástroj (např. kvůli jinému mixážnímu jádru),
+zapněte vlastní wrapper přes `BROADCAST_MIXER_BINARY` a přizpůsobte
+argumenty v konfiguraci.

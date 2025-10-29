@@ -12,6 +12,11 @@ export default defineConfig({
         }),
         vue(),
     ],
+    server: {
+        host: '127.0.0.1',
+        port: 5174,
+        strictPort: true,
+    },
     resolve: {
         alias: {
             vue: 'vue/dist/vue.esm-bundler.js',

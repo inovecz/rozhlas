@@ -70,6 +70,67 @@ $parsePlayerArguments = static function ($value): ?array {
     return $items !== [] ? $items : null;
 };
 
+$mixerPresetSources = [
+    'microphone',
+    'central_file',
+    'pc_webrtc',
+    'system_audio',
+    'fm_radio',
+    'control_box',
+    'gsm',
+    'jsvv_remote_voice',
+    'jsvv_local_voice',
+    'jsvv_external_primary',
+    'jsvv_external_secondary',
+];
+
+$defaultPresetArgs = ['artisan', 'audio:preset', '{{source}}'];
+$mixerPresets = [];
+foreach ($mixerPresetSources as $presetSource) {
+    $mixerPresets[$presetSource] = [
+        'args' => $defaultPresetArgs,
+    ];
+}
+$mixerPresets['default'] = [
+    'args' => ['artisan', 'audio:preset', 'default'],
+];
+
+$resetPreset = (string) env('BROADCAST_MIXER_RESET_PRESET', 'default');
+if ($resetPreset === '') {
+    $resetPreset = 'default';
+}
+
+$inputRoutingIdentifiers = [
+    'mic',
+    'fm',
+    'system',
+    'file',
+    'pc_webrtc',
+    'control_box',
+    'gsm',
+    'jsvv_remote_voice',
+    'jsvv_local_voice',
+    'jsvv_external_primary',
+    'jsvv_external_secondary',
+];
+
+$inputRoutingArgs = ['artisan', 'audio:input', '{{audio_id}}'];
+$inputRouting = [];
+foreach ($inputRoutingIdentifiers as $identifier) {
+    $inputRouting[$identifier] = [
+        'args' => $inputRoutingArgs,
+    ];
+}
+
+$outputRoutingIdentifiers = ['lineout'];
+$outputRoutingArgs = ['artisan', 'audio:output', '{{audio_id}}'];
+$outputRouting = [];
+foreach ($outputRoutingIdentifiers as $identifier) {
+    $outputRouting[$identifier] = [
+        'args' => $outputRoutingArgs,
+    ];
+}
+
 return [
     'default_route' => array_values(array_filter(array_map(
         static fn ($value) => (int) trim($value),
@@ -77,58 +138,15 @@ return [
     ))),
     'mixer' => [
         'enabled' => env('BROADCAST_MIXER_ENABLED', false),
-        'binary' => env('BROADCAST_MIXER_BINARY', 'alsamixer'),
+        'binary' => env('BROADCAST_MIXER_BINARY', PHP_BINARY),
         'timeout' => (int) env('BROADCAST_MIXER_TIMEOUT', 10),
-        'presets' => [
-            'microphone' => [
-                'args' => ['preset', 'microphone'],
-            ],
-            'central_file' => [
-                'args' => ['preset', 'central-file'],
-            ],
-            'pc_webrtc' => [
-                'args' => ['preset', 'pc-webrtc'],
-            ],
-            'system_audio' => [
-                'args' => ['preset', 'pc-webrtc'],
-            ],
-            'input_2' => [
-                'args' => ['preset', 'input-2'],
-            ],
-            'input_3' => [
-                'args' => ['preset', 'input-3'],
-            ],
-            'input_4' => [
-                'args' => ['preset', 'input-4'],
-            ],
-            'input_5' => [
-                'args' => ['preset', 'input-5'],
-            ],
-            'input_6' => [
-                'args' => ['preset', 'input-6'],
-            ],
-            'input_7' => [
-                'args' => ['preset', 'input-7'],
-            ],
-            'input_8' => [
-                'args' => ['preset', 'input-8'],
-            ],
-            'fm_radio' => [
-                'args' => ['preset', 'fm-radio'],
-            ],
-            'control_box' => [
-                'args' => ['preset', 'control-box'],
-            ],
-            'default' => [
-                'args' => ['preset', 'default'],
-            ],
-        ],
+        'presets' => $mixerPresets,
         'reset' => [
-            'args' => ['reset'],
+            'args' => ['artisan', 'audio:preset', $resetPreset],
         ],
         'routing' => [
-            'inputs' => [],
-            'outputs' => [],
+            'inputs' => $inputRouting,
+            'outputs' => $outputRouting,
         ],
     ],
     'live' => [

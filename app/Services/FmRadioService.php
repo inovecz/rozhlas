@@ -13,9 +13,9 @@ class FmRadioService extends Service
         parent::__construct();
     }
 
-    public function getFrequency(): array
+    public function getFrequency(?int $unitId = null): array
     {
-        $response = $this->client->readFrequency();
+        $response = $this->client->readFrequency($unitId);
         $data = $response['json']['data'] ?? $response['json'] ?? [];
 
         return [
@@ -24,10 +24,10 @@ class FmRadioService extends Service
         ];
     }
 
-    public function setFrequency(float $frequency): array
+    public function setFrequency(float $frequency, ?int $unitId = null): array
     {
         $frequencyHz = (int) round($frequency);
-        $response = $this->client->setFrequency($frequencyHz);
+        $response = $this->client->setFrequency($frequencyHz, $unitId);
 
         return [
             'frequency' => $frequencyHz,
