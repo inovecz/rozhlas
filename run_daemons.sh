@@ -14,6 +14,14 @@ LOG_DIR="${ROOT_DIR}/storage/logs/daemons"
 mkdir -p "$LOG_DIR"
 mkdir -p "${ROOT_DIR}/storage/run"
 
+ENV_FILE="$ROOT_DIR/.env"
+if [[ -f "$ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+fi
+
 export PYTHONPATH="${ROOT_DIR}/python-client/src:${PYTHONPATH:-}"
 
 start_daemon() {

@@ -38,6 +38,22 @@ EVENT_TYPE_TEXT = 3
 EVENT_TYPE_PANEL = 1
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+DEBUG = _env_flag("CONTROL_TAB_DEBUG", False)
+
+
+def _debug_log(payload: dict[str, Any]) -> None:
+    if not DEBUG:
+        return
+    print(json.dumps({"debug": payload}, ensure_ascii=False), flush=True)
+
+
 @dataclass(slots=True)
 class ControlTabFrame:
     raw: str
@@ -192,6 +208,7 @@ class ControlTabListener:
         self._stop_event = threading.Event()
         self._dispatcher = threading.Thread(target=self._dispatch_loop, daemon=True)
         self._simulation = transport is None
+        self._buffer = ""
 
     def start(self) -> None:
         self._dispatcher.start()
@@ -214,11 +231,7 @@ class ControlTabListener:
                 if line is None:
                     time.sleep(self._poll_interval)
                     continue
-                frame = self._parse_frame(line)
-                if frame is None:
-                    continue
-                payload = self._build_event_payload(frame)
-                self._queue.put((frame, payload))
+                self._ingest(line)
         finally:
             self._transport.close()
 
@@ -241,6 +254,51 @@ class ControlTabListener:
                 continue
 
             self._handle_response(frame, response)
+
+    def _ingest(self, chunk: str) -> None:
+        data = chunk
+        if not data:
+            return
+        self._buffer += data
+        while True:
+            start = self._buffer.find("<<<")
+            if start == -1:
+                # keep buffer from growing uncontrollably; retain last few characters in case of partial frame
+                if len(self._buffer) > 128:
+                    self._buffer = self._buffer[-128:]
+                break
+            if start > 0:
+                noise = self._buffer[:start]
+                if noise.strip():
+                    _debug_log({"noise": noise})
+                self._buffer = self._buffer[start:]
+
+            if len(self._buffer) < 7:
+                # not enough data yet for even the smallest frame
+                break
+
+            end = self._buffer.find("<<<", 3)
+            if end == -1:
+                # wait for the rest of the frame
+                break
+
+            frame_str = self._buffer[: end + 3]
+            remainder = self._buffer[end + 3 :]
+            # When frames end with newline, keep the remainder (including newline) for the next iteration
+            self._buffer = remainder
+
+            frame_str = frame_str.strip()
+            if not frame_str:
+                continue
+
+            _debug_log({"incoming_raw": frame_str})
+            frame = self._parse_frame(frame_str)
+            if frame is None:
+                _debug_log({"dropped": frame_str})
+                continue
+            payload = self._build_event_payload(frame)
+            _debug_log({"parsed": payload})
+            self._queue.put((frame, payload))
 
     def _handle_response(self, frame: ControlTabFrame, response: dict[str, Any]) -> None:
         action = response.get("action", "ack")
@@ -272,10 +330,12 @@ class ControlTabListener:
         if not line:
             return None
         if not line.startswith("<<<:") or not line.endswith("<<<"):
+            _debug_log({"invalid_prefix": line})
             return None
 
         content = line[4:-3]  # remove leading "<<<:" and trailing "<<<"
         if ">>" not in content:
+            _debug_log({"missing_crc_marker": line})
             return None
         body, crc_segment = content.split(">>", 1)
         crc_provided = crc_segment if crc_segment else None
@@ -285,6 +345,7 @@ class ControlTabListener:
         payload = parts[1] if len(parts) > 1 else ""
         header_tokens = header.split(":")
         if len(header_tokens) != 3:
+            _debug_log({"invalid_header": line})
             return None
 
         try:
@@ -292,10 +353,21 @@ class ControlTabListener:
             panel = int(header_tokens[1])
             event_type = int(header_tokens[2])
         except ValueError:
+            _debug_log({"non_int_header": line})
             return None
 
         crc_calculated = xor_crc(f"{screen}:{panel}:{event_type}={payload}")
         crc_valid = crc_provided is None or crc_provided.upper() == crc_calculated
+        if not crc_valid:
+            _debug_log(
+                {
+                    "crc_mismatch": {
+                        "line": line,
+                        "calculated": crc_calculated,
+                        "provided": crc_provided,
+                    }
+                }
+            )
 
         return ControlTabFrame(
             raw=line,

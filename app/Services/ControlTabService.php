@@ -58,6 +58,7 @@ class ControlTabService extends Service
             'ack_message' => $this->acknowledgeMessage($mapping),
             'lock_panel' => $this->lockPanel($mapping),
             'cancel_selection' => $this->cancelSelection($mapping),
+            'cancel_selection_stop_stream' => $this->cancelSelectionAndStopStream($mapping),
             default => [
                 'status' => 'unsupported',
                 'message' => sprintf('Akce %s zatím není implementována.', $mapping['action'] ?? 'neznámá'),
@@ -318,6 +319,38 @@ class ControlTabService extends Service
         return [
             'status' => 'ok',
             'message' => Arr::get($config, 'message', 'Výběr poplachu byl zrušen.'),
+        ];
+    }
+
+    private function cancelSelectionAndStopStream(array $config): array
+    {
+        Cache::forget(self::SELECTED_ALARM_CACHE_KEY);
+
+        $stopResult = $this->stopStream($config);
+        $status = $stopResult['status'] ?? 'ok';
+
+        if (in_array($status, ['error', 'invalid_request', 'blocked', 'unsupported'], true)) {
+            return $stopResult;
+        }
+
+        if ($status === 'idle') {
+            return [
+                'status' => 'idle',
+                'message' => Arr::get(
+                    $config,
+                    'idle_message',
+                    Arr::get($stopResult, 'message', 'Žádné vysílání neběží.')
+                ),
+            ];
+        }
+
+        return [
+            'status' => $status,
+            'message' => Arr::get(
+                $config,
+                'success_message',
+                Arr::get($stopResult, 'message', 'Přímé hlášení bylo ukončeno.')
+            ),
         ];
     }
 

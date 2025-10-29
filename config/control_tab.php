@@ -67,13 +67,17 @@ return [
         ],
         9 => [
             'action' => 'start_stream',
-            'source' => 'control_box',
+            'source' => 'microphone',
+            'options' => [
+                'origin' => 'prime_hlaseni',
+            ],
             'locations' => [(int) env('CONTROL_TAB_DEFAULT_LOCATION_GROUP_ID', 1)],
-            'success_message' => 'Vysílání bylo spuštěno.',
+            'success_message' => 'Přímé hlášení bylo spuštěno.',
         ],
         10 => [
             'action' => 'stop_stream',
-            'success_message' => 'Vysílání bylo zastaveno.',
+            'success_message' => 'Přímé hlášení bylo ukončeno.',
+            'idle_message' => 'Žádné vysílání neběží.',
         ],
         11 => [
             'action' => 'start_stream',
@@ -87,6 +91,7 @@ return [
         12 => [
             'action' => 'stop_stream',
             'success_message' => 'Přímé hlášení bylo ukončeno.',
+            'idle_message' => 'Žádné vysílání neběží.',
         ],
         13 => [
             'action' => 'trigger_selected_jsvv_alarm',
@@ -99,7 +104,8 @@ return [
         ],
         15 => [
             'action' => 'stop_stream',
-            'success_message' => 'Hlášení bylo zastaveno.',
+            'success_message' => 'Přímé hlášení bylo ukončeno.',
+            'idle_message' => 'Žádné vysílání neběží.',
         ],
         16 => [
             'action' => 'lock_panel',
@@ -111,8 +117,9 @@ return [
             'label' => 'Radiační poplach',
         ],
         18 => [
-            'action' => 'cancel_selection',
-            'message' => 'Výběr poplachu byl zrušen.',
+            'action' => 'cancel_selection_stop_stream',
+            'success_message' => 'Výběr poplachu byl zrušen a přímé hlášení bylo ukončeno.',
+            'idle_message' => 'Výběr poplachu byl zrušen. Žádné vysílání neběží.',
         ],
         19 => [
             'action' => 'ack_message',
