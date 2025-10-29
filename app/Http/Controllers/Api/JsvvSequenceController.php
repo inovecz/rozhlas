@@ -23,6 +23,7 @@ class JsvvSequenceController extends Controller
             'items' => ['required', 'array', 'min:1'],
             'items.*.slot' => ['required'],
             'items.*.category' => ['nullable', 'string'],
+            'items.*.symbol' => ['nullable', 'string'],
             'items.*.voice' => ['nullable', 'string'],
             'items.*.repeat' => ['nullable', 'integer', 'min:1'],
             'priority' => ['sometimes', 'string'],

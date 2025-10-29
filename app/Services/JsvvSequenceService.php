@@ -565,6 +565,11 @@ class JsvvSequenceService extends Service
                 '__source' => $rawItem,
             ];
 
+            $originalSymbol = $this->resolveOriginalSymbol($item, $rawItem);
+            if ($originalSymbol !== null) {
+                $item['symbol'] = $originalSymbol;
+            }
+
             $voice = $this->normalizeVoice($rawItem['voice'] ?? null, $category);
             if ($voice !== null) {
                 $item['voice'] = $voice;
@@ -915,12 +920,31 @@ class JsvvSequenceService extends Service
         $path = Arr::get($metadata, 'path');
 
         if (!$this->hasUsableAudioPath($metadata)) {
-            $fallbackSymbol = Arr::get($metadata, 'symbol') ?? (string) $item->slot;
-            $fallback = $this->resolveFallbackAudio([
-                'symbol' => $fallbackSymbol,
-            ]);
+            $requestMetadata = Arr::get($metadata, 'request');
+            $requestMetadata = is_array($requestMetadata) ? $requestMetadata : [];
+
+            $normalizedItem = [
+                'symbol' => Arr::get($metadata, 'symbol'),
+                'slot' => $item->slot,
+                'category' => $item->category,
+            ];
+
+            $preferredSymbol = $this->resolveOriginalSymbol($normalizedItem, $requestMetadata);
+
+            $fallback = $this->resolveFallbackAudio(
+                $normalizedItem,
+                $requestMetadata,
+                $preferredSymbol
+            );
             if ($fallback !== null) {
                 $metadata = array_merge($metadata, $fallback);
+                if (isset($fallback['symbol'])) {
+                    if (!isset($metadata['request']) || !is_array($metadata['request'])) {
+                        $metadata['request'] = $requestMetadata;
+                    }
+                    $metadata['symbol'] = $fallback['symbol'];
+                    $metadata['request']['symbol'] = $fallback['symbol'];
+                }
                 $item->update(['metadata' => array_merge($item->metadata ?? [], $fallback)]);
                 $path = Arr::get($metadata, 'path');
             }
@@ -1012,14 +1036,26 @@ class JsvvSequenceService extends Service
             }
         }
 
-        $metadata['request'] = $originalRequest ?: $normalizedItem;
+        $preferredSymbol = $this->resolveOriginalSymbol($normalizedItem, $originalRequest);
+
+        $requestPayload = $originalRequest ?: $normalizedItem;
+        if (!is_array($requestPayload)) {
+            $requestPayload = $normalizedItem;
+        }
+        if ($preferredSymbol !== null) {
+            $requestPayload['symbol'] = $preferredSymbol;
+            $metadata['symbol'] = $preferredSymbol;
+        }
+
+        $metadata['request'] = $requestPayload;
 
         if (!$this->hasUsableAudioPath($metadata)) {
-            $fallback = $this->resolveFallbackAudio($normalizedItem, $originalRequest);
+            $fallback = $this->resolveFallbackAudio($normalizedItem, $originalRequest, $preferredSymbol);
             if ($fallback !== null) {
                 $metadata = array_merge($metadata, $fallback);
                 if (isset($fallback['symbol']) && $fallback['symbol'] !== null) {
                     $metadata['symbol'] = $fallback['symbol'];
+                    $metadata['request']['symbol'] = $fallback['symbol'];
                 }
             }
         }
@@ -1050,20 +1086,27 @@ class JsvvSequenceService extends Service
         return false;
     }
 
-    private function resolveFallbackAudio(array $normalizedItem, array $originalRequest = []): ?array
+    private function resolveFallbackAudio(array $normalizedItem, array $originalRequest = [], ?string $resolvedOriginalSymbol = null): ?array
     {
-        $symbol = Arr::get($normalizedItem, 'symbol');
-        $symbol = is_string($symbol) ? strtoupper(trim($symbol)) : null;
+        $symbol = $resolvedOriginalSymbol;
+        if (!is_string($symbol) || $symbol === '') {
+            $candidates = [
+                Arr::get($originalRequest, 'symbol'),
+                Arr::get($originalRequest, 'slot'),
+                Arr::get($normalizedItem, 'symbol'),
+                Arr::get($normalizedItem, 'slot'),
+            ];
 
-        if ($symbol === null || $symbol === '' || ctype_digit($symbol)) {
-            $originalSymbol = Arr::get($originalRequest, 'symbol');
-            if (!is_string($originalSymbol) || $originalSymbol === '') {
-                $originalSymbol = Arr::get($originalRequest, 'slot');
-            }
-            if (is_string($originalSymbol)) {
-                $originalSymbol = strtoupper(trim($originalSymbol));
-                if ($originalSymbol !== '' && !ctype_digit($originalSymbol)) {
-                    $symbol = $originalSymbol;
+            foreach ($candidates as $candidate) {
+                if (is_string($candidate)) {
+                    $candidate = strtoupper(trim($candidate));
+                    if ($candidate !== '') {
+                        $symbol = $candidate;
+                        break;
+                    }
+                } elseif (is_numeric($candidate)) {
+                    $symbol = (string) ((int) $candidate);
+                    break;
                 }
             }
         }
@@ -1072,8 +1115,19 @@ class JsvvSequenceService extends Service
             return null;
         }
 
+        $lookupSymbol = $symbol;
+
         /** @var JsvvAudio|null $audio */
-        $audio = JsvvAudio::query()->with('file')->find($symbol);
+        $audio = JsvvAudio::query()->with('file')->find($lookupSymbol);
+        if ($audio === null && !ctype_digit($lookupSymbol)) {
+            try {
+                $numeric = $this->resolveSlotValue($lookupSymbol, 0, $lookupSymbol);
+                $audio = JsvvAudio::query()->with('file')->find((string) $numeric);
+            } catch (\Throwable) {
+                $audio = null;
+            }
+        }
+
         $file = $audio?->file;
         if ($file === null) {
             return null;
@@ -1107,6 +1161,30 @@ class JsvvSequenceService extends Service
         }
 
         return $payload;
+    }
+
+    private function resolveOriginalSymbol(array $normalizedItem, array $originalRequest = []): ?string
+    {
+        $candidates = [
+            Arr::get($originalRequest, 'symbol'),
+            Arr::get($originalRequest, 'slot'),
+            Arr::get($normalizedItem, 'symbol'),
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (!is_string($candidate)) {
+                continue;
+            }
+            $normalized = strtoupper(trim($candidate));
+            if ($normalized === '') {
+                continue;
+            }
+            if (!ctype_digit($normalized)) {
+                return $normalized;
+            }
+        }
+
+        return null;
     }
 
     private function detectItemDurationSeconds(string $category, array $metadata): ?float

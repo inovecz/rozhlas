@@ -121,7 +121,13 @@ class StreamOrchestrator extends Service
             ]);
             $this->recordControlChannelTelemetry('resume', $resumeCommand, $active->id);
 
-            return $active->fresh()->toArray();
+            $active = $active->fresh();
+            if ($active !== null) {
+                $this->handleEmbeddedPlaylist($active, $augmentedOptions, $manualRoute, $locationGroupIds, $nestIds);
+                $active = $active->fresh();
+            }
+
+            return $active?->toArray() ?? [];
         }
 
         $this->mixer->activatePreset($source, [
@@ -159,7 +165,13 @@ class StreamOrchestrator extends Service
         ]);
         $this->recordControlChannelTelemetry('resume', $resumeCommand, $session->id);
 
-        return $session->fresh()->toArray();
+        $session = $session->fresh();
+        if ($session !== null) {
+            $this->handleEmbeddedPlaylist($session, $augmentedOptions, $manualRoute, $locationGroupIds, $nestIds);
+            $session = $session->fresh();
+        }
+
+        return $session?->toArray() ?? [];
     }
 
     public function stop(?string $reason = null): array
@@ -185,6 +197,8 @@ class StreamOrchestrator extends Service
             'stop_reason' => $reason,
             'python_response' => $response,
         ]);
+        $session = $session->fresh() ?? $session;
+        $this->cancelEmbeddedPlaylist($session);
 
         $this->mixer->reset([
             'session_id' => $session->id,
@@ -206,6 +220,20 @@ class StreamOrchestrator extends Service
         $this->recordControlChannelTelemetry('pause', $pauseCommand, $session->id);
 
         return $session->fresh()->toArray();
+    }
+
+    public function clearLivePlaylistState(string $sessionId): void
+    {
+        if ($sessionId === '') {
+            return;
+        }
+
+        $session = BroadcastSession::query()->find($sessionId);
+        if ($session === null) {
+            return;
+        }
+
+        $this->cancelEmbeddedPlaylist($session);
     }
 
     public function getStatusDetails(): array
@@ -922,6 +950,244 @@ class StreamOrchestrator extends Service
     }
 
     /**
+     * Queue or cancel embedded playlist playback for the live broadcast.
+     *
+     * @param array<int, int> $manualRoute
+     * @param array<int, int> $locationGroupIds
+     * @param array<int, int> $nestIds
+     */
+    private function handleEmbeddedPlaylist(
+        BroadcastSession $session,
+        array $options,
+        array $manualRoute,
+        array $locationGroupIds,
+        array $nestIds,
+    ): void {
+        if ($session->source !== 'central_file') {
+            $this->cancelEmbeddedPlaylist($session);
+            return;
+        }
+
+        $rawItems = Arr::get($options, 'playlist', []);
+        if (!is_array($rawItems) || $rawItems === []) {
+            $this->cancelEmbeddedPlaylist($session);
+            return;
+        }
+
+        $recordings = $this->normalizePlaylistRecordings($rawItems);
+        if ($recordings === []) {
+            $this->cancelEmbeddedPlaylist($session);
+            return;
+        }
+
+        $hash = $this->computePlaylistHash($recordings, $manualRoute, $locationGroupIds, $nestIds);
+        $sessionOptions = $session->options ?? [];
+        if (($sessionOptions['_live_playlist_hash'] ?? null) === $hash) {
+            return;
+        }
+
+        $this->cancelEmbeddedPlaylist($session);
+
+        $playlistOptions = Arr::except($options, ['playlist']);
+        $playlistOptions['_context'] = array_merge(
+            Arr::get($playlistOptions, '_context', []),
+            [
+                'mode' => 'live_broadcast',
+                'session_id' => $session->id,
+                'source' => $session->source,
+            ],
+        );
+
+        $playlist = $this->enqueuePlaylist([
+            'recordings' => $recordings,
+            'route' => $manualRoute,
+            'locations' => $locationGroupIds,
+            'nests' => $nestIds,
+            'options' => $playlistOptions,
+        ]);
+
+        $sessionOptions['_live_playlist_id'] = $playlist['id'] ?? null;
+        $sessionOptions['_live_playlist_hash'] = $hash;
+        $sessionOptions['playlist'] = [
+            'items' => $recordings,
+            'updated_at' => now()->toIso8601String(),
+        ];
+        $session->update(['options' => $sessionOptions]);
+    }
+
+    /**
+     * @param array<int, mixed> $rawItems
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizePlaylistRecordings(array $rawItems): array
+    {
+        $normalized = [];
+
+        foreach ($rawItems as $item) {
+            if (is_array($item)) {
+                $id = Arr::get($item, 'id');
+                if ($id === null || $id === '') {
+                    continue;
+                }
+
+                $recording = $item;
+                $recording['id'] = (string) $id;
+
+                foreach (['title', 'name', 'original_name'] as $key) {
+                    $candidate = Arr::get($item, $key);
+                    if (is_string($candidate) && $candidate !== '') {
+                        $recording['title'] = $candidate;
+                        break;
+                    }
+                }
+
+                if (!isset($recording['title']) || $recording['title'] === '') {
+                    $recording['title'] = 'ID ' . $recording['id'];
+                }
+
+                $duration = Arr::get($item, 'durationSeconds', Arr::get($item, 'duration_seconds'));
+                if (is_numeric($duration)) {
+                    $recording['durationSeconds'] = (int) $duration;
+                }
+
+                $gain = Arr::get($item, 'gain');
+                if (is_numeric($gain)) {
+                    $recording['gain'] = (float) $gain;
+                }
+
+                $gap = Arr::get($item, 'gapMs', Arr::get($item, 'gap_ms'));
+                if (is_numeric($gap)) {
+                    $recording['gapMs'] = (int) $gap;
+                }
+
+                $metadata = Arr::get($recording, 'metadata');
+                if (!is_array($metadata)) {
+                    $metadata = [];
+                }
+
+                $rawFilename = Arr::get($recording, 'filename', Arr::get($metadata, 'filename', Arr::get($metadata, 'file.filename')));
+                $extension = $this->normalizeExtension(
+                    Arr::get($recording, 'extension', Arr::get($metadata, 'extension')),
+                    Arr::get($recording, 'mimeType', Arr::get($recording, 'mime_type', Arr::get($metadata, 'mimeType'))),
+                );
+                $filename = $this->buildFilename($rawFilename, $extension);
+                if ($filename !== null) {
+                    $recording['filename'] = $filename;
+                    $metadata['filename'] = $metadata['filename'] ?? $filename;
+                    $recording['extension'] = $recording['extension'] ?? $extension;
+                    $metadata['extension'] = $metadata['extension'] ?? $extension;
+                }
+
+                $storagePath = $this->ensureFilePath(
+                    Arr::get($recording, 'storage_path', Arr::get($metadata, 'storage_path', Arr::get($metadata, 'file.storage_path', Arr::get($recording, 'path')))),
+                    $filename,
+                    $extension,
+                );
+                if ($storagePath !== null) {
+                    $recording['storage_path'] = $storagePath;
+                    $metadata['storage_path'] = $metadata['storage_path'] ?? $storagePath;
+                }
+
+                $absolutePath = $this->ensureFilePath(
+                    Arr::get($recording, 'path', Arr::get($metadata, 'path')),
+                    $filename,
+                    $extension,
+                );
+                if ($absolutePath !== null) {
+                    $recording['path'] = $absolutePath;
+                    $metadata['path'] = $metadata['path'] ?? $absolutePath;
+                }
+
+                $recording['metadata'] = $metadata;
+
+                $normalized[] = $recording;
+            } elseif (is_scalar($item) && $item !== '') {
+                $normalized[] = [
+                    'id' => (string) $item,
+                ];
+            }
+        }
+
+        return array_values($normalized);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $recordings
+     * @param array<int, int> $route
+     * @param array<int, int> $locations
+     * @param array<int, int> $nests
+     */
+    private function computePlaylistHash(array $recordings, array $route, array $locations, array $nests): string
+    {
+        $hashData = [
+            'route' => array_values($route),
+            'locations' => array_values($locations),
+            'nests' => array_values($nests),
+            'recordings' => array_map(
+                static function (array $recording): array {
+                    $entry = [
+                        'id' => $recording['id'],
+                    ];
+
+                    if (isset($recording['durationSeconds']) && is_numeric($recording['durationSeconds'])) {
+                        $entry['durationSeconds'] = (int) $recording['durationSeconds'];
+                    }
+
+                    if (isset($recording['gain']) && is_numeric($recording['gain'])) {
+                        $entry['gain'] = (float) $recording['gain'];
+                    }
+
+                    if (isset($recording['gapMs']) && is_numeric($recording['gapMs'])) {
+                        $entry['gapMs'] = (int) $recording['gapMs'];
+                    }
+
+                    if (!empty($recording['storage_path'])) {
+                        $entry['storage_path'] = (string) $recording['storage_path'];
+                    }
+
+                    return $entry;
+                },
+                $recordings,
+            ),
+        ];
+
+        $encoded = json_encode($hashData, JSON_UNESCAPED_SLASHES);
+        if ($encoded === false) {
+            $encoded = serialize($hashData);
+        }
+
+        return sha1($encoded);
+    }
+
+    private function cancelEmbeddedPlaylist(BroadcastSession $session): void
+    {
+        $sessionOptions = $session->options ?? [];
+        $playlistId = Arr::get($sessionOptions, '_live_playlist_id');
+
+        if (is_string($playlistId) && $playlistId !== '') {
+            $playlist = BroadcastPlaylist::query()->find($playlistId);
+            if ($playlist !== null && !in_array($playlist->status, ['completed', 'failed', 'cancelled'], true)) {
+                $this->cancelPlaylist($playlistId);
+            }
+        }
+
+        $optionsChanged = false;
+        if (isset($sessionOptions['_live_playlist_id']) || isset($sessionOptions['_live_playlist_hash'])) {
+            unset($sessionOptions['_live_playlist_id'], $sessionOptions['_live_playlist_hash']);
+            $optionsChanged = true;
+        }
+
+        if (isset($sessionOptions['playlist'])) {
+            unset($sessionOptions['playlist']);
+            $optionsChanged = true;
+        }
+
+        if ($optionsChanged) {
+            $session->update(['options' => $sessionOptions]);
+        }
+    }
+
+    /**
      * @param array<string, mixed> $options
      * @param array<int, int> $manualRoute
      * @param array<int, int> $locationGroupIds
@@ -1139,5 +1405,71 @@ class StreamOrchestrator extends Service
                 'exception' => $exception->getMessage(),
             ]);
         }
+    }
+
+    private function buildFilename(?string $base, ?string $extension): ?string
+    {
+        if ($base === null || trim($base) === '') {
+            return null;
+        }
+
+        $base = trim($base);
+        if ($extension === null || $extension === '') {
+            return $base;
+        }
+
+        $normalizedExtension = '.' . ltrim(strtolower($extension), '.');
+        $hasExtension = str_ends_with(strtolower($base), $normalizedExtension);
+
+        return $hasExtension ? $base : $base . $normalizedExtension;
+    }
+
+    private function normalizeExtension(mixed $extension, mixed $mime): ?string
+    {
+        if (is_string($extension) && $extension !== '') {
+            return ltrim(strtolower($extension), '.');
+        }
+
+        if (!is_string($mime) || $mime === '') {
+            return null;
+        }
+
+        $mime = strtolower($mime);
+
+        return match ($mime) {
+            'audio/mpeg', 'audio/mp3' => 'mp3',
+            'audio/wav', 'audio/x-wav' => 'wav',
+            'audio/ogg', 'audio/vorbis' => 'ogg',
+            default => null,
+        };
+    }
+
+    private function ensureFilePath(mixed $value, ?string $filename, ?string $extension): ?string
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        $normalized = preg_replace('#[/\\\\]+#', '/', trim($value));
+        if ($normalized === '') {
+            return null;
+        }
+
+        $file = $this->buildFilename($filename, $extension);
+        if ($file === null) {
+            return $normalized;
+        }
+
+        $withoutTrailingSlash = rtrim($normalized, '/');
+        if ($withoutTrailingSlash === $file || str_ends_with($withoutTrailingSlash, '/' . $file)) {
+            return $withoutTrailingSlash;
+        }
+
+        $leaf = substr($withoutTrailingSlash, strrpos($withoutTrailingSlash, '/') !== false ? strrpos($withoutTrailingSlash, '/') + 1 : 0);
+        if (str_contains($leaf, '.')) {
+            return $withoutTrailingSlash;
+        }
+
+        return $withoutTrailingSlash . '/' . $file;
     }
 }

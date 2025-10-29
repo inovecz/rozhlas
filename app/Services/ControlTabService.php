@@ -355,6 +355,7 @@ class ControlTabService extends Service
                     'slot' => $symbol,
                     'category' => $category,
                     'repeat' => 1,
+                    'symbol' => $symbol,
                 ];
             })
             ->toArray();

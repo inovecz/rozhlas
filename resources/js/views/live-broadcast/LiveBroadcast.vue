@@ -606,6 +606,20 @@ const loadSources = async () => {
   }
 };
 
+const pickFallbackSourceId = () => {
+  const availableSources = sources.value.filter(source => source?.available !== false);
+  const nonCentralSources = availableSources.filter(source => source.id !== 'central_file');
+  const candidates = nonCentralSources.length > 0 ? nonCentralSources : availableSources;
+  const preferredOrder = ['system_audio', 'pc_webrtc', 'microphone', 'input_2'];
+  for (const preferredId of preferredOrder) {
+    const match = candidates.find(source => source.id === preferredId);
+    if (match) {
+      return match.id;
+    }
+  }
+  return candidates[0]?.id ?? 'system_audio';
+};
+
 const loadLocationGroups = async () => {
   try {
     const response = await LocationService.getAllLocationGroups();
@@ -842,6 +856,26 @@ watch(selectedSourceOptionId, (newValue, oldValue) => {
 });
 
 watch(
+  () => form.playlistItems.length,
+  (newLength) => {
+    if (syncingForm.value) {
+      return;
+    }
+
+    if (newLength > 0) {
+      if (form.source !== 'central_file') {
+        form.source = 'central_file';
+      }
+      return;
+    }
+
+    if (newLength === 0 && form.source === 'central_file' && !isStreaming.value) {
+      form.source = pickFallbackSourceId();
+    }
+  }
+);
+
+watch(
   [() => combinedSourceOptions.value, () => form.source, () => selectedAudioInputId.value],
   () => {
     const options = combinedSourceOptions.value;
@@ -901,10 +935,12 @@ watch(selectedMixerInputId, async (newValue, oldValue) => {
   if (mixerSyncing.value) {
     return;
   }
-  if (!routingEnabled.value) {
+  if (!newValue || newValue === oldValue) {
     return;
   }
-  if (!newValue || newValue === oldValue) {
+
+  if (!routingEnabled.value) {
+    selectedMixerInputId.value = newValue;
     return;
   }
 
@@ -1125,11 +1161,148 @@ const buildStartPayload = () => {
     options.note = form.note;
   }
   if (showPlaylistControls.value && form.playlistItems.length > 0) {
-    options.playlist = form.playlistItems.map(item => ({
-      id: item.id,
-      title: item.name ?? item.title ?? item.original_name ?? '',
-      durationSeconds: item.duration_seconds ?? item.durationSeconds ?? null,
-    }));
+    const playlistItems = form.playlistItems
+      .map((item) => {
+        if (!item) {
+          return null;
+        }
+        const id = item.id ?? item.recording_id ?? item.file_id ?? null;
+        if (!id) {
+          return null;
+        }
+
+        const metadata = {...(item.metadata ?? {})};
+        const duration =
+          item.duration_seconds ??
+          item.durationSeconds ??
+          metadata.duration ??
+          metadata.duration_seconds ??
+          null;
+        const gain = item.gain ?? metadata.gain ?? null;
+        const gapMs = item.gap_ms ?? item.gapMs ?? null;
+        const storagePath =
+          metadata.storage_path ??
+          metadata.file?.storage_path ??
+          item.storage_path ??
+          item.path ??
+          null;
+        if (storagePath && metadata.storage_path === undefined) {
+          metadata.storage_path = storagePath;
+        }
+
+        const path =
+          item.path ??
+          metadata.path ??
+          storagePath ??
+          null;
+        if (path && metadata.path === undefined) {
+          metadata.path = path;
+        }
+
+        const filenameBase = item.filename ?? metadata.filename ?? metadata.file?.filename ?? null;
+        const rawExtension = item.extension ?? metadata.extension ?? metadata.file?.extension ?? (item.mime_type ? item.mime_type.split('/').pop() : null);
+        const normalisedExtension = rawExtension ? rawExtension.replace(/^\./, '').toLowerCase() : null;
+        const inferExtFromMime = (mime) => {
+          if (!mime) {
+            return null;
+          }
+          if (mime === 'audio/mpeg') {
+            return 'mp3';
+          }
+          if (mime === 'audio/wav' || mime === 'audio/x-wav') {
+            return 'wav';
+          }
+          if (mime === 'audio/ogg') {
+            return 'ogg';
+          }
+          return null;
+        };
+        const extension = normalisedExtension ?? inferExtFromMime(item.mime_type ?? metadata.mimeType);
+        const buildFilename = () => {
+          if (!filenameBase) {
+            return null;
+          }
+          if (!extension) {
+            return filenameBase;
+          }
+          return filenameBase.endsWith(`.${extension}`) ? filenameBase : `${filenameBase}.${extension}`;
+        };
+        const filename = buildFilename();
+
+        const ensureFilePath = (base) => {
+          if (!base) {
+            return null;
+          }
+          const trimmed = base.trim();
+          if (trimmed === '') {
+            return null;
+          }
+          if (!filename) {
+            return trimmed;
+          }
+          const normalised = trimmed.replace(/[/\\]+$/, '');
+          if (normalised.endsWith(`/${filename}`) || normalised === filename) {
+            return trimmed.startsWith('/') || normalised === filename ? trimmed : normalised;
+          }
+          if (normalised.includes('.')) {
+            return trimmed;
+          }
+          return `${normalised}/${filename}`;
+        };
+
+        const resolvedStoragePath = ensureFilePath(storagePath);
+        const resolvedAbsolutePath = ensureFilePath(path);
+        const resolvedMetadataStoragePath = ensureFilePath(metadata.storage_path);
+        const resolvedMetadataPath = ensureFilePath(metadata.path);
+
+        if (resolvedMetadataStoragePath) {
+          metadata.storage_path = resolvedMetadataStoragePath;
+        }
+        if (resolvedMetadataPath) {
+          metadata.path = resolvedMetadataPath;
+        }
+        if (filename && !metadata.filename) {
+          metadata.filename = filename;
+        }
+        if (extension && !metadata.extension) {
+          metadata.extension = extension;
+        }
+
+        const result = {
+          id: String(id),
+          title: item.name ?? item.title ?? item.original_name ?? '',
+          durationSeconds: duration !== null ? Number(duration) : null,
+          gain: gain !== null ? Number(gain) : null,
+          gapMs: gapMs !== null ? Number(gapMs) : null,
+          path: resolvedAbsolutePath ?? path ?? null,
+          storage_path: resolvedStoragePath ?? storagePath ?? null,
+          filename,
+          mimeType: item.mime_type ?? item.mimeType ?? null,
+          metadata,
+        };
+
+        Object.keys(result).forEach((key) => {
+          const value = result[key];
+          if (
+            value === null ||
+            value === undefined ||
+            (typeof value === 'string' && value.trim() === '' && key !== 'id')
+          ) {
+            delete result[key];
+          }
+        });
+
+        if (result.metadata && Object.keys(result.metadata).length === 0) {
+          delete result.metadata;
+        }
+
+        return result;
+      })
+      .filter(Boolean);
+
+    if (playlistItems.length > 0) {
+      options.playlist = playlistItems;
+    }
   }
   if (showFmInfo.value && form.fmFrequency) {
     options.frequency = form.fmFrequency;
@@ -1141,8 +1314,13 @@ const buildStartPayload = () => {
   const selectedLocationIds = form.selectedLocationGroups.map(value => Number(value)).filter(Number.isFinite);
   const selectedNestIds = form.selectedNests.map(value => Number(value)).filter(Number.isFinite);
 
+  const playlistPresent = options.playlist && options.playlist.length > 0;
+  const resolvedSource = playlistPresent
+    ? 'central_file'
+    : (form.source || 'microphone');
+
   return {
-    source: form.source || 'microphone',
+    source: resolvedSource,
     route: manualRoute,
     locations: selectedLocationIds,
     nests: selectedNestIds,
@@ -1151,6 +1329,12 @@ const buildStartPayload = () => {
 };
 
 const startStream = async () => {
+  if (form.playlistItems.length > 0) {
+    form.source = 'central_file';
+  }
+  if (form.playlistItems.length === 0 && form.source === 'central_file') {
+    form.source = pickFallbackSourceId();
+  }
   if (form.source === 'central_file' && form.playlistItems.length === 0) {
     toast.warning('Vyberte prosím soubor v ústředně.');
     return;
@@ -1192,6 +1376,12 @@ const applyLiveUpdate = async () => {
   if (!isStreaming.value) {
     return;
   }
+  if (form.playlistItems.length > 0) {
+    form.source = 'central_file';
+  }
+  if (form.playlistItems.length === 0 && form.source === 'central_file') {
+    form.source = pickFallbackSourceId();
+  }
 
   liveUpdateInProgress.value = true;
   try {
@@ -1216,6 +1406,7 @@ const pickPlaylist = () => {
   reveal();
   onConfirm((selection) => {
     form.playlistItems = Array.isArray(selection) ? selection : [selection];
+    form.source = 'central_file';
   });
 };
 
@@ -1341,7 +1532,7 @@ const removePlaylistItem = (index) => {
               <select
                   v-model="selectedMixerInputId"
                   class="form-select w-full border border-gray-300 rounded-md bg-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-40"
-                  :disabled="mixerLoading || mixerInputUpdating || mixerInputs.length === 0 || !routingEnabled">
+                  :disabled="mixerLoading || mixerInputUpdating || mixerInputs.length === 0">
                 <option v-for="input in mixerInputs" :key="input.id" :value="input.id">
                   {{ input.label }}
                 </option>

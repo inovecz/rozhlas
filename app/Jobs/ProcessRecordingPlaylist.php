@@ -49,7 +49,18 @@ class ProcessRecordingPlaylist implements ShouldQueue
             return;
         }
 
-        $selection = Arr::get($playlist->options ?? [], '_selection', []);
+        $options = $playlist->options ?? [];
+        $selection = Arr::get($options, '_selection', []);
+        $context = is_array($options) ? Arr::get($options, '_context', []) : [];
+        $mode = is_array($context) ? (string) ($context['mode'] ?? 'standalone') : 'standalone';
+        $sessionId = is_array($context) ? Arr::get($context, 'session_id') : null;
+        $controlsStream = $mode !== 'live_broadcast';
+
+        $cleanup = function () use ($controlsStream, $sessionId, $orchestrator): void {
+            if (!$controlsStream && $sessionId !== null && $sessionId !== '') {
+                $orchestrator->clearLivePlaylistState((string) $sessionId);
+            }
+        };
 
         if ($playlist->status === 'queued') {
             // Playlist queued but not yet running; mark telemetry for start attempt.
@@ -63,26 +74,28 @@ class ProcessRecordingPlaylist implements ShouldQueue
             ]);
         }
 
-        try {
-            $orchestrator->start([
-                'source' => 'recorded_playlist',
-                'route' => Arr::get($selection, 'route', $playlist->route ?? []),
-                'locations' => Arr::get($selection, 'locations', []),
-                'nests' => Arr::get($selection, 'nests', []),
-                'options' => $playlist->options ?? [],
-            ]);
-        } catch (BroadcastLockedException $exception) {
-            $playlist->update([
-                'status' => 'queued',
-                'started_at' => null,
-            ]);
-            $this->release(10);
-            return;
+        if ($controlsStream) {
+            try {
+                $orchestrator->start([
+                    'source' => 'recorded_playlist',
+                    'route' => Arr::get($selection, 'route', $playlist->route ?? []),
+                    'locations' => Arr::get($selection, 'locations', []),
+                    'nests' => Arr::get($selection, 'nests', []),
+                    'options' => $options,
+                ]);
+            } catch (BroadcastLockedException $exception) {
+                $playlist->update([
+                    'status' => 'queued',
+                    'started_at' => null,
+                ]);
+                $this->release(10);
+                return;
+            }
         }
 
         $playlist->update([
             'status' => 'running',
-            'started_at' => now(),
+            'started_at' => $playlist->started_at ?? now(),
         ]);
 
         StreamTelemetryEntry::create([
@@ -97,7 +110,9 @@ class ProcessRecordingPlaylist implements ShouldQueue
         foreach ($playlist->items()->orderBy('position')->get() as $item) {
             $freshPlaylist = $playlist->fresh();
             if ($freshPlaylist->status === 'cancelled') {
-                $orchestrator->stop('playlist_cancelled');
+                if ($controlsStream) {
+                    $orchestrator->stop('playlist_cancelled');
+                }
                 StreamTelemetryEntry::create([
                     'type' => 'playlist_cancelled_runtime',
                     'playlist_id' => $playlist->id,
@@ -106,11 +121,15 @@ class ProcessRecordingPlaylist implements ShouldQueue
                     ],
                     'recorded_at' => now(),
                 ]);
+                $cleanup();
                 return;
             }
 
             if ($freshPlaylist->status === 'queued') {
-                $orchestrator->stop('playlist_requeued');
+                if ($controlsStream) {
+                    $orchestrator->stop('playlist_requeued');
+                }
+                $cleanup();
                 return;
             }
 
@@ -151,8 +170,11 @@ class ProcessRecordingPlaylist implements ShouldQueue
                     'context' => $result->context,
                 ]);
 
-                $orchestrator->stop('playlist_failed');
+                if ($controlsStream) {
+                    $orchestrator->stop('playlist_failed');
+                }
 
+                $cleanup();
                 return;
             }
 
@@ -181,7 +203,9 @@ class ProcessRecordingPlaylist implements ShouldQueue
             }
         }
 
-        $orchestrator->stop('playlist_completed');
+        if ($controlsStream) {
+            $orchestrator->stop('playlist_completed');
+        }
 
         $playlist->update([
             'status' => 'completed',
@@ -194,5 +218,7 @@ class ProcessRecordingPlaylist implements ShouldQueue
             'payload' => [],
             'recorded_at' => now(),
         ]);
+
+        $cleanup();
     }
 }
