@@ -66,7 +66,7 @@ return [
             'success_message' => 'Poplach JSVV byl zastaven.',
         ],
         9 => [
-            'action' => 'start_stream',
+            'action' => 'start_or_trigger_selected_jsvv_alarm',
             'source' => 'microphone',
             'options' => [
                 'origin' => 'prime_hlaseni',
@@ -80,7 +80,7 @@ return [
             'idle_message' => 'Žádné vysílání neběží.',
         ],
         11 => [
-            'action' => 'start_stream',
+            'action' => 'start_or_trigger_selected_jsvv_alarm',
             'source' => 'microphone',
             'options' => [
                 'origin' => 'prime_hlaseni',

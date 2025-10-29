@@ -9,6 +9,7 @@ use App\Models\BroadcastPlaylist;
 use App\Models\BroadcastSession;
 use App\Models\JsvvAlarm;
 use App\Models\JsvvAudio;
+use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
 
@@ -49,6 +50,7 @@ class ControlTabService extends Service
         }
 
         return match ($mapping['action'] ?? null) {
+            'start_or_trigger_selected_jsvv_alarm' => $this->startOrTriggerSelectedJsvvAlarm($mapping, $context),
             'start_stream' => $this->startStream($mapping),
             'stop_stream' => $this->stopStream($mapping),
             'trigger_jsvv_alarm' => $this->triggerJsvvAlarm($mapping, $context),
@@ -128,6 +130,40 @@ class ControlTabService extends Service
             'message' => Arr::get($config, 'success_message', 'Vysílání bylo spuštěno přes Control Tab.'),
             'session' => $session,
         ];
+    }
+
+    private function startOrTriggerSelectedJsvvAlarm(array $config, array $context = []): array
+    {
+        $selected = $this->resolveSelectedAlarm();
+        $selectedButton = (int) ($selected['button'] ?? 0);
+
+        if ($selectedButton > 0) {
+            $payload = [
+                'button' => $selectedButton,
+            ];
+
+            $label = $selected['label'] ?? ($config['label'] ?? null);
+            if ($label !== null) {
+                $payload['label'] = $label;
+            }
+
+            $result = $this->triggerJsvvAlarm($payload, $context);
+
+            if (!in_array($result['status'] ?? null, [
+                'error',
+                'invalid_request',
+                'unsupported',
+                'validation_error',
+                'jsvv_active',
+                'not_found',
+            ], true)) {
+                Cache::forget(self::SELECTED_ALARM_CACHE_KEY);
+            }
+
+            return $result;
+        }
+
+        return $this->startStream($config);
     }
 
     private function stopStream(array $config = []): array
@@ -240,8 +276,7 @@ class ControlTabService extends Service
 
     private function triggerSelectedJsvvAlarm(array $config, array $context = []): array
     {
-        /** @var array<string, mixed>|null $selected */
-        $selected = Cache::get(self::SELECTED_ALARM_CACHE_KEY);
+        $selected = $this->resolveSelectedAlarm();
         $button = (int) ($selected['button'] ?? $config['fallback_button'] ?? $config['button'] ?? 0);
 
         if ($button <= 0) {
@@ -352,6 +387,35 @@ class ControlTabService extends Service
                 Arr::get($stopResult, 'message', 'Přímé hlášení bylo ukončeno.')
             ),
         ];
+    }
+
+    private function resolveSelectedAlarm(): ?array
+    {
+        $selected = Cache::get(self::SELECTED_ALARM_CACHE_KEY);
+
+        if ($selected instanceof Arrayable) {
+            $selected = $selected->toArray();
+        } elseif ($selected instanceof \JsonSerializable) {
+            $selected = (array) $selected;
+        }
+
+        if ($selected instanceof \stdClass) {
+            $selected = (array) $selected;
+        }
+
+        if (is_string($selected)) {
+            $decoded = json_decode($selected, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $selected = $decoded;
+            } else {
+                $unserialized = @unserialize($selected);
+                if ($unserialized !== false || $selected === 'b:0;') {
+                    $selected = $unserialized;
+                }
+            }
+        }
+
+        return is_array($selected) ? $selected : null;
     }
 
     private function buildSequenceItems(JsvvAlarm $alarm): array
