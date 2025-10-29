@@ -183,19 +183,30 @@ npm install
 # ---------------------------------------------------------------------------
 
 VENV_DIR="$ROOT_DIR/.venv"
-if [ ! -d "$VENV_DIR" ]; then
-  echo "Creating Python virtual environment (.venv)..."
-  python3 -m venv "$VENV_DIR"
+PYTHON_BIN="$(command -v python3 || command -v python || true)"
+if [ -z "$PYTHON_BIN" ]; then
+  echo "Neither python3 nor python executable found on PATH." >&2
+  exit 1
 fi
 
-VENV_PYTHON="$VENV_DIR/bin/python3"
-if [ ! -x "$VENV_PYTHON" ]; then
-  VENV_PYTHON="$VENV_DIR/bin/python"
+if [ ! -d "$VENV_DIR" ]; then
+  echo "Creating Python virtual environment (.venv)..."
+  "$PYTHON_BIN" -m venv "$VENV_DIR"
+else
+  if [ ! -x "$VENV_DIR/bin/python3" ] && [ ! -x "$VENV_DIR/bin/python" ] && [ ! -x "$VENV_DIR/Scripts/python.exe" ]; then
+    echo "Existing virtual environment at $VENV_DIR is missing a Python executable, recreating..."
+    "$PYTHON_BIN" -m venv --clear "$VENV_DIR"
+  fi
 fi
-if [ ! -x "$VENV_PYTHON" ]; then
-  VENV_PYTHON="$VENV_DIR/Scripts/python.exe"
-fi
-if [ ! -x "$VENV_PYTHON" ]; then
+
+for candidate in "$VENV_DIR/bin/python3" "$VENV_DIR/bin/python" "$VENV_DIR/Scripts/python.exe"; do
+  if [ -x "$candidate" ]; then
+    VENV_PYTHON="$candidate"
+    break
+  fi
+done
+
+if [ -z "${VENV_PYTHON:-}" ]; then
   echo "Python executable not found in virtual environment at $VENV_DIR" >&2
   exit 1
 fi
