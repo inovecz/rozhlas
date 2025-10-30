@@ -6,7 +6,9 @@ namespace App\Console\Commands;
 
 use App\Libraries\PythonClient;
 use App\Models\BroadcastSession;
+use App\Models\StreamTelemetryEntry;
 use App\Services\EmailNotificationService;
+use App\Services\Modbus\AlarmDecoder;
 use App\Services\SmsNotificationService;
 use App\Settings\JsvvSettings;
 use Illuminate\Console\Command;
@@ -30,6 +32,7 @@ class MonitorAlarmBuffer extends Command implements SignalableCommandInterface
         private readonly PythonClient $pythonClient = new PythonClient(),
         private readonly SmsNotificationService $smsService = new SmsNotificationService(),
         private readonly EmailNotificationService $emailService = new EmailNotificationService(),
+        private readonly AlarmDecoder $alarmDecoder = new AlarmDecoder(),
     ) {
         parent::__construct();
     }
@@ -87,11 +90,20 @@ class MonitorAlarmBuffer extends Command implements SignalableCommandInterface
             return; // prázdný buffer
         }
 
-        $this->notifyAlarmSms($nest, $repeat, $data);
-        $this->notifyAlarmEmail($nest, $repeat, $data);
+        $decoded = $this->alarmDecoder->decode($data);
+
+        Log::info('Alarm received from Modbus buffer', [
+            'nest' => $nest,
+            'repeat' => $repeat,
+            'decoded' => $decoded,
+        ]);
+
+        $this->recordTelemetry($nest, $repeat, $decoded);
+        $this->notifyAlarmSms($nest, $repeat, $data, $decoded);
+        $this->notifyAlarmEmail($nest, $repeat, $data, $decoded);
     }
 
-    private function notifyAlarmSms(int $nest, int $repeat, array $data): void
+    private function notifyAlarmSms(int $nest, int $repeat, array $data, array $decoded): void
     {
         $settings = app(JsvvSettings::class);
         $recipients = $this->normalizeRecipients($settings->alarmSmsContacts ?? []);
@@ -108,11 +120,15 @@ class MonitorAlarmBuffer extends Command implements SignalableCommandInterface
             '{date}' => now()->format('d.m.Y'),
         ];
 
+        foreach ($decoded['placeholders'] ?? [] as $token => $value) {
+            $replacements[$token] = (string) $value;
+        }
+
         $message = $this->renderTemplate($template, $replacements);
         $this->smsService->send($recipients, $message);
     }
 
-    private function notifyAlarmEmail(int $nest, int $repeat, array $data): void
+    private function notifyAlarmEmail(int $nest, int $repeat, array $data, array $decoded): void
     {
         $settings = app(JsvvSettings::class);
         $recipients = $this->normalizeRecipients($settings->emailContacts ?? []);
@@ -128,6 +144,10 @@ class MonitorAlarmBuffer extends Command implements SignalableCommandInterface
             '{date}' => now()->format('d.m.Y'),
         ];
 
+        foreach ($decoded['placeholders'] ?? [] as $token => $value) {
+            $replacements[$token] = (string) $value;
+        }
+
         $subjectTemplate = $settings->emailSubject ?: 'Alarm z hnízda {nest}';
         $bodyTemplate = $settings->emailMessage ?: 'Alarm z hnízda {nest} (opakování {repeat}) – data: {data}.';
 
@@ -135,6 +155,19 @@ class MonitorAlarmBuffer extends Command implements SignalableCommandInterface
         $body = $this->renderTemplate($bodyTemplate, $replacements);
 
         $this->emailService->send($recipients, $subject, $body);
+    }
+
+    private function recordTelemetry(int $nest, int $repeat, array $decoded): void
+    {
+        StreamTelemetryEntry::create([
+            'type' => 'alarm_event',
+            'payload' => [
+                'nest' => $nest,
+                'repeat' => $repeat,
+                'alarm' => $decoded,
+            ],
+            'recorded_at' => now(),
+        ]);
     }
 
     private function normalizeRecipients(array|string|null $value): array

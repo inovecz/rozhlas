@@ -11,6 +11,32 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
+SCRIPT_NAME="$(basename "$0")"
+FORCE_KILL=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --force)
+      FORCE_KILL=true
+      shift
+      ;;
+    -h|--help)
+      cat <<EOF
+Usage: $SCRIPT_NAME [--force]
+
+Options:
+  --force   Terminate any process already using required ports without asking.
+  -h        Show this help message.
+EOF
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      echo "Usage: $SCRIPT_NAME [--force]" >&2
+      exit 1
+      ;;
+  esac
+done
+
 LOG_DIR="${LOG_DIR:-$ROOT_DIR/storage/logs/run}"
 mkdir -p "$LOG_DIR"
 
@@ -42,6 +68,83 @@ TWO_WAY_PID=""
 QUEUE_PID=""
 REDIS_PID=""
 REDIS_MANAGED=false
+
+kill_processes_on_port() {
+  local port=$1
+  local pids=$2
+  local pid
+
+  for pid in $pids; do
+    if kill "$pid" 2>/dev/null; then
+      echo "  Sent SIGTERM to PID $pid (port $port)"
+    fi
+  done
+  sleep 1
+
+  local remaining
+  remaining=$(lsof -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ' || true)
+  if [[ -z "$remaining" ]]; then
+    echo "Port $port freed."
+    return 0
+  fi
+
+  echo "Processes still using port $port after SIGTERM: $remaining"
+  for pid in $remaining; do
+    if kill -9 "$pid" 2>/dev/null; then
+      echo "  Sent SIGKILL to PID $pid (port $port)"
+    fi
+  done
+  sleep 1
+
+  remaining=$(lsof -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ' || true)
+  if [[ -n "$remaining" ]]; then
+    echo "Unable to free port $port. Processes still present: $remaining" >&2
+    exit 1
+  fi
+  echo "Port $port freed."
+}
+
+ensure_port_available() {
+  local port=$1
+  local label=$2
+
+  if ! command -v lsof >/dev/null 2>&1; then
+    echo "Warning: lsof not found; skipping port check for $label on port $port."
+    return 0
+  fi
+
+  local pids
+  pids=$(lsof -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ' || true)
+  if [[ -z "$pids" ]]; then
+    return 0
+  fi
+
+  echo "Port $port is already in use (required for $label)."
+  lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
+
+  if [[ "$FORCE_KILL" == true ]]; then
+    echo "Terminating processes using port $port (--force)."
+    kill_processes_on_port "$port" "$pids"
+    return 0
+  fi
+
+  while true; do
+    read -r -p "Do you want to terminate the process(es) using port $port? [y/N]: " response
+    case "$response" in
+      [yY][eE][sS]|[yY])
+        kill_processes_on_port "$port" "$pids"
+        break
+        ;;
+      [nN][oO]|[nN]|"")
+        echo "Aborting because port $port is in use."
+        exit 1
+        ;;
+      *)
+        echo "Please answer yes or no."
+        ;;
+    esac
+  done
+}
 
 ensure_node_for_frontend() {
   if ! command -v node >/dev/null 2>&1; then
@@ -150,7 +253,9 @@ start_redis() {
   fi
 }
 
+ensure_port_available "$LARAVEL_PORT" "Laravel backend"
 if [[ "$RUN_VITE" == true ]]; then
+  ensure_port_available "$VITE_PORT" "Vite dev server"
   ensure_node_for_frontend
   echo "Starting Vite dev server (npm run dev)..."
   (

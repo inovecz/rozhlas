@@ -905,8 +905,23 @@ watch(
   {immediate: true}
 );
 
+watch(routingEnabled, (enabled) => {
+  if (enabled) {
+    return;
+  }
+  if (selectedAudioInputId.value !== 'default') {
+    selectedAudioInputId.value = 'default';
+  }
+  if (selectedAudioOutputId.value !== 'default') {
+    selectedAudioOutputId.value = 'default';
+  }
+});
+
 watch(selectedAudioInputId, async (newValue, oldValue) => {
   persistAudioInput();
+  if (!routingEnabled.value) {
+    return;
+  }
   if (syncingForm.value) {
     return;
   }
@@ -924,6 +939,9 @@ watch(selectedAudioInputId, async (newValue, oldValue) => {
 
 watch(selectedAudioOutputId, async (newValue, oldValue) => {
   persistAudioOutput();
+  if (!routingEnabled.value) {
+    return;
+  }
   if (syncingForm.value) {
     return;
   }
@@ -1315,8 +1333,9 @@ const buildStartPayload = () => {
   if (showFmInfo.value && form.fmFrequency) {
     options.frequency = form.fmFrequency;
   }
-  options.audioInputId = selectedAudioInputId.value || 'default';
-  options.audioOutputId = selectedAudioOutputId.value || 'default';
+  const routingActive = routingEnabled.value;
+  options.audioInputId = routingActive ? (selectedAudioInputId.value || 'default') : 'default';
+  options.audioOutputId = routingActive ? (selectedAudioOutputId.value || 'default') : 'default';
 
   const manualRoute = parseNumericList(form.routeText);
   const selectedLocationIds = form.selectedLocationGroups.map(value => Number(value)).filter(Number.isFinite);

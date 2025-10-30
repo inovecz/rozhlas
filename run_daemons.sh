@@ -24,6 +24,27 @@ fi
 
 export PYTHONPATH="${ROOT_DIR}/python-client/src:${PYTHONPATH:-}"
 
+ensure_serial_port_access() {
+  local device_path="$1"
+
+  if [[ -z "$device_path" ]]; then
+    echo "Control Tab port path is empty; update CONTROL_TAB_SERIAL_PORT." >&2
+    return 1
+  fi
+
+  if [[ ! -e "$device_path" ]]; then
+    echo "Control Tab port $device_path does not exist. Check cabling or driver installation." >&2
+    return 1
+  fi
+
+  if [[ ! -r "$device_path" || ! -w "$device_path" ]]; then
+    echo "Missing read/write access to $device_path. See docs/setup/control_tab_permissions.md for remediation steps." >&2
+    return 1
+  fi
+
+  return 0
+}
+
 start_daemon() {
   local name="$1"
   shift
@@ -31,7 +52,7 @@ start_daemon() {
   echo "Starting $name..."
   echo "  using PYTHON_BIN=$PYTHON_BIN" >>"$log_file"
   echo "  using PYTHONPATH=$PYTHONPATH" >>"$log_file"
-  nohup env PYTHONPATH="$PYTHONPATH" "$PYTHON_BIN" "$@" >>"$log_file" 2>&1 &
+  nohup env PYTHONPATH="$PYTHONPATH" PYTHONNOUSERSITE=1 "$PYTHON_BIN" "$@" >>"$log_file" 2>&1 &
   echo $! > "$LOG_DIR/${name}.pid"
 }
 
@@ -88,20 +109,26 @@ case "${1:-}" in
     fi
 
     if [[ -n "${CONTROL_TAB_SERIAL_PORT:-}" ]]; then
-      start_daemon "control_tab_listener" "$ROOT_DIR/python-client/daemons/control_tab_listener.py" \
-        --webhook "${CONTROL_TAB_WEBHOOK:-http://127.0.0.1/api/control-tab/events}" \
-        --token "${CONTROL_TAB_TOKEN:-}" \
-        --port "${CONTROL_TAB_SERIAL_PORT}" \
-        --baudrate "${CONTROL_TAB_SERIAL_BAUDRATE:-115200}" \
-        --bytesize "${CONTROL_TAB_SERIAL_BYTESIZE:-8}" \
-        --parity "${CONTROL_TAB_SERIAL_PARITY:-N}" \
-        --stopbits "${CONTROL_TAB_SERIAL_STOPBITS:-1}" \
-        --timeout "${CONTROL_TAB_TIMEOUT:-5}" \
-        --timeout-serial "${CONTROL_TAB_SERIAL_TIMEOUT:-0.2}" \
-        --write-timeout "${CONTROL_TAB_SERIAL_WRITE_TIMEOUT:-1}" \
-        --poll "${CONTROL_TAB_POLL_INTERVAL:-0.05}" \
-        --graceful "${CONTROL_TAB_GRACEFUL_TIMEOUT:-5}" \
-        --retry-backoff "${CONTROL_TAB_RETRY_BACKOFF_MS:-250}"
+      if ensure_serial_port_access "${CONTROL_TAB_SERIAL_PORT}"; then
+        start_daemon "control_tab_listener" "$ROOT_DIR/python-client/daemons/control_tab_listener.py" \
+          --webhook "${CONTROL_TAB_WEBHOOK:-http://127.0.0.1/api/control-tab/events}" \
+          --token "${CONTROL_TAB_TOKEN:-}" \
+          --port "${CONTROL_TAB_SERIAL_PORT}" \
+          --baudrate "${CONTROL_TAB_SERIAL_BAUDRATE:-115200}" \
+          --bytesize "${CONTROL_TAB_SERIAL_BYTESIZE:-8}" \
+          --parity "${CONTROL_TAB_SERIAL_PARITY:-N}" \
+          --stopbits "${CONTROL_TAB_SERIAL_STOPBITS:-1}" \
+          --timeout "${CONTROL_TAB_TIMEOUT:-5}" \
+          --timeout-serial "${CONTROL_TAB_SERIAL_TIMEOUT:-0.2}" \
+          --write-timeout "${CONTROL_TAB_SERIAL_WRITE_TIMEOUT:-1}" \
+          --poll "${CONTROL_TAB_POLL_INTERVAL:-0.05}" \
+          --graceful "${CONTROL_TAB_GRACEFUL_TIMEOUT:-5}" \
+          --retry-backoff "${CONTROL_TAB_RETRY_BACKOFF_MS:-250}"
+      else
+        echo "Skipping control_tab_listener startup; Control Tab serial port is not accessible." | tee -a "$LOG_DIR/control_tab_listener.log"
+        echo "Refer to docs/setup/control_tab_permissions.md for remediation steps." | tee -a "$LOG_DIR/control_tab_listener.log"
+        rm -f "$LOG_DIR/control_tab_listener.pid"
+      fi
     else
       echo "Skipping control_tab_listener (set CONTROL_TAB_SERIAL_PORT to enable)." | tee -a "$LOG_DIR/control_tab_listener.log"
       rm -f "$LOG_DIR/control_tab_listener.pid"
@@ -115,7 +142,6 @@ case "${1:-}" in
     fi
 
     gpio_button_enabled="${GPIO_BUTTON_ENABLED:-}"
-    gpio_button_enabled="${gpio_button_enabled,,}"
     if [[ "$gpio_button_enabled" == "true" || "$gpio_button_enabled" == "1" ]]; then
       args=("$ROOT_DIR/python-client/daemons/gpio_button_listener.py")
       args+=(--chip "${GPIO_BUTTON_CHIP:-gpiochip2}")
