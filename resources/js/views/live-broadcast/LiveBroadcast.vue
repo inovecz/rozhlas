@@ -1,5 +1,5 @@
 <script setup>
-import {computed, nextTick, onMounted, reactive, ref, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch} from "vue";
 import {useToast} from "vue-toastification";
 import {createConfirmDialog} from "vuejs-confirm-dialog";
 import PageContent from "../../components/custom/PageContent.vue";
@@ -50,6 +50,8 @@ const form = reactive({
   selectedNests: [],
   note: '',
   playlistItems: [],
+  introJingle: null,
+  outroJingle: null,
   fmFrequency: ''
 });
 
@@ -64,6 +66,14 @@ const selectedAudioOutputId = ref(
     ? FORCED_AUDIO_OUTPUT_ID
     : (initialAudioOutput?.id ?? 'default')
 );
+const localAudioPlayer = ref(null);
+const localPlayback = reactive({
+  queue: [],
+  index: -1,
+  playing: false,
+  busy: false,
+});
+const playlistAudioCache = new Map();
 const selectedSourceOptionId = ref('');
 const sourceLabelMap = computed(() => {
   const map = new Map();
@@ -141,6 +151,12 @@ const combinedSourceOptions = computed(() => {
   });
 
   return list;
+});
+
+const hasPlaylistSelection = computed(() => {
+  return (Array.isArray(form.playlistItems) && form.playlistItems.length > 0)
+    || form.introJingle !== null
+    || form.outroJingle !== null;
 });
 
 const routingEnabled = computed(() => mixerStatus.value?.enabled !== false);
@@ -278,6 +294,36 @@ const parseSourceOptionId = (identifier) => {
     sourceId,
     audioInputId: hardwareSourceIds.has(sourceId) ? normalizedAudio : null,
   };
+};
+
+const resolveRecordingLabel = (item) => {
+  if (!item) {
+    return '';
+  }
+  return item.name
+    ?? item.title
+    ?? item.original_name
+    ?? item.filename
+    ?? item.recording_id
+    ?? (item.id ? `ID ${item.id}` : 'Neznámá nahrávka');
+};
+
+const getOrderedPlaylistItems = () => {
+  const ordered = [];
+  if (form.introJingle) {
+    ordered.push({...form.introJingle, __role: 'intro'});
+  }
+  if (Array.isArray(form.playlistItems)) {
+    form.playlistItems.forEach((item) => {
+      if (item) {
+        ordered.push({...item, __role: 'main'});
+      }
+    });
+  }
+  if (form.outroJingle) {
+    ordered.push({...form.outroJingle, __role: 'outro'});
+  }
+  return ordered;
 };
 
 const sourceInputChannelMap = ref({
@@ -454,10 +500,10 @@ const normaliseMixerItems = (list) => {
     }));
 };
 
-const refreshMixerStatus = async (silent = false) => {
+const refreshMixerStatus = async (silent = false, statusOverride = null) => {
   mixerLoading.value = true;
   try {
-    let statusPayload = await AudioService.status();
+    let statusPayload = statusOverride ?? await AudioService.status();
     statusPayload = statusPayload ?? {};
 
     let inputs = normaliseMixerItems(statusPayload?.inputs);
@@ -496,10 +542,23 @@ const refreshMixerStatus = async (silent = false) => {
     const currentInputId = statusPayload?.current?.input?.id ?? '';
 
     const resolvePreferredInput = (currentId, availableList, previousSelection) => {
-      if (currentId && availableList.some(item => item.id === currentId)) {
+      const hasCurrent = currentId && availableList.some(item => item.id === currentId);
+      const hasPrevious = previousSelection && availableList.some(item => item.id === previousSelection);
+
+      if (mixerInputUpdating.value) {
+        if (hasPrevious) {
+          return previousSelection;
+        }
+        if (hasCurrent) {
+          return currentId;
+        }
+        return availableList[0]?.id ?? '';
+      }
+
+      if (hasCurrent) {
         return currentId;
       }
-      if (previousSelection && availableList.some(item => item.id === previousSelection)) {
+      if (hasPrevious) {
         return previousSelection;
       }
       return availableList[0]?.id ?? '';
@@ -540,6 +599,10 @@ onMounted(async () => {
   ]);
 });
 
+onBeforeUnmount(() => {
+  stopLocalPlayback();
+});
+
 watch(() => form.source, async (newSource, oldSource) => {
   if (syncingForm.value) {
     return;
@@ -560,7 +623,7 @@ watch(() => form.source, async (newSource, oldSource) => {
     if (liveUpdateInProgress.value) {
       return;
     }
-    if (newSource === 'central_file' && form.playlistItems.length === 0) {
+    if (newSource === 'central_file' && !hasPlaylistSelection.value) {
       return;
     }
     await applyLiveUpdate();
@@ -936,6 +999,13 @@ watch(selectedAudioOutputId, async (newValue, oldValue) => {
   if (newValue === oldValue) {
     return;
   }
+  if (localPlayback.playing && localAudioPlayer.value && typeof localAudioPlayer.value.setSinkId === 'function') {
+    try {
+      await localAudioPlayer.value.setSinkId(newValue || 'default');
+    } catch (error) {
+      console.debug('Unable to switch sink for local playback', error);
+    }
+  }
   await applyLiveUpdate();
 });
 
@@ -959,8 +1029,8 @@ watch(selectedMixerInputId, async (newValue, oldValue) => {
 
   mixerInputUpdating.value = true;
   try {
-    await AudioService.setInput(newValue);
-    await refreshMixerStatus(true);
+    const updatedStatus = await AudioService.setInput(newValue);
+    await refreshMixerStatus(true, updatedStatus);
     toast.success('Vstup ústředny byl přepnut.');
   } catch (error) {
     console.error('Failed to switch audio input', error);
@@ -970,6 +1040,12 @@ watch(selectedMixerInputId, async (newValue, oldValue) => {
     mixerSyncing.value = false;
   } finally {
     mixerInputUpdating.value = false;
+  }
+});
+
+watch(isStreaming, (value) => {
+  if (!value) {
+    stopLocalPlayback();
   }
 });
 
@@ -997,10 +1073,36 @@ watch(
     if (form.source !== 'central_file') {
       return;
     }
-    if (form.playlistItems.length === 0) {
+    if (!hasPlaylistSelection.value) {
       return;
     }
     if (liveUpdateInProgress.value) {
+      return;
+    }
+    await applyLiveUpdate();
+  }
+);
+
+watch(
+  () => form.introJingle ? form.introJingle.id : null,
+  async (newValue, oldValue) => {
+    if (newValue === oldValue || syncingForm.value) {
+      return;
+    }
+    if (!isStreaming.value || form.source !== 'central_file' || liveUpdateInProgress.value) {
+      return;
+    }
+    await applyLiveUpdate();
+  }
+);
+
+watch(
+  () => form.outroJingle ? form.outroJingle.id : null,
+  async (newValue, oldValue) => {
+    if (newValue === oldValue || syncingForm.value) {
+      return;
+    }
+    if (!isStreaming.value || form.source !== 'central_file' || liveUpdateInProgress.value) {
       return;
     }
     await applyLiveUpdate();
@@ -1168,8 +1270,9 @@ const buildStartPayload = () => {
   if (form.note) {
     options.note = form.note;
   }
-  if (showPlaylistControls.value && form.playlistItems.length > 0) {
-    const playlistItems = form.playlistItems
+  const orderedItems = getOrderedPlaylistItems();
+  if (showPlaylistControls.value && orderedItems.length > 0) {
+    const playlistItems = orderedItems
       .map((item) => {
         if (!item) {
           return null;
@@ -1276,9 +1379,13 @@ const buildStartPayload = () => {
           metadata.extension = extension;
         }
 
+        if (metadata.role === undefined && item.__role) {
+          metadata.role = item.__role;
+        }
+
         const result = {
           id: String(id),
-          title: item.name ?? item.title ?? item.original_name ?? '',
+          title: resolveRecordingLabel(item),
           durationSeconds: duration !== null ? Number(duration) : null,
           gain: gain !== null ? Number(gain) : null,
           gapMs: gapMs !== null ? Number(gapMs) : null,
@@ -1336,15 +1443,193 @@ const buildStartPayload = () => {
   };
 };
 
+const fetchRecordingAudio = async (item) => {
+  const recordingId = item?.id ?? item?.recording_id ?? item?.file_id ?? null;
+  if (!recordingId) {
+    throw new Error('Neplatné ID nahrávky.');
+  }
+  if (playlistAudioCache.has(recordingId)) {
+    return playlistAudioCache.get(recordingId);
+  }
+
+  if (!window.http) {
+    throw new Error('HTTP klient není inicializován.');
+  }
+
+  const response = await window.http.get(`records/${recordingId}/get-blob`, {responseType: 'arraybuffer'});
+  const mime = response.headers?.['content-type'] ?? 'audio/mpeg';
+  const blob = new Blob([response.data], {type: mime});
+  const url = URL.createObjectURL(blob);
+  const result = {url, mime};
+  playlistAudioCache.set(recordingId, result);
+  return result;
+};
+
+const buildLocalPlaybackQueue = async (items) => {
+  const queue = [];
+  for (const item of items) {
+    const recordingId = item?.id ?? item?.recording_id ?? item?.file_id ?? null;
+    if (!recordingId) {
+      continue;
+    }
+    const audio = await fetchRecordingAudio(item);
+    queue.push({
+      id: String(recordingId),
+      label: resolveRecordingLabel(item),
+      url: audio.url,
+      mime: audio.mime,
+      role: item.__role ?? null,
+    });
+  }
+  return queue;
+};
+
+const stopLocalPlayback = () => {
+  const audioElement = localAudioPlayer.value;
+  if (audioElement) {
+    audioElement.pause();
+    audioElement.currentTime = 0;
+    audioElement.src = '';
+  }
+  localPlayback.queue = [];
+  localPlayback.index = -1;
+  localPlayback.playing = false;
+  localPlayback.busy = false;
+};
+
+const playLocalQueueItem = async (index) => {
+  const audioElement = localAudioPlayer.value;
+  if (!audioElement) {
+    return;
+  }
+
+  const item = localPlayback.queue[index];
+  if (!item) {
+    stopLocalPlayback();
+    return;
+  }
+
+  localPlayback.index = index;
+
+  if (typeof audioElement.setSinkId === 'function' && selectedAudioOutputId.value) {
+    try {
+      await audioElement.setSinkId(selectedAudioOutputId.value);
+    } catch (error) {
+      console.debug('setSinkId not supported or failed:', error);
+    }
+  }
+
+  audioElement.src = item.url;
+  audioElement.load();
+  await nextTick();
+  await audioElement.play();
+};
+
+const handleLocalPlaybackEnded = async () => {
+  if (!localPlayback.playing) {
+    return;
+  }
+  const nextIndex = localPlayback.index + 1;
+  if (nextIndex >= localPlayback.queue.length) {
+    stopLocalPlayback();
+    return;
+  }
+  try {
+    await playLocalQueueItem(nextIndex);
+  } catch (error) {
+    console.error(error);
+    toast.error('Nepodařilo se přehrát další položku.');
+    stopLocalPlayback();
+  }
+};
+
+const startFileBroadcast = async () => {
+  if (localPlayback.busy) {
+    return;
+  }
+  form.source = 'central_file';
+  const orderedItems = getOrderedPlaylistItems();
+  if (orderedItems.length === 0) {
+    toast.warning('Vyberte prosím alespoň jednu nahrávku.');
+    return;
+  }
+
+  localPlayback.busy = true;
+  loading.value = true;
+  try {
+    stopLocalPlayback();
+    const queue = await buildLocalPlaybackQueue(orderedItems);
+    if (queue.length === 0) {
+      throw new Error('Žádné audio není k dispozici.');
+    }
+
+    const payload = buildStartPayload();
+    await LiveBroadcastService.startBroadcast(payload);
+
+    localPlayback.queue = queue;
+    localPlayback.index = -1;
+    localPlayback.playing = true;
+
+    await playLocalQueueItem(0);
+    toast.success('Vysílání bylo spuštěno');
+    await loadStatus();
+  } catch (error) {
+    console.error(error);
+    stopLocalPlayback();
+    const message = error?.response?.data?.message ?? error?.message ?? 'Nepodařilo se spustit vysílání';
+    toast.error(message);
+  } finally {
+    localPlayback.busy = false;
+    loading.value = false;
+  }
+};
+
+const pickIntroJingle = () => {
+  const {reveal, onConfirm} = createConfirmDialog(RecordSelectDialog, {
+    title: 'Vyberte úvodní znělku',
+    typeFilter: 'INTRO',
+    multiple: false,
+  });
+  reveal();
+  onConfirm((selection) => {
+    const picked = Array.isArray(selection) ? selection[0] : selection;
+    form.introJingle = picked ?? null;
+    if (picked) {
+      form.source = 'central_file';
+    }
+  });
+};
+
+const pickOutroJingle = () => {
+  const {reveal, onConfirm} = createConfirmDialog(RecordSelectDialog, {
+    title: 'Vyberte závěrečnou znělku',
+    typeFilter: 'OUTRO',
+    multiple: false,
+  });
+  reveal();
+  onConfirm((selection) => {
+    const picked = Array.isArray(selection) ? selection[0] : selection;
+    form.outroJingle = picked ?? null;
+    if (picked) {
+      form.source = 'central_file';
+    }
+  });
+};
+
+const clearIntroJingle = () => {
+  form.introJingle = null;
+};
+
+const clearOutroJingle = () => {
+  form.outroJingle = null;
+};
+
 const startStream = async () => {
-  if (form.playlistItems.length > 0) {
+  if (hasPlaylistSelection.value) {
     form.source = 'central_file';
   }
-  if (form.playlistItems.length === 0 && form.source === 'central_file') {
-    form.source = pickFallbackSourceId();
-  }
-  if (form.source === 'central_file' && form.playlistItems.length === 0) {
-    toast.warning('Vyberte prosím soubor v ústředně.');
+  if (form.source === 'central_file') {
+    await startFileBroadcast();
     return;
   }
 
@@ -1364,6 +1649,7 @@ const startStream = async () => {
 };
 
 const stopStream = async () => {
+  stopLocalPlayback();
   loading.value = true;
   try {
     await LiveBroadcastService.stopBroadcast('frontend_stop');
@@ -1384,10 +1670,10 @@ const applyLiveUpdate = async () => {
   if (!isStreaming.value) {
     return;
   }
-  if (form.playlistItems.length > 0) {
+  if (hasPlaylistSelection.value) {
     form.source = 'central_file';
   }
-  if (form.playlistItems.length === 0 && form.source === 'central_file') {
+  if (!hasPlaylistSelection.value && form.source === 'central_file') {
     form.source = pickFallbackSourceId();
   }
 
@@ -1403,6 +1689,12 @@ const applyLiveUpdate = async () => {
   } finally {
     liveUpdateInProgress.value = false;
   }
+};
+const stopFileBroadcast = async () => {
+  if (localPlayback.busy) {
+    return;
+  }
+  await stopStream();
 };
 
 const pickPlaylist = () => {
@@ -1426,6 +1718,7 @@ const removePlaylistItem = (index) => {
 
 <template>
   <PageContent label="Živé vysílání">
+    <audio ref="localAudioPlayer" class="hidden" @ended="handleLocalPlaybackEnded"></audio>
     <div class="space-y-6">
       <div class="w-full">
         <Button
@@ -1553,18 +1846,61 @@ const removePlaylistItem = (index) => {
               </p>
             </div>
 
-            <div v-if="showCentralFilePicker" class="space-y-2">
+            <div v-if="showCentralFilePicker" class="space-y-3">
               <div class="flex justify-between items-center">
                 <span class="text-sm font-medium text-gray-700">Soubor v ústředně</span>
                 <Button size="xs" icon="mdi-playlist-plus" @click="pickPlaylist">Vybrat soubor</Button>
               </div>
-              <div v-if="form.playlistItems.length === 0" class="text-xs text-gray-500">Zatím není vybrán žádný soubor.</div>
+              <div v-if="form.playlistItems.length === 0" class="text-xs text-gray-500">Zatím není vybrána žádná nahrávka.</div>
               <ul v-else class="space-y-2 text-xs">
                 <li v-for="(item, index) in form.playlistItems" :key="item.id" class="flex justify-between items-center bg-gray-100 px-2 py-1 rounded">
-                  <span>{{ item.name ?? item.title ?? item.original_name ?? ('ID ' + item.id) }}</span>
+                  <span>{{ resolveRecordingLabel(item) }}</span>
                   <button class="text-red-500" @click="removePlaylistItem(index)"><span class="mdi mdi-close"></span></button>
                 </li>
               </ul>
+
+              <div class="grid gap-3 md:grid-cols-2">
+                <div class="space-y-1 text-xs">
+                  <div class="flex items-center justify-between">
+                    <span class="font-medium text-gray-700">Úvodní znělka</span>
+                    <div class="flex items-center gap-1">
+                      <Button size="2xs" variant="ghost" icon="mdi-music-note-plus" @click="pickIntroJingle">Vybrat</Button>
+                      <button v-if="form.introJingle" class="text-red-500" @click="clearIntroJingle"><span class="mdi mdi-close"></span></button>
+                    </div>
+                  </div>
+                  <div class="text-gray-600">{{ form.introJingle ? resolveRecordingLabel(form.introJingle) : 'Nevybráno' }}</div>
+                </div>
+                <div class="space-y-1 text-xs">
+                  <div class="flex items-center justify-between">
+                    <span class="font-medium text-gray-700">Závěrečná znělka</span>
+                    <div class="flex items-center gap-1">
+                      <Button size="2xs" variant="ghost" icon="mdi-music-note-plus" @click="pickOutroJingle">Vybrat</Button>
+                      <button v-if="form.outroJingle" class="text-red-500" @click="clearOutroJingle"><span class="mdi mdi-close"></span></button>
+                    </div>
+                  </div>
+                  <div class="text-gray-600">{{ form.outroJingle ? resolveRecordingLabel(form.outroJingle) : 'Nevybráno' }}</div>
+                </div>
+              </div>
+
+              <div class="grid gap-2 sm:grid-cols-2">
+                <Button
+                    variant="primary"
+                    icon="mdi-play"
+                    :disabled="localPlayback.busy || loading || !hasPlaylistSelection"
+                    @click="startFileBroadcast">
+                  Přehrát
+                </Button>
+                <Button
+                    variant="ghost"
+                    icon="mdi-stop"
+                    :disabled="localPlayback.busy || (!localPlayback.playing && !isStreaming)"
+                    @click="stopFileBroadcast">
+                  Zastavit
+                </Button>
+              </div>
+              <div v-if="localPlayback.playing && localPlayback.queue[localPlayback.index]" class="text-xs text-gray-500">
+                Přehrávám: {{ localPlayback.queue[localPlayback.index].label }}
+              </div>
             </div>
 
             <Textarea v-model="form.note" label="Poznámka" rows="2" placeholder="Nepovinné doplňující údaje"/>

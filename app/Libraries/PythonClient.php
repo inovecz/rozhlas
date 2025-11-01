@@ -79,6 +79,16 @@ class PythonClient
         return $this->runModbus('read-alarms', [], $timeout);
     }
 
+    public function clearAlarmBuffer(?float $timeout = null): array
+    {
+        $values = array_fill(0, ModbusRegister::ALARM_DATA->quantity() + 2, 0);
+
+        return $this->runModbus('write-registers', [
+            'address' => ModbusRegister::ALARM_ADDRESS->address(),
+            'values' => $values,
+        ], $timeout);
+    }
+
     public function readNestStatus(int $nestAddress, array $routePrefix = [], ?float $timeout = null): array
     {
         $options = ['nest' => $nestAddress];

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Audio;
 
+use App\Models\Log as ActivityLog;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Log;
@@ -178,36 +179,64 @@ class AudioIoService
             throw new InvalidArgumentException(sprintf('Neznámý vstup "%s".', $identifier));
         }
 
-        $controls = Arr::get($definition, 'controls', []);
-        if (!is_array($controls) || $controls === []) {
+        $controlsDefinition = Arr::get($definition, 'controls', []);
+        if (!is_array($controlsDefinition) || $controlsDefinition === []) {
             throw new InvalidArgumentException(sprintf('Vstup "%s" nemá definované ovládací prvky.', $resolvedId));
         }
 
-        foreach ($controls as $control => $value) {
-            $controlName = (string) $control;
-            if (!$this->controlExists($controlName)) {
-                Log::warning('Audio input control missing, skipping.', [
-                    'input' => $resolvedId,
-                    'control' => $controlName,
-                ]);
-                continue;
-            }
-            $this->runAmixer(['sset', $controlName, (string) $value], sprintf('set input control %s', $controlName));
+        $controls = [];
+        foreach ($controlsDefinition as $control => $value) {
+            $controls[(string) $control] = (string) $value;
         }
 
-        $muteControl = config('audio.inputs.mute_control');
-        if (is_string($muteControl) && $muteControl !== '') {
-            if ($this->controlExists($muteControl)) {
-                $this->runAmixer(['sset', $muteControl, 'on'], sprintf('unmute capture (%s)', $muteControl), true);
-            } else {
-                Log::debug('Audio input mute control missing, skipping unmute.', [
-                    'input' => $resolvedId,
-                    'control' => $muteControl,
-                ]);
-            }
-        }
+        $label = (string) ($definition['label'] ?? $resolvedId);
+        $context = [
+            'identifier' => $identifier,
+            'resolved_identifier' => $resolvedId,
+            'label' => $label,
+            'controls' => $controls,
+        ];
 
-        return $this->status();
+        try {
+            foreach ($controls as $controlName => $value) {
+                if (!$this->controlExists($controlName)) {
+                    Log::warning('Audio input control missing, skipping.', [
+                        'input' => $resolvedId,
+                        'control' => $controlName,
+                    ]);
+                    continue;
+                }
+
+                $this->runAmixer(['sset', $controlName, $value], sprintf('set input control %s', $controlName));
+                $this->verifyControlState($controlName, $value, 'input', $resolvedId);
+            }
+
+            $muteControl = config('audio.inputs.mute_control');
+            if (is_string($muteControl) && $muteControl !== '') {
+                if ($this->controlExists($muteControl)) {
+                    $muteResult = $this->runAmixer(['sset', $muteControl, 'on'], sprintf('unmute capture (%s)', $muteControl), true);
+                    if ($muteResult !== null) {
+                        $this->verifyControlState($muteControl, 'on', 'input_mute', $resolvedId, false);
+                    }
+                } else {
+                    Log::debug('Audio input mute control missing, skipping unmute.', [
+                        'input' => $resolvedId,
+                        'control' => $muteControl,
+                    ]);
+                }
+            }
+
+            $status = $this->status();
+            $context['verified'] = true;
+            $this->logAudioAction('input', 'success', $label, $context, $status);
+
+            return $status;
+        } catch (\Throwable $exception) {
+            $context['error'] = $exception->getMessage();
+            $this->logAudioAction('input', 'failed', $label, $context);
+
+            throw $exception;
+        }
     }
 
     /**
@@ -229,36 +258,63 @@ class AudioIoService
             throw new InvalidArgumentException(sprintf('Neznámý výstup "%s".', $identifier));
         }
 
-        $controls = Arr::get($definition, 'controls', []);
-        if (!is_array($controls) || $controls === []) {
+        $controlsDefinition = Arr::get($definition, 'controls', []);
+        if (!is_array($controlsDefinition) || $controlsDefinition === []) {
             throw new InvalidArgumentException(sprintf('Výstup "%s" nemá definované ovládací prvky.', $identifier));
         }
 
-        foreach ($controls as $control => $value) {
-            $controlName = (string) $control;
-            if (!$this->controlExists($controlName)) {
-                Log::warning('Audio output control missing, skipping.', [
-                    'output' => $identifier,
-                    'control' => $controlName,
-                ]);
-                continue;
-            }
-            $this->runAmixer(['sset', $controlName, (string) $value], sprintf('set output control %s', $controlName));
+        $controls = [];
+        foreach ($controlsDefinition as $control => $value) {
+            $controls[(string) $control] = (string) $value;
         }
 
-        $muteControl = config('audio.outputs.mute_control');
-        if (is_string($muteControl) && $muteControl !== '') {
-            if ($this->controlExists($muteControl)) {
-                $this->runAmixer(['sset', $muteControl, 'on'], sprintf('unmute playback (%s)', $muteControl), true);
-            } else {
-                Log::debug('Audio output mute control missing, skipping unmute.', [
-                    'output' => $identifier,
-                    'control' => $muteControl,
-                ]);
-            }
-        }
+        $label = (string) ($definition['label'] ?? $identifier);
+        $context = [
+            'identifier' => $identifier,
+            'label' => $label,
+            'controls' => $controls,
+        ];
 
-        return $this->status();
+        try {
+            foreach ($controls as $controlName => $value) {
+                if (!$this->controlExists($controlName)) {
+                    Log::warning('Audio output control missing, skipping.', [
+                        'output' => $identifier,
+                        'control' => $controlName,
+                    ]);
+                    continue;
+                }
+
+                $this->runAmixer(['sset', $controlName, $value], sprintf('set output control %s', $controlName));
+                $this->verifyControlState($controlName, $value, 'output', $identifier);
+            }
+
+            $muteControl = config('audio.outputs.mute_control');
+            if (is_string($muteControl) && $muteControl !== '') {
+                if ($this->controlExists($muteControl)) {
+                    $muteResult = $this->runAmixer(['sset', $muteControl, 'on'], sprintf('unmute playback (%s)', $muteControl), true);
+                    if ($muteResult !== null) {
+                        $this->verifyControlState($muteControl, 'on', 'output_mute', $identifier, false);
+                    }
+                } else {
+                    Log::debug('Audio output mute control missing, skipping unmute.', [
+                        'output' => $identifier,
+                        'control' => $muteControl,
+                    ]);
+                }
+            }
+
+            $status = $this->status();
+            $context['verified'] = true;
+            $this->logAudioAction('output', 'success', $label, $context, $status);
+
+            return $status;
+        } catch (\Throwable $exception) {
+            $context['error'] = $exception->getMessage();
+            $this->logAudioAction('output', 'failed', $label, $context);
+
+            throw $exception;
+        }
     }
 
     /**
@@ -345,15 +401,28 @@ class AudioIoService
         }
 
         $currentInput = $this->enabled ? $this->detectSelection('inputs') : null;
-        $currentOutput = $this->enabled
-            ? $this->detectSelection('outputs')
-            : [
+        if ($this->enabled) {
+            $fallbackInput = $this->detectSelectionByControls('inputs', $currentInput);
+            if ($fallbackInput !== null) {
+                $currentInput = $this->mergeSelectionData($currentInput, $fallbackInput);
+            }
+        }
+
+        if ($this->enabled) {
+            $currentOutput = $this->detectSelection('outputs');
+            $fallbackOutput = $this->detectSelectionByControls('outputs', $currentOutput);
+            if ($fallbackOutput !== null) {
+                $currentOutput = $this->mergeSelectionData($currentOutput, $fallbackOutput);
+            }
+        } else {
+            $currentOutput = [
                 'id' => null,
                 'label' => null,
                 'raw' => null,
                 'device' => $this->fallbackOutputDevice,
                 'fallback' => true,
             ];
+        }
 
         return [
             'enabled' => $this->enabled,
@@ -368,6 +437,184 @@ class AudioIoService
             'volumes' => $volumes,
             'timestamp' => Date::now()->toIso8601String(),
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     */
+    private function logAudioAction(string $action, string $result, string $label, array $context, ?array $status = null): void
+    {
+        $title = $action === 'input' ? 'Přepnutí audio vstupu' : 'Přepnutí audio výstupu';
+        $base = $action === 'input' ? 'Audio vstup' : 'Audio výstup';
+        $description = $result === 'success'
+            ? sprintf('%s "%s" byl úspěšně nastaven.', $base, $label)
+            : sprintf('%s "%s" se nepodařilo nastavit.', $base, $label);
+
+        if ($result !== 'success' && isset($context['error']) && is_string($context['error'])) {
+            $description .= ' ' . $context['error'];
+        }
+
+        $data = array_merge([
+            'action' => $action,
+            'result' => $result,
+            'label' => $label,
+        ], $context);
+
+        if ($status !== null) {
+            $data['snapshot'] = [
+                'current' => Arr::get($status, 'current'),
+                'timestamp' => Arr::get($status, 'timestamp'),
+            ];
+        }
+
+        try {
+            ActivityLog::create([
+                'type' => 'audio',
+                'title' => $title,
+                'description' => $description,
+                'data' => $data,
+            ]);
+        } catch (\Throwable $exception) {
+            Log::debug('Unable to record audio activity log.', [
+                'action' => $action,
+                'result' => $result,
+                'label' => $label,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+    }
+
+    private function verifyControlState(string $controlName, string $expectedValue, string $targetType, string $targetId, bool $required = true): void
+    {
+        $currentValue = $this->readEnumControl($controlName);
+        if ($currentValue === null) {
+            Log::debug('Audio control verification unavailable.', [
+                'control' => $controlName,
+                'expected' => $expectedValue,
+                'type' => $targetType,
+                'identifier' => $targetId,
+                'required' => $required,
+            ]);
+
+            if ($required) {
+                throw new RuntimeException(sprintf(
+                    'Nepodařilo se ověřit stav ovládacího prvku "%s".',
+                    $controlName
+                ));
+            }
+
+            return;
+        }
+
+        $normalizedExpected = strtolower(trim($expectedValue));
+        $normalizedActual = strtolower(trim($currentValue));
+
+        if ($normalizedExpected !== $normalizedActual) {
+            Log::error('Audio control verification failed.', [
+                'control' => $controlName,
+                'expected' => $expectedValue,
+                'actual' => $currentValue,
+                'type' => $targetType,
+                'identifier' => $targetId,
+            ]);
+
+            throw new RuntimeException(sprintf(
+                'Ovládací prvek "%s" neodpovídá očekávanému stavu (očekáváno "%s", zjištěno "%s").',
+                $controlName,
+                $expectedValue,
+                $currentValue
+            ));
+        }
+    }
+
+    private function detectSelectionByControls(string $group, ?array $hint = null): ?array
+    {
+        $items = config(sprintf('audio.%s.items', $group), []);
+        if (!is_array($items)) {
+            return null;
+        }
+
+        $normalizedItems = [];
+        foreach ($items as $key => $definition) {
+            if (is_array($definition)) {
+                $normalizedItems[(string) $key] = $definition;
+            }
+        }
+
+        if ($normalizedItems === []) {
+            return null;
+        }
+
+        $order = [];
+        if (is_array($hint)) {
+            $hintId = $hint['id'] ?? null;
+            if (is_string($hintId) && $hintId !== '' && isset($normalizedItems[$hintId])) {
+                $order[] = $hintId;
+            }
+        }
+
+        foreach (array_keys($normalizedItems) as $identifier) {
+            if (!in_array($identifier, $order, true)) {
+                $order[] = $identifier;
+            }
+        }
+
+        foreach ($order as $identifier) {
+            $resolved = $this->fetchDefinition($group, $identifier);
+            if (!is_array($resolved)) {
+                continue;
+            }
+
+            $controls = Arr::get($resolved, 'controls', []);
+            if (!is_array($controls) || $controls === []) {
+                continue;
+            }
+
+            $allMatch = true;
+            foreach ($controls as $controlName => $expectedValue) {
+                $controlValue = $this->readEnumControl((string) $controlName);
+                if ($controlValue === null) {
+                    $allMatch = false;
+                    break;
+                }
+
+                $normalizedExpected = strtolower(trim((string) $expectedValue));
+                $normalizedActual = strtolower(trim($controlValue));
+                if ($normalizedExpected !== $normalizedActual) {
+                    $allMatch = false;
+                    break;
+                }
+            }
+
+            if ($allMatch) {
+                $baseDefinition = $normalizedItems[$identifier];
+
+                return [
+                    'id' => $identifier,
+                    'label' => $resolved['label'] ?? $baseDefinition['label'] ?? $identifier,
+                    'device' => $resolved['device'] ?? $baseDefinition['device'] ?? null,
+                    'verified' => true,
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    private function mergeSelectionData(?array $original, array $verified): array
+    {
+        if ($original === null) {
+            return $verified;
+        }
+
+        foreach ($verified as $key => $value) {
+            if ($value === null) {
+                continue;
+            }
+            $original[$key] = $value;
+        }
+
+        return $original;
     }
 
     /**

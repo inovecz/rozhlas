@@ -11,6 +11,7 @@ use App\Models\ControlChannelCommand;
 use App\Models\BroadcastPlaylist;
 use App\Models\BroadcastPlaylistItem;
 use App\Models\BroadcastSession;
+use App\Models\Log as ActivityLog;
 use App\Models\Location;
 use App\Models\LocationGroup;
 use App\Models\Schedule;
@@ -71,6 +72,7 @@ class StreamOrchestrator extends Service
         $augmentedOptions = $this->augmentOptions($options, $manualRoute, $originalLocationGroupIds, $originalNestIds, $targets);
         $augmentedOptions = $this->applyFrequencyOption($augmentedOptions);
         $modbusUnitId = Arr::get($augmentedOptions, 'modbusUnitId');
+
         if ($zones === []) {
             throw new InvalidArgumentException('Destination zones must be defined before starting broadcast.');
         }
@@ -82,103 +84,194 @@ class StreamOrchestrator extends Service
         $resumeCommand = $this->sendControlChannelCommand('resume', $controlReason);
         $this->assertControlChannelSuccess($resumeCommand, 'resume', $controlReason);
 
+        $logContext = [
+            'route' => $route,
+            'zones' => $zones,
+            'options' => $augmentedOptions,
+            'requested_route' => $manualRoute,
+            'location_group_ids' => $locationGroupIds,
+            'nest_ids' => $nestIds,
+        ];
+
+        $logAction = 'start';
+        $logSessionId = null;
+        $sessionResult = [];
+        $response = null;
+        $streamStarted = false;
+        $resumeTelemetryRecorded = false;
+
         $active = BroadcastSession::query()
             ->where('status', 'running')
             ->latest('started_at')
             ->first();
 
-        if ($active !== null) {
-            $this->mixer->activatePreset($source, [
-                'options' => $augmentedOptions,
-                'route' => $route,
-                'zones' => $zones,
-                'session_id' => $active->id,
-            ]);
+        try {
+            if ($active !== null) {
+                $logAction = 'update';
 
-            $this->applyAudioRouting($augmentedOptions, $source, $active->id);
-            $this->applySourceVolume($source);
+                $this->mixer->activatePreset($source, [
+                    'options' => $augmentedOptions,
+                    'route' => $route,
+                    'zones' => $zones,
+                    'session_id' => $active->id,
+                ]);
 
-            $response = $this->withModbusLock(fn (): array => $this->client->startStream(
-                $route !== [] ? $route : null,
-                $zones,
-                null,
-                false,
-                $modbusUnitId !== null ? (int) $modbusUnitId : null
-            ));
+                $this->applyAudioRouting($augmentedOptions, $source, $active->id);
+                $this->applySourceVolume($source);
 
-            $active->update([
-                'source' => $source,
-                'route' => $route,
-                'zones' => $zones,
-                'options' => $augmentedOptions,
-                'python_response' => $response,
-            ]);
+                $response = $this->withModbusLock(fn (): array => $this->client->startStream(
+                    $route !== [] ? $route : null,
+                    $zones,
+                    null,
+                    false,
+                    $modbusUnitId !== null ? (int) $modbusUnitId : null
+                ));
+                $streamStarted = true;
 
-            $this->recordTelemetry([
-                'type' => 'stream_updated',
-                'session_id' => $active->id,
-                'payload' => [
+                $this->verifyTransmitterState(true, 'start_update', [
+                    'session_id' => $active->id,
+                    'source' => $source,
+                ]);
+
+                $active->update([
                     'source' => $source,
                     'route' => $route,
                     'zones' => $zones,
-                ],
-            ]);
-            $this->recordControlChannelTelemetry('resume', $resumeCommand, $active->id);
+                    'options' => $augmentedOptions,
+                    'python_response' => $response,
+                ]);
 
-            $active = $active->fresh();
-            if ($active !== null) {
-                $this->handleEmbeddedPlaylist($active, $augmentedOptions, $manualRoute, $locationGroupIds, $nestIds);
+                $this->recordTelemetry([
+                    'type' => 'stream_updated',
+                    'session_id' => $active->id,
+                    'payload' => [
+                        'source' => $source,
+                        'route' => $route,
+                        'zones' => $zones,
+                    ],
+                ]);
+
+                $this->recordControlChannelTelemetry('resume', $resumeCommand, $active->id);
+                $resumeTelemetryRecorded = true;
+
                 $active = $active->fresh();
+                if ($active !== null) {
+                    $this->handleEmbeddedPlaylist($active, $augmentedOptions, $manualRoute, $locationGroupIds, $nestIds);
+                    $active = $active->fresh();
+                }
+
+                $logSessionId = $active?->id;
+                $sessionResult = $active?->toArray() ?? [];
+            } else {
+                $this->mixer->activatePreset($source, [
+                    'options' => $augmentedOptions,
+                    'route' => $route,
+                    'zones' => $zones,
+                ]);
+
+                $this->applyAudioRouting($augmentedOptions, $source, null);
+                $this->applySourceVolume($source);
+
+                $response = $this->withModbusLock(fn (): array => $this->client->startStream(
+                    $route !== [] ? $route : null,
+                    $zones,
+                    null,
+                    false,
+                    $modbusUnitId !== null ? (int) $modbusUnitId : null
+                ));
+                $streamStarted = true;
+
+                $this->verifyTransmitterState(true, 'start_new', [
+                    'source' => $source,
+                ]);
+
+                $session = BroadcastSession::create([
+                    'source' => $source,
+                    'route' => $route,
+                    'zones' => $zones,
+                    'options' => $augmentedOptions,
+                    'status' => 'running',
+                    'started_at' => now(),
+                    'python_response' => $response,
+                ]);
+
+                $this->recordTelemetry([
+                    'type' => 'stream_started',
+                    'session_id' => $session->id,
+                    'payload' => [
+                        'source' => $session->source,
+                        'route' => $route,
+                        'zones' => $zones,
+                    ],
+                ]);
+
+                $this->recordControlChannelTelemetry('resume', $resumeCommand, $session->id);
+                $resumeTelemetryRecorded = true;
+
+                $session = $session->fresh();
+                if ($session !== null) {
+                    $this->handleEmbeddedPlaylist($session, $augmentedOptions, $manualRoute, $locationGroupIds, $nestIds);
+                    $session = $session->fresh();
+                }
+
+                $logSessionId = $session?->id;
+                $sessionResult = $session?->toArray() ?? [];
             }
 
-            return $active?->toArray() ?? [];
+            $this->logBroadcastEvent($logAction, 'success', $source, $logSessionId, $logContext + [
+                'modbus_response' => $response,
+            ]);
+
+            return $sessionResult;
+        } catch (\Throwable $exception) {
+            if ($streamStarted) {
+                try {
+                    $this->withModbusLock(fn (): array => $this->client->stopStream(
+                        null,
+                        $modbusUnitId !== null ? (int) $modbusUnitId : null
+                    ));
+                } catch (\Throwable $stopException) {
+                    Log::warning('Failed to rollback Modbus stream after unsuccessful start.', [
+                        'error' => $stopException->getMessage(),
+                        'source' => $source,
+                    ]);
+                }
+            }
+
+            try {
+                $this->mixer->reset([
+                    'session_id' => $logSessionId,
+                    'reason' => 'start_failed',
+                ]);
+            } catch (\Throwable $resetException) {
+                Log::debug('Unable to reset mixer after failed start.', [
+                    'error' => $resetException->getMessage(),
+                ]);
+            }
+
+            $this->loopbackManager->clear();
+
+            if (!$resumeTelemetryRecorded && $resumeCommand !== null) {
+                $this->recordControlChannelTelemetry('resume', $resumeCommand);
+            }
+
+            try {
+                $pauseCommand = $this->sendControlChannelCommand('pause', sprintf('Live broadcast rollback (source=%s)', $source));
+                $this->assertControlChannelSuccess($pauseCommand, 'pause', 'live_broadcast_start_failed');
+                $this->recordControlChannelTelemetry('pause', $pauseCommand, $logSessionId);
+            } catch (\Throwable $pauseException) {
+                Log::warning('Unable to revert control channel state after failed live broadcast start.', [
+                    'error' => $pauseException->getMessage(),
+                    'source' => $source,
+                ]);
+            }
+
+            $this->logBroadcastEvent($logAction, 'failed', $source, $logSessionId, $logContext + [
+                'error' => $exception->getMessage(),
+            ]);
+
+            throw $exception;
         }
-
-        $this->mixer->activatePreset($source, [
-            'options' => $augmentedOptions,
-            'route' => $route,
-            'zones' => $zones,
-        ]);
-
-        $this->applyAudioRouting($augmentedOptions, $source, null);
-        $this->applySourceVolume($source);
-
-        $response = $this->withModbusLock(fn (): array => $this->client->startStream(
-            $route !== [] ? $route : null,
-            $zones,
-            null,
-            false,
-            $modbusUnitId !== null ? (int) $modbusUnitId : null
-        ));
-
-        $session = BroadcastSession::create([
-            'source' => $source,
-            'route' => $route,
-            'zones' => $zones,
-            'options' => $augmentedOptions,
-            'status' => 'running',
-            'started_at' => now(),
-            'python_response' => $response,
-        ]);
-
-        $this->recordTelemetry([
-            'type' => 'stream_started',
-            'session_id' => $session->id,
-            'payload' => [
-                'source' => $session->source,
-                'route' => $route,
-                'zones' => $zones,
-            ],
-        ]);
-        $this->recordControlChannelTelemetry('resume', $resumeCommand, $session->id);
-
-        $session = $session->fresh();
-        if ($session !== null) {
-            $this->handleEmbeddedPlaylist($session, $augmentedOptions, $manualRoute, $locationGroupIds, $nestIds);
-            $session = $session->fresh();
-        }
-
-        return $session?->toArray() ?? [];
     }
 
     public function stop(?string $reason = null): array
@@ -198,40 +291,78 @@ class StreamOrchestrator extends Service
         $controlReason = sprintf('Live broadcast stop (%s)', $reason ?? 'manual');
         $sessionOptions = is_array($session->options) ? $session->options : [];
         $modbusUnitId = Arr::get($sessionOptions, 'modbusUnitId');
-        $response = $this->withModbusLock(fn (): array => $this->client->stopStream(
-            null,
-            $modbusUnitId !== null ? (int) $modbusUnitId : null
-        ));
-
-        $session->update([
-            'status' => 'stopped',
-            'stopped_at' => now(),
-            'stop_reason' => $reason,
-            'python_response' => $response,
-        ]);
-        $session = $session->fresh() ?? $session;
-        $this->cancelEmbeddedPlaylist($session);
-
-        $this->mixer->reset([
-            'session_id' => $session->id,
+        $logContext = [
             'reason' => $reason,
-        ]);
+            'modbus_unit_id' => $modbusUnitId,
+        ];
+        $response = null;
 
-        $this->loopbackManager->clear();
+        try {
+            $response = $this->withModbusLock(fn (): array => $this->client->stopStream(
+                null,
+                $modbusUnitId !== null ? (int) $modbusUnitId : null
+            ));
 
-        $this->recordTelemetry([
-            'type' => 'stream_stopped',
-            'session_id' => $session->id,
-            'payload' => [
+            $this->verifyTransmitterState(false, 'stop', [
+                'session_id' => $session->id,
+                'source' => $session->source,
+            ]);
+
+            $session->update([
+                'status' => 'stopped',
+                'stopped_at' => now(),
+                'stop_reason' => $reason,
+                'python_response' => $response,
+            ]);
+            $session = $session->fresh() ?? $session;
+            $this->cancelEmbeddedPlaylist($session);
+
+            $this->mixer->reset([
+                'session_id' => $session->id,
                 'reason' => $reason,
-            ],
-        ]);
+            ]);
 
-        $pauseCommand = $this->sendControlChannelCommand('pause', $controlReason);
-        $this->assertControlChannelSuccess($pauseCommand, 'pause', $controlReason);
-        $this->recordControlChannelTelemetry('pause', $pauseCommand, $session->id);
+            $this->loopbackManager->clear();
 
-        return $session->fresh()->toArray();
+            $this->recordTelemetry([
+                'type' => 'stream_stopped',
+                'session_id' => $session->id,
+                'payload' => [
+                    'reason' => $reason,
+                ],
+            ]);
+
+            $pauseCommand = $this->sendControlChannelCommand('pause', $controlReason);
+            $this->assertControlChannelSuccess($pauseCommand, 'pause', $controlReason);
+            $this->recordControlChannelTelemetry('pause', $pauseCommand, $session->id);
+
+            $result = $session->fresh()->toArray();
+
+            $this->logBroadcastEvent('stop', 'success', $session->source, $session->id, $logContext + [
+                'modbus_response' => $response,
+            ]);
+
+            return $result;
+        } catch (\Throwable $exception) {
+            $this->loopbackManager->clear();
+
+            try {
+                $pauseCommand = $this->sendControlChannelCommand('pause', sprintf('Live broadcast stop rollback (source=%s)', $session->source));
+                $this->assertControlChannelSuccess($pauseCommand, 'pause', 'live_broadcast_stop_failed');
+                $this->recordControlChannelTelemetry('pause', $pauseCommand, $session->id);
+            } catch (\Throwable $pauseException) {
+                Log::warning('Unable to revert control channel state after failed live broadcast stop.', [
+                    'error' => $pauseException->getMessage(),
+                    'session_id' => $session->id,
+                ]);
+            }
+
+            $this->logBroadcastEvent('stop', 'failed', $session->source, $session->id, $logContext + [
+                'error' => $exception->getMessage(),
+            ]);
+
+            throw $exception;
+        }
     }
 
     public function clearLivePlaylistState(string $sessionId): void
@@ -612,6 +743,112 @@ class StreamOrchestrator extends Service
                 $reason,
                 $errorDetail !== null ? $errorDetail : $command->result
             ));
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     */
+    private function verifyTransmitterState(bool $shouldRun, string $stage, array $context = []): void
+    {
+        try {
+            $status = $this->withModbusLock(fn (): array => $this->client->getStatusRegisters());
+        } catch (\Throwable $exception) {
+            Log::warning('Unable to read transmitter status for verification.', [
+                'stage' => $stage,
+                'context' => $context,
+                'error' => $exception->getMessage(),
+            ]);
+
+            throw new RuntimeException('Nepodařilo se ověřit stav vysílání (čtení Modbus registrů selhalo).', 0, $exception);
+        }
+
+        if (Arr::get($status, 'json.data.skipped', false) === true) {
+            Log::debug('Transmitter verification skipped because Modbus is not configured.', [
+                'stage' => $stage,
+                'context' => $context,
+            ]);
+            return;
+        }
+
+        if (($status['success'] ?? false) === false) {
+            Log::warning('Transmitter status command returned an error.', [
+                'stage' => $stage,
+                'context' => $context,
+                'status' => $status,
+            ]);
+
+            throw new RuntimeException('Nepodařilo se ověřit stav vysílání: Modbus odpověděl chybou.');
+        }
+
+        $txControl = Arr::get($status, 'json.data.registers.txControl', Arr::get($status, 'json.data.registers.tx_control'));
+        if (!is_numeric($txControl)) {
+            Log::warning('Transmitter status missing txControl register.', [
+                'stage' => $stage,
+                'context' => $context,
+                'status' => $status,
+            ]);
+
+            throw new RuntimeException('Zařízení neposkytlo platný stav vysílání.');
+        }
+
+        $expected = $shouldRun ? 2 : 1;
+        if ((int) $txControl !== $expected) {
+            Log::warning('Transmitter state does not match expected value.', [
+                'stage' => $stage,
+                'context' => $context,
+                'tx_control' => $txControl,
+                'expected' => $expected,
+            ]);
+
+            throw new RuntimeException($shouldRun
+                ? 'Zařízení nepotvrdilo spuštění vysílání.'
+                : 'Zařízení nepotvrdilo zastavení vysílání.'
+            );
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     */
+    private function logBroadcastEvent(string $action, string $result, string $source, ?string $sessionId, array $context = []): void
+    {
+        $actionLabel = match ($action) {
+            'start' => 'spuštění',
+            'update' => 'aktualizace',
+            'stop' => 'zastavení',
+            default => $action,
+        };
+
+        $description = $result === 'success'
+            ? sprintf('Akce %s vysílání (zdroj "%s") proběhla úspěšně.', $actionLabel, $source)
+            : sprintf('Akce %s vysílání (zdroj "%s") selhala.', $actionLabel, $source);
+
+        if ($result !== 'success' && isset($context['error']) && is_string($context['error'])) {
+            $description .= ' ' . $context['error'];
+        }
+
+        $data = array_merge([
+            'action' => $action,
+            'result' => $result,
+            'source' => $source,
+            'session_id' => $sessionId,
+        ], $context);
+
+        try {
+            ActivityLog::create([
+                'type' => 'broadcast',
+                'title' => 'Živé vysílání',
+                'description' => $description,
+                'data' => $data,
+            ]);
+        } catch (\Throwable $exception) {
+            Log::debug('Unable to record broadcast activity log.', [
+                'action' => $action,
+                'result' => $result,
+                'source' => $source,
+                'error' => $exception->getMessage(),
+            ]);
         }
     }
 

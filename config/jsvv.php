@@ -20,4 +20,18 @@ return [
         'cache_store' => env('JSVV_DEDUP_CACHE_STORE'),
         'ttl' => (int) env('JSVV_DEDUP_CACHE_TTL', 600),
     ],
+    'remote_trigger' => [
+        'dtrx' => [
+            'enabled' => env('JSVV_REMOTE_DTRX_ENABLED', false),
+            'register_base' => env('JSVV_REMOTE_DTRX_BASE'),
+            'register_count' => (int) env('JSVV_REMOTE_DTRX_COUNT', 24),
+            'register_stride' => (int) env('JSVV_REMOTE_DTRX_STRIDE', 1),
+            'clear_value' => (int) env('JSVV_REMOTE_DTRX_CLEAR_VALUE', 0),
+            'reset_after' => env('JSVV_REMOTE_DTRX_RESET_AFTER', true),
+            'command_register_start' => (int) env('JSVV_REMOTE_DTRX_COMMAND_START', 11),
+            'command_register_count' => (int) env('JSVV_REMOTE_DTRX_COMMAND_COUNT', 4),
+            'priority_register' => (int) env('JSVV_REMOTE_DTRX_PRIORITY_REGISTER', 10),
+            'priority_clear_value' => (int) env('JSVV_REMOTE_DTRX_PRIORITY_CLEAR', 0),
+        ],
+    ],
 ];

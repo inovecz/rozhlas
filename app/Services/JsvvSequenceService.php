@@ -375,6 +375,10 @@ class JsvvSequenceService extends Service
 
         $remoteStreamStarted = false;
         $remoteStartMeta = null;
+        $remoteDtrxConfig = null;
+        $remoteCommandPayload = null;
+        $remoteCommandsWritten = false;
+        $modbusUnitId = null;
 
         try {
             $this->setActiveSequenceLock($sequence->id);
@@ -392,12 +396,30 @@ class JsvvSequenceService extends Service
                 ]);
                 $sessionId = is_array($session) ? Arr::get($session, 'id') : null;
             } else {
-                $startResponse = $this->withModbusLock(fn (): array => $this->client->startStream(
-                    $route !== [] ? $route : null,
-                    $zones !== [] ? $zones : null,
-                    null,
-                    $route !== []
-                ));
+                $modbusUnitIdOption = Arr::get($options, 'modbusUnitId');
+                if (is_numeric($modbusUnitIdOption)) {
+                    $modbusUnitId = (int) $modbusUnitIdOption;
+                }
+
+                $remoteDtrxConfig = $this->resolveRemoteDtrxConfig();
+                if ($remoteDtrxConfig !== null) {
+                    $remoteCommandPayload = $this->buildRemoteDtrxCommandPayload($items, $remoteDtrxConfig, $sequence->priority);
+                }
+
+                $startResponse = $this->withModbusLock(function () use (&$remoteCommandsWritten, $remoteCommandPayload, $route, $zones, $modbusUnitId): array {
+                    if ($remoteCommandPayload !== null) {
+                        $this->programRemoteDtrxCommands($remoteCommandPayload, $modbusUnitId);
+                        $remoteCommandsWritten = true;
+                    }
+
+                    return $this->client->startStream(
+                        $route !== [] ? $route : null,
+                        $zones !== [] ? $zones : null,
+                        null,
+                        $route !== [],
+                        $modbusUnitId
+                    );
+                });
 
                 if (($startResponse['success'] ?? false) === false) {
                     throw new RuntimeException($startResponse['json']['message'] ?? 'Modbus start-stream failed');
@@ -441,7 +463,9 @@ class JsvvSequenceService extends Service
                 $this->waitForRemotePlayback($sequence, $estimatedDuration);
                 $actualDuration = max(0.0, microtime(true) - $sequenceStart);
 
-                $stopResponse = $this->withModbusLock(fn (): array => $this->client->stopStream());
+                $stopResponse = $this->withModbusLock(function () use ($modbusUnitId): array {
+                    return $this->client->stopStream(null, $modbusUnitId);
+                });
                 if (($stopResponse['success'] ?? true) === false) {
                     Log::warning('JSVV remote stop-stream reported error', [
                         'sequence_id' => $sequence->id,
@@ -465,7 +489,9 @@ class JsvvSequenceService extends Service
         } catch (Throwable $throwable) {
             if (!$useLocalStream && $remoteStreamStarted) {
                 try {
-                    $this->withModbusLock(fn (): array => $this->client->stopStream());
+                    $this->withModbusLock(function () use ($modbusUnitId): array {
+                        return $this->client->stopStream(null, $modbusUnitId);
+                    });
                 } catch (Throwable $stopException) {
                     Log::warning('Failed to stop remote JSVV stream after exception', [
                         'sequence_id' => $sequence->id,
@@ -495,11 +521,31 @@ class JsvvSequenceService extends Service
         } finally {
             if (!$useLocalStream && $remoteStreamStarted) {
                 try {
-                    $this->withModbusLock(fn (): array => $this->client->stopStream());
+                    $this->withModbusLock(function () use ($modbusUnitId): array {
+                        return $this->client->stopStream(null, $modbusUnitId);
+                    });
                 } catch (Throwable $stopException) {
                     Log::warning('Failed to stop remote JSVV stream in finally block', [
                         'sequence_id' => $sequence->id,
                         'error' => $stopException->getMessage(),
+                    ]);
+                }
+            }
+            if (
+                !$useLocalStream
+                && $remoteDtrxConfig !== null
+                && ($remoteDtrxConfig['reset_after'] ?? false)
+                && $remoteCommandPayload !== null
+                && $remoteCommandsWritten
+            ) {
+                try {
+                    $this->withModbusLock(function () use ($remoteCommandPayload, $modbusUnitId): void {
+                        $this->resetRemoteDtrxCommands($remoteCommandPayload, $modbusUnitId);
+                    });
+                } catch (Throwable $resetException) {
+                    Log::warning('Failed to reset remote DTRX registers after JSVV sequence', [
+                        'sequence_id' => $sequence->id,
+                        'error' => $resetException->getMessage(),
                     ]);
                 }
             }
@@ -727,6 +773,284 @@ class JsvvSequenceService extends Service
             'indexes' => $indexes,
             'description' => $mapping['label'] ?? null,
         ];
+    }
+
+    private function resolveRemoteDtrxConfig(): ?array
+    {
+        $config = config('jsvv.remote_trigger.dtrx');
+        if (!is_array($config)) {
+            return null;
+        }
+
+        $enabled = $this->normalizeBooleanConfig(Arr::get($config, 'enabled', false));
+        if (!$enabled) {
+            return null;
+        }
+
+        $baseRaw = Arr::get($config, 'register_base');
+        if ($baseRaw === null || $baseRaw === '') {
+            throw new RuntimeException(
+                'JSVV remote trigger DTRX is enabled but JSVV_REMOTE_DTRX_BASE is not configured.'
+            );
+        }
+        $base = $this->parseNumericValue($baseRaw, 'JSVV remote trigger DTRX base address');
+        if ($base < 0) {
+            throw new RuntimeException('JSVV remote trigger DTRX base address must be non-negative.');
+        }
+
+        $count = Arr::get($config, 'register_count', 24);
+        $count = (int) $count;
+        if ($count <= 0) {
+            throw new RuntimeException('JSVV remote trigger DTRX register count must be greater than zero.');
+        }
+
+        $stride = Arr::get($config, 'register_stride', 1);
+        $stride = (int) $stride;
+        if ($stride <= 0) {
+            throw new RuntimeException('JSVV remote trigger DTRX register stride must be greater than zero.');
+        }
+        if ($stride !== 1) {
+            throw new RuntimeException('JSVV remote trigger DTRX currently supports register stride 1 only.');
+        }
+
+        $clearValue = $this->parseNumericValue(Arr::get($config, 'clear_value', 0), 'JSVV remote trigger DTRX clear value');
+        $resetAfter = $this->normalizeBooleanConfig(Arr::get($config, 'reset_after', true));
+
+        return [
+            'register_base' => $base,
+            'register_count' => $count,
+            'register_stride' => $stride,
+            'clear_value' => $clearValue,
+            'reset_after' => $resetAfter,
+        ];
+    }
+
+    /**
+     * @param iterable<int, JsvvSequenceItem> $items
+     */
+    private function buildRemoteDtrxCommandPayload(iterable $items, array $config, ?string $priority): array
+    {
+        $commandStartRegister = $this->parseNumericValue($config['command_register_start'] ?? 11, 'JSVV remote trigger DTRX command register start');
+        $commandCount = max(1, $this->parseNumericValue($config['command_register_count'] ?? 4, 'JSVV remote trigger DTRX command register count'));
+        $priorityRegister = $this->parseNumericValue($config['priority_register'] ?? 10, 'JSVV remote trigger DTRX priority register');
+
+        $commandOffset = $commandStartRegister - 1;
+        $priorityOffset = $priorityRegister - 1;
+        if ($commandOffset < 0 || $priorityOffset < 0) {
+            throw new RuntimeException('JSVV remote trigger DTRX register numbers must be positive integers.');
+        }
+
+        $registerBase = $this->parseNumericValue($config['register_base'] ?? null, 'JSVV remote trigger DTRX base address');
+        $commandsBaseAddress = $registerBase + $commandOffset;
+        $priorityAddress = $registerBase + $priorityOffset;
+        $clearValue = $this->parseNumericValue($config['clear_value'] ?? 0, 'JSVV remote trigger DTRX clear value');
+        $priorityClear = $this->parseNumericValue($config['priority_clear_value'] ?? 0, 'JSVV remote trigger DTRX priority clear value');
+
+        $commands = array_fill(0, $commandCount, $clearValue);
+        $filledSlots = 0;
+
+        foreach ($items as $item) {
+            if (!$item instanceof JsvvSequenceItem) {
+                continue;
+            }
+
+            $metadata = $item->metadata ?? [];
+            if (!is_array($metadata)) {
+                $metadata = (array) $metadata;
+            }
+
+            $dtrx = Arr::get($metadata, 'dtrx');
+            if (!is_array($dtrx)) {
+                $symbol = Arr::get($metadata, 'symbol', $item->slot);
+                $dtrx = $this->resolveDtrxMapping($symbol);
+            }
+
+            if (!is_array($dtrx)) {
+                Log::warning('DTRX mapping missing for JSVV item – skipping remote command slot', [
+                    'sequence_item_id' => $item->id,
+                    'slot' => $item->slot,
+                ]);
+                continue;
+            }
+
+            $sampleCodes = $dtrx['sample_codes'] ?? [];
+            $primaryCode = $dtrx['primary_sample_code'] ?? null;
+            if ($primaryCode === null && is_array($sampleCodes) && $sampleCodes !== []) {
+                $primaryCode = reset($sampleCodes);
+            }
+
+            if ($primaryCode === null) {
+                Log::warning('Unable to resolve primary DTRX sample code for item – skipping remote command slot', [
+                    'sequence_item_id' => $item->id,
+                    'slot' => $item->slot,
+                    'mapping' => $dtrx,
+                ]);
+                continue;
+            }
+
+            $commands[$filledSlots] = (int) $primaryCode;
+            $filledSlots++;
+            if ($filledSlots >= $commandCount) {
+                break;
+            }
+        }
+
+        if ($filledSlots === 0) {
+            throw new RuntimeException('Unable to build remote DTRX commands – no sequence items provided usable mapping.');
+        }
+
+        $priorityValue = $this->normalizePriorityValue($priority);
+
+        return [
+            'commands_address' => $commandsBaseAddress,
+            'commands_values' => $commands,
+            'commands_count' => $commandCount,
+            'priority_address' => $priorityAddress,
+            'priority_value' => $priorityValue,
+            'clear_commands' => array_fill(0, $commandCount, $clearValue),
+            'clear_priority' => $priorityClear,
+        ];
+    }
+
+    private function programRemoteDtrxCommands(array $payload, ?int $unitId = null): void
+    {
+        $commandsAddress = $payload['commands_address'] ?? null;
+        $commandValues = $payload['commands_values'] ?? [];
+        $priorityAddress = $payload['priority_address'] ?? null;
+        $priorityValue = $payload['priority_value'] ?? null;
+
+        if (!is_int($commandsAddress) || !is_int($priorityAddress)) {
+            throw new RuntimeException('Invalid remote DTRX payload – missing command or priority address.');
+        }
+
+        if ($commandValues === []) {
+            throw new RuntimeException('Remote DTRX command payload is empty.');
+        }
+
+        $commandValues = array_map(static fn ($value) => (int) $value, $commandValues);
+        $response = $this->client->writeRegisters($commandsAddress, $commandValues, $unitId);
+        if (($response['success'] ?? true) === false) {
+            throw new RuntimeException($response['json']['message'] ?? 'Failed to program DTRX command registers.');
+        }
+
+        if ($priorityValue !== null) {
+            $priorityResponse = $this->client->writeRegister($priorityAddress, (int) $priorityValue, $unitId);
+            if (($priorityResponse['success'] ?? true) === false) {
+                throw new RuntimeException($priorityResponse['json']['message'] ?? 'Failed to program DTRX priority register.');
+            }
+        }
+
+        Log::debug('JSVV remote DTRX commands programmed', [
+            'commands_address' => sprintf('0x%04X', $commandsAddress),
+            'commands' => $commandValues,
+            'priority_address' => sprintf('0x%04X', $priorityAddress),
+            'priority_value' => $priorityValue,
+            'unit_id' => $unitId,
+        ]);
+    }
+
+    private function resetRemoteDtrxCommands(array $payload, ?int $unitId = null): void
+    {
+        $commandsAddress = $payload['commands_address'] ?? null;
+        $clearCommands = $payload['clear_commands'] ?? [];
+        $priorityAddress = $payload['priority_address'] ?? null;
+        $clearPriority = $payload['clear_priority'] ?? 0;
+
+        if (!is_int($commandsAddress) || !is_int($priorityAddress)) {
+            return;
+        }
+
+        if ($clearCommands !== []) {
+            $clearCommands = array_map(static fn ($value) => (int) $value, $clearCommands);
+            $this->client->writeRegisters($commandsAddress, $clearCommands, $unitId);
+        }
+
+        $this->client->writeRegister($priorityAddress, (int) $clearPriority, $unitId);
+    }
+
+    private function normalizeBooleanConfig(mixed $value, bool $default = false): bool
+    {
+        if ($value === null) {
+            return $default;
+        }
+
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_string($value)) {
+            $normalized = strtolower(trim($value));
+            if ($normalized === '') {
+                return $default;
+            }
+
+            if (in_array($normalized, ['1', 'true', 'on', 'yes'], true)) {
+                return true;
+            }
+            if (in_array($normalized, ['0', 'false', 'off', 'no'], true)) {
+                return false;
+            }
+
+            return $default;
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return (int) $value !== 0;
+        }
+
+        return $default;
+    }
+
+    private function parseNumericValue(mixed $value, string $context): int
+    {
+        if ($value === null) {
+            throw new RuntimeException($context . ' is not defined.');
+        }
+
+        if (is_int($value)) {
+            return $value;
+        }
+
+        if (is_bool($value)) {
+            return $value ? 1 : 0;
+        }
+
+        if (is_float($value)) {
+            return (int) $value;
+        }
+
+        if (is_string($value)) {
+            $trimmed = trim($value);
+            if ($trimmed === '') {
+                throw new RuntimeException($context . ' is not defined.');
+            }
+
+            if (str_starts_with($trimmed, '0x') || str_starts_with($trimmed, '0X')) {
+                return intval($trimmed, 0);
+            }
+
+            if (!is_numeric($trimmed)) {
+                throw new RuntimeException($context . ' must be numeric.');
+            }
+
+            return (int) $trimmed;
+        }
+
+        if (is_numeric($value)) {
+            return (int) $value;
+        }
+
+        throw new RuntimeException($context . ' must be numeric.');
+    }
+
+    private function normalizePriorityValue(?string $priority): int
+    {
+        return match (strtoupper((string) $priority)) {
+            'P1' => 1,
+            'P2' => 2,
+            'P3' => 3,
+            default => 0,
+        };
     }
 
     private function normalizeSequenceOptions(array $options): array

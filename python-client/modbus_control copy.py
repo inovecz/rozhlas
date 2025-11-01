@@ -658,27 +658,44 @@ def command_play_sequence(args: argparse.Namespace) -> dict[str, Any]:
     settings, unit_id = resolve_serial_settings(args)
     sample_codes = _parse_sequence_string(args.sequence)
     nests = _parse_default_nests()
-    priority = env_int("MODBUS_JSVV_PRIORITY", 1)
+    priority = env_int("MODBUS_JSVV_PRIORITY", 2)
+    layout = resolve_jsvv_register_layout()
 
     if len(nests) > constants.MAX_ADDR_ENTRIES:
         nests = nests[: constants.MAX_ADDR_ENTRIES]
 
-    sequence_registers = _pad_sequence(sample_codes, 5)
-    priority_address = JSVV_PRIORITY_REGISTER
-    command_address = JSVV_SAMPLE_REGISTER_BASE
-    combined_values = [priority] + sequence_registers
-
-    route_entries = _pad_sequence(nests, constants.MAX_ADDR_ENTRIES)
-    route_payload = [len(nests)] + route_entries
-
-    register_writes: list[dict[str, object]] = [
+    sequence_registers = _pad_sequence(sample_codes, int(layout["commands_count"]))
+    should_update_route = getattr(args, "update_route", False)
+    register_writes: list[dict[str, object]] = []
+    if should_update_route:
+        register_writes.append(
+            {
+                "address": f"0x{constants.NUM_ADDR_RAM:04X}",
+                "values": [len(nests)],
+                "description": "numAddrRam",
+            }
+        )
+        register_writes.append(
+            {
+                "address": f"0x{constants.ADDR_RAM_BASE:04X}",
+                "values": nests[: constants.MAX_ADDR_ENTRIES],
+                "description": "addrRam",
+            }
+        )
+    register_writes.append(
         {
-            "address": f"0x{priority_address:04X}",
-            "values": combined_values,
-            "description": "commandPriority+sampleCodes",
-        },
-    ]
-
+            "address": f"0x{int(layout['commands_base']):04X}",
+            "values": sequence_registers,
+            "description": "sampleCodes",
+        }
+    )
+    register_writes.append(
+        {
+            "address": f"0x{int(layout['priority_register']):04X}",
+            "values": [priority],
+            "description": "commandPriority",
+        }
+    )
     response = remember_response_data(
         args,
         {
@@ -687,17 +704,19 @@ def command_play_sequence(args: argparse.Namespace) -> dict[str, Any]:
             "sequence": sequence_registers,
             "priority": priority,
             "nests": nests,
-            "updateRoute": True,
-            "commandRegister": command_address,
-            "priorityRegister": priority_address,
-            "customLayout": False,
-            "contiguousPriorityWrite": True,
+            "updateRoute": should_update_route,
+            "commandRegister": int(layout["commands_base"]),
+            "priorityRegister": int(layout["priority_register"]),
+            "customLayout": bool(layout["configured"]),
             "registerWrites": register_writes,
         },
     )
 
     with ModbusAudioClient(settings=settings, unit_id=unit_id) as client:
-        client.write_registers(priority_address, combined_values)
+        if should_update_route:
+            client.configure_route(nests)
+        client.write_registers(int(layout["commands_base"]), sequence_registers)
+        client.write_registers(int(layout["priority_register"]), [priority])
 
     return response
 

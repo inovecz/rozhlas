@@ -6,6 +6,7 @@ namespace App\Console\Commands;
 
 use App\Libraries\PythonClient;
 use App\Models\BroadcastSession;
+use App\Models\Log as ActivityLog;
 use App\Services\EmailNotificationService;
 use App\Services\SmsNotificationService;
 use App\Settings\JsvvSettings;
@@ -25,6 +26,7 @@ class MonitorAlarmBuffer extends Command implements SignalableCommandInterface
 
     private const MODBUS_LOCK_KEY = 'modbus:serial';
     private const JSVV_ACTIVE_LOCK_KEY = 'jsvv:sequence:active';
+    private const MAX_BUFFER_DRAIN = 8;
 
     public function __construct(
         private readonly PythonClient $pythonClient = new PythonClient(),
@@ -57,38 +59,137 @@ class MonitorAlarmBuffer extends Command implements SignalableCommandInterface
             return;
         }
 
-        $lock = Cache::lock(self::MODBUS_LOCK_KEY, 10);
-        if (!$lock->get()) {
-            Log::debug('Alarm buffer polling skipped – zámek Modbus portu je obsazen.');
+        $entries = $this->drainAlarmEntries();
+        if ($entries === []) {
             return;
         }
 
+        foreach ($entries as $entry) {
+            $this->notifyAlarmSms($entry['nest'], $entry['repeat'], $entry['data']);
+            $this->notifyAlarmEmail($entry['nest'], $entry['repeat'], $entry['data']);
+            $this->recordAlarmLog($entry['nest'], $entry['repeat'], $entry['data'], 'processed', [
+                'raw' => $entry['raw'],
+            ]);
+        }
+    }
+
+    /**
+     * @return array<int, array{nest:int, repeat:int, data:array<int,int>, raw:array<string,mixed>}>
+     */
+    private function drainAlarmEntries(): array
+    {
+        $entries = [];
+        $lock = Cache::lock(self::MODBUS_LOCK_KEY, 10);
+        if (!$lock->get()) {
+            Log::debug('Alarm buffer polling skipped – zámek Modbus portu je obsazen.');
+            return [];
+        }
+
         try {
-            $response = $this->pythonClient->readAlarmBuffer();
+            $seen = [];
+            for ($index = 0; $index < self::MAX_BUFFER_DRAIN; $index++) {
+                $response = $this->pythonClient->readAlarmBuffer();
+                if (($response['success'] ?? false) === false) {
+                    Log::warning('Čtení alarm bufferu selhalo', $response);
+                    $this->recordAlarmLog(0, 0, [], 'read_failed', [
+                        'response' => Arr::get($response, 'stderr', $response),
+                    ]);
+                    break;
+                }
+
+                $entry = $this->normalizeAlarmEntry(Arr::get($response, 'json.data.alarm'));
+                if ($entry === null) {
+                    break;
+                }
+
+                if (in_array($entry['hash'], $seen, true)) {
+                    Log::debug('Alarm buffer returned duplicate entry, stopping drain.', [
+                        'hash' => $entry['hash'],
+                    ]);
+                    break;
+                }
+
+                $seen[] = $entry['hash'];
+                $entries[] = [
+                    'nest' => $entry['nest'],
+                    'repeat' => $entry['repeat'],
+                    'data' => $entry['data'],
+                    'raw' => $entry['raw'],
+                ];
+            }
+
+            if ($entries !== []) {
+                $clearResponse = $this->pythonClient->clearAlarmBuffer();
+                if (($clearResponse['success'] ?? true) === false) {
+                    Log::debug('Vynulování alarm bufferu hlásí chybu', $clearResponse);
+                    $this->recordAlarmLog(0, 0, [], 'clear_failed', [
+                        'response' => Arr::get($clearResponse, 'stderr', $clearResponse),
+                    ]);
+                }
+            }
         } finally {
             $lock->release();
         }
 
-        if (($response['success'] ?? false) === false) {
-            Log::warning('Čtení alarm bufferu selhalo', $response);
-            return;
+        return $entries;
+    }
+
+    /**
+     * @return array{nest:int, repeat:int, data:array<int,int>, raw:array<string,mixed>, hash:string}|null
+     */
+    private function normalizeAlarmEntry(mixed $raw): ?array
+    {
+        if (!is_array($raw)) {
+            return null;
         }
 
-        $alarm = Arr::get($response, 'json.data.alarm', []);
-        if (!is_array($alarm)) {
-            return;
+        $nest = (int) ($raw['nest_address'] ?? $raw['nestAddress'] ?? 0);
+        $repeat = (int) ($raw['repeat'] ?? $raw['repeat_count'] ?? 0);
+        $dataValues = $raw['data'] ?? [];
+        if (!is_array($dataValues)) {
+            $dataValues = [];
         }
-
-        $nest = (int) ($alarm['nest_address'] ?? 0);
-        $repeat = (int) ($alarm['repeat'] ?? 0);
-        $data = array_map(static fn ($value) => (int) $value, $alarm['data'] ?? []);
+        $data = array_map(static fn ($value): int => (int) $value, $dataValues);
 
         if ($nest === 0 && $repeat === 0 && array_sum($data) === 0) {
-            return; // prázdný buffer
+            return null;
         }
 
-        $this->notifyAlarmSms($nest, $repeat, $data);
-        $this->notifyAlarmEmail($nest, $repeat, $data);
+        return [
+            'nest' => $nest,
+            'repeat' => $repeat,
+            'data' => $data,
+            'raw' => $raw,
+            'hash' => sha1($nest . '|' . $repeat . '|' . implode(',', $data)),
+        ];
+    }
+
+    private function recordAlarmLog(int $nest, int $repeat, array $data, string $status, array $context = []): void
+    {
+        try {
+            ActivityLog::create([
+                'type' => 'alarm',
+                'title' => sprintf('Alarm z hnízda %d', $nest),
+                'description' => match ($status) {
+                    'processed' => sprintf('Alarm byl zpracován (opakování %d).', $repeat),
+                    'read_failed' => 'Nepodařilo se načíst alarm z Modbus registrů.',
+                    'clear_failed' => 'Alarm byl načten, ale nepodařilo se vynulovat registr.',
+                    default => sprintf('Stav zpracování: %s.', $status),
+                },
+                'data' => [
+                    'status' => $status,
+                    'nest' => $nest,
+                    'repeat' => $repeat,
+                    'data' => $data,
+                ] + $context,
+            ]);
+        } catch (\Throwable $exception) {
+            Log::debug('Unable to record alarm activity log.', [
+                'nest' => $nest,
+                'status' => $status,
+                'error' => $exception->getMessage(),
+            ]);
+        }
     }
 
     private function notifyAlarmSms(int $nest, int $repeat, array $data): void
