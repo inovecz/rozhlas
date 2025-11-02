@@ -66,52 +66,100 @@ case "${1:-}" in
     start_daemon "control_channel_worker" "$ROOT_DIR/python-client/daemons/control_channel_worker.py" --endpoint "${control_endpoint}"
 
     if [[ -n "${GSM_SERIAL_PORT:-}" ]]; then
-      start_daemon "gsm_listener" "$ROOT_DIR/python-client/daemons/gsm_listener.py" \
-        --webhook "${GSM_WEBHOOK:-http://127.0.0.1/api/gsm/events}" \
-        --token "${GSM_TOKEN:-}" \
-        --port "${GSM_SERIAL_PORT}" \
-        --baudrate "${GSM_SERIAL_BAUDRATE:-115200}" \
-        --bytesize "${GSM_SERIAL_BYTESIZE:-8}" \
-        --parity "${GSM_SERIAL_PARITY:-N}" \
-        --stopbits "${GSM_SERIAL_STOPBITS:-1}" \
-        --timeout "${GSM_WEBHOOK_TIMEOUT:-5}" \
-        --timeout-serial "${GSM_SERIAL_TIMEOUT:-0.5}" \
-        --write-timeout "${GSM_SERIAL_WRITE_TIMEOUT:-1}" \
-        --poll "${GSM_POLL_INTERVAL:-0.2}" \
-        --graceful "${GSM_GRACEFUL_TIMEOUT:-5}" \
-        --signal-interval "${GSM_SIGNAL_INTERVAL:-30}" \
-        --answer-delay "${GSM_AUTO_ANSWER_DELAY_MS:-1000}" \
+      args=("$ROOT_DIR/daemons/gsm_listener.py"
+        --port "${GSM_SERIAL_PORT}"
+        --baudrate "${GSM_SERIAL_BAUDRATE:-115200}"
+        --bytesize "${GSM_SERIAL_BYTESIZE:-8}"
+        --parity "${GSM_SERIAL_PARITY:-N}"
+        --stopbits "${GSM_SERIAL_STOPBITS:-1}"
+        --timeout-serial "${GSM_SERIAL_TIMEOUT:-0.5}"
+        --write-timeout "${GSM_SERIAL_WRITE_TIMEOUT:-1}"
+        --poll "${GSM_POLL_INTERVAL:-0.2}"
+        --graceful "${GSM_GRACEFUL_TIMEOUT:-5}"
+        --signal-interval "${GSM_SIGNAL_INTERVAL:-30}"
+        --answer-delay "${GSM_AUTO_ANSWER_DELAY_MS:-1000}"
         --max-ring "${GSM_MAX_RING_ATTEMPTS:-6}"
+        --project-root "$ROOT_DIR"
+        --artisan-bin "${ARTISAN_BIN:-php}"
+        --artisan-path "${ARTISAN_PATH:-artisan}"
+        --artisan-command "${GSM_ARTISAN_COMMAND:-gsm:test-send}"
+        --token "${GSM_TOKEN:-}"
+      )
+      if [[ -n "${GSM_WEBHOOK:-}" ]]; then
+        args+=(--webhook "${GSM_WEBHOOK}")
+      fi
+      if [[ -n "${GSM_WEBHOOK_TIMEOUT:-}" ]]; then
+        args+=(--timeout "${GSM_WEBHOOK_TIMEOUT}")
+      fi
+      start_daemon "gsm_listener" "${args[@]}"
     else
       echo "Skipping gsm_listener (set GSM_SERIAL_PORT to enable)." | tee -a "$LOG_DIR/gsm_listener.log"
       rm -f "$LOG_DIR/gsm_listener.pid"
     fi
 
     if [[ -n "${CONTROL_TAB_SERIAL_PORT:-}" ]]; then
-      start_daemon "control_tab_listener" "$ROOT_DIR/python-client/daemons/control_tab_listener.py" \
-        --webhook "${CONTROL_TAB_WEBHOOK:-http://127.0.0.1/api/control-tab/events}" \
-        --token "${CONTROL_TAB_TOKEN:-}" \
-        --port "${CONTROL_TAB_SERIAL_PORT}" \
-        --baudrate "${CONTROL_TAB_SERIAL_BAUDRATE:-115200}" \
-        --bytesize "${CONTROL_TAB_SERIAL_BYTESIZE:-8}" \
-        --parity "${CONTROL_TAB_SERIAL_PARITY:-N}" \
-        --stopbits "${CONTROL_TAB_SERIAL_STOPBITS:-1}" \
-        --timeout "${CONTROL_TAB_TIMEOUT:-5}" \
-        --timeout-serial "${CONTROL_TAB_SERIAL_TIMEOUT:-0.2}" \
-        --write-timeout "${CONTROL_TAB_SERIAL_WRITE_TIMEOUT:-1}" \
-        --poll "${CONTROL_TAB_POLL_INTERVAL:-0.05}" \
-        --graceful "${CONTROL_TAB_GRACEFUL_TIMEOUT:-5}" \
+      args=("$ROOT_DIR/daemons/control_tab_listener.py"
+        --port "${CONTROL_TAB_SERIAL_PORT}"
+        --baudrate "${CONTROL_TAB_SERIAL_BAUDRATE:-115200}"
+        --bytesize "${CONTROL_TAB_SERIAL_BYTESIZE:-8}"
+        --parity "${CONTROL_TAB_SERIAL_PARITY:-N}"
+        --stopbits "${CONTROL_TAB_SERIAL_STOPBITS:-1}"
+        --timeout-serial "${CONTROL_TAB_SERIAL_TIMEOUT:-0.2}"
+        --write-timeout "${CONTROL_TAB_SERIAL_WRITE_TIMEOUT:-1}"
+        --poll "${CONTROL_TAB_POLL_INTERVAL:-0.05}"
+        --graceful "${CONTROL_TAB_GRACEFUL_TIMEOUT:-5}"
         --retry-backoff "${CONTROL_TAB_RETRY_BACKOFF_MS:-250}"
+        --project-root "$ROOT_DIR"
+        --artisan-bin "${ARTISAN_BIN:-php}"
+        --artisan-path "${ARTISAN_PATH:-artisan}"
+        --artisan-command "${CTAB_ARTISAN_COMMAND:-ctab:test-send}"
+        --token "${CONTROL_TAB_TOKEN:-}"
+      )
+      if [[ -n "${CONTROL_TAB_WEBHOOK:-}" ]]; then
+        args+=(--webhook "${CONTROL_TAB_WEBHOOK}")
+      fi
+      if [[ -n "${CONTROL_TAB_TIMEOUT:-}" ]]; then
+        args+=(--timeout "${CONTROL_TAB_TIMEOUT}")
+      fi
+      start_daemon "control_tab_listener" "${args[@]}"
     else
       echo "Skipping control_tab_listener (set CONTROL_TAB_SERIAL_PORT to enable)." | tee -a "$LOG_DIR/control_tab_listener.log"
       rm -f "$LOG_DIR/control_tab_listener.pid"
     fi
 
     if [[ -n "${JSVV_PORT:-}" ]]; then
-      start_daemon "jsvv_listener" "$ROOT_DIR/python-client/daemons/jsvv_listener.py" --port "${JSVV_PORT}"
+      args=("$ROOT_DIR/daemons/jsvv_listener.py" --port "${JSVV_PORT}")
+      if [[ -n "${JSVV_BAUDRATE:-}" ]]; then
+        args+=(--baudrate "${JSVV_BAUDRATE}")
+      fi
+      if [[ -n "${JSVV_TIMEOUT_MS:-}" ]]; then
+        args+=(--timeout-ms "${JSVV_TIMEOUT_MS}")
+      fi
+      start_daemon "jsvv_listener" "${args[@]}"
     else
       echo "Skipping jsvv_listener (set JSVV_PORT to enable)." | tee -a "$LOG_DIR/jsvv_listener.log"
       rm -f "$LOG_DIR/jsvv_listener.pid"
+    fi
+
+    if [[ "${ALARM_POLLER_ENABLED:-1}" == "1" ]]; then
+      args=("$ROOT_DIR/daemons/alarm_poller.py"
+        --port "${MODBUS_PORT:-/dev/ttyUSB0}"
+        --baudrate "${MODBUS_BAUDRATE:-57600}"
+        --parity "${MODBUS_PARITY:-N}"
+        --stopbits "${MODBUS_STOPBITS:-1}"
+        --bytesize "${MODBUS_BYTESIZE:-8}"
+        --timeout-ms "${MODBUS_TIMEOUT_MS:-500}"
+        --unit "${MODBUS_UNIT_ID:-1}"
+        --interval "${ALARM_POLL_INTERVAL:-2}"
+        --artisan-bin "${ARTISAN_BIN:-php}"
+        --artisan-path "${ARTISAN_PATH:-artisan}"
+        --artisan-command "${ALARM_ARTISAN_COMMAND:-alarm:poll}"
+        --project-root "$ROOT_DIR"
+      )
+      start_daemon "alarm_poller" "${args[@]}"
+    else
+      echo "Skipping alarm_poller (set ALARM_POLLER_ENABLED=1 to enable)." | tee -a "$LOG_DIR/alarm_poller.log"
+      rm -f "$LOG_DIR/alarm_poller.pid"
     fi
 
     gpio_button_enabled="${GPIO_BUTTON_ENABLED:-}"
@@ -173,6 +221,7 @@ case "${1:-}" in
     stop_daemon "control_tab_listener"
     stop_daemon "jsvv_listener"
     stop_daemon "gpio_button_listener"
+    stop_daemon "alarm_poller"
     ;;
   restart)
     "$0" stop
@@ -180,7 +229,7 @@ case "${1:-}" in
     "$0" start
     ;;
   status)
-    for name in control_channel_worker gsm_listener control_tab_listener jsvv_listener gpio_button_listener; do
+    for name in control_channel_worker gsm_listener control_tab_listener jsvv_listener gpio_button_listener alarm_poller; do
       pid_file="$LOG_DIR/${name}.pid"
       if [[ ! -f "$pid_file" ]]; then
         case "$name" in
@@ -205,6 +254,12 @@ case "${1:-}" in
           gpio_button_listener)
             if [[ "${GPIO_BUTTON_ENABLED,,}" != "true" && "${GPIO_BUTTON_ENABLED}" != "1" ]]; then
               echo "$name skipped (GPIO_BUTTON_ENABLED not set to true)"
+              continue
+            fi
+            ;;
+          alarm_poller)
+            if [[ "${ALARM_POLLER_ENABLED:-1}" != "1" ]]; then
+              echo "$name skipped (ALARM_POLLER_ENABLED not enabled)"
               continue
             fi
             ;;

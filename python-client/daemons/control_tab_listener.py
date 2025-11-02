@@ -16,12 +16,14 @@ import json
 import os
 import queue
 import signal
+import subprocess
 import threading
 import time
 import uuid
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any, Optional
+from contextlib import nullcontext
 
 import requests
 
@@ -31,6 +33,8 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # pragma: no cover - fallback when pyserial missing
     serial = None  # type: ignore
     Serial = object  # type: ignore
+
+from _locks import PortLock
 
 
 EVENT_TYPE_BUTTON = 2
@@ -105,12 +109,47 @@ def xor_crc(data: str) -> str:
 
 
 class BackendSink:
-    def __init__(self, webhook_url: Optional[str], token: Optional[str], timeout: float) -> None:
+    def __init__(
+        self,
+        webhook_url: Optional[str],
+        token: Optional[str],
+        timeout: float,
+        artisan_bin: Optional[str] = None,
+        artisan_path: str = "artisan",
+        artisan_command: str = "ctab:test-send",
+        project_root: Optional[Path] = None,
+    ) -> None:
         self._webhook_url = webhook_url
         self._token = token
         self._timeout = timeout
+        self._artisan_bin = artisan_bin
+        self._artisan_path = artisan_path
+        self._artisan_command = artisan_command
+        self._project_root = project_root or Path(__file__).resolve().parents[2]
 
     def send(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not self._webhook_url and self._artisan_bin:
+            try:
+                completed = subprocess.run(
+                    [self._artisan_bin, self._artisan_path, self._artisan_command],
+                    input=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=self._timeout,
+                    check=False,
+                    cwd=str(self._project_root),
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                return {"action": "error", "message": str(exc)}
+
+            if completed.stdout:
+                try:
+                    return json.loads(completed.stdout.decode("utf-8"))
+                except json.JSONDecodeError:
+                    pass
+
+            return {"action": "ack", "ack": {"status": 1, "exit_code": completed.returncode}}
+
         if not self._webhook_url:
             print(json.dumps(payload, ensure_ascii=False), flush=True)
             return {"action": "ack", "ack": {"status": 1}}
@@ -197,12 +236,14 @@ class ControlTabListener:
         poll_interval: float,
         graceful_timeout: float,
         retry_backoff: float,
+        once: bool = False,
     ) -> None:
         self._sink = sink
         self._transport = transport
         self._poll_interval = max(0.01, poll_interval)
         self._graceful_timeout = graceful_timeout
         self._retry_backoff = max(0.05, retry_backoff / 1000)
+        self._once = once
 
         self._queue: queue.Queue[tuple[ControlTabFrame, dict[str, Any]]] = queue.Queue()
         self._stop_event = threading.Event()
@@ -215,6 +256,7 @@ class ControlTabListener:
 
         if self._simulation:
             self._simulate_events()
+            self.stop()
             return
 
         assert self._transport is not None
@@ -234,10 +276,12 @@ class ControlTabListener:
                 self._ingest(line)
         finally:
             self._transport.close()
+            self.stop()
 
     def stop(self) -> None:
         self._stop_event.set()
-        self._dispatcher.join(timeout=self._graceful_timeout)
+        if self._dispatcher.is_alive():
+            self._dispatcher.join(timeout=self._graceful_timeout)
 
     def _dispatch_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -299,6 +343,9 @@ class ControlTabListener:
             payload = self._build_event_payload(frame)
             _debug_log({"parsed": payload})
             self._queue.put((frame, payload))
+            if self._once:
+                self.stop()
+                return
 
     def _handle_response(self, frame: ControlTabFrame, response: dict[str, Any]) -> None:
         action = response.get("action", "ack")
@@ -389,6 +436,7 @@ class ControlTabListener:
         }.get(frame.event_type, "unknown")
         payload["timestamp"] = time.time()
         payload["sessionId"] = uuid.uuid4().hex
+        payload.setdefault("priority", "plan")
         return payload
 
     def _build_ack(self, frame: ControlTabFrame, status: int) -> str:
@@ -429,6 +477,8 @@ class ControlTabListener:
             payload = self._build_event_payload(frame)
             self._queue.put((frame, payload))
             time.sleep(1.0)
+            if self._once:
+                break
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -442,11 +492,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--parity", default=os.getenv("CONTROL_TAB_SERIAL_PARITY", "N"))
     parser.add_argument("--stopbits", type=int, default=int(os.getenv("CONTROL_TAB_SERIAL_STOPBITS", "1")))
     parser.add_argument("--timeout-serial", type=float, default=float(os.getenv("CONTROL_TAB_SERIAL_TIMEOUT", "0.2")))
+    parser.add_argument("--timeout-ms", type=int, help="Serial timeout v milisekundách (přepíše --timeout-serial)")
     parser.add_argument("--write-timeout", type=float, default=float(os.getenv("CONTROL_TAB_SERIAL_WRITE_TIMEOUT", "1")))
     parser.add_argument("--poll", type=float, default=float(os.getenv("CONTROL_TAB_POLL_INTERVAL", "0.05")))
     parser.add_argument("--graceful", type=float, default=float(os.getenv("CONTROL_TAB_GRACEFUL_TIMEOUT", "5")))
     parser.add_argument("--retry-backoff", type=int, default=int(os.getenv("CONTROL_TAB_RETRY_BACKOFF_MS", "250")))
     parser.add_argument("--simulate", action="store_true", help="Run without serial port (emit demo events)")
+    parser.add_argument("--artisan-bin", default=os.getenv("ARTISAN_BIN", "php"))
+    parser.add_argument("--artisan-path", default=os.getenv("ARTISAN_PATH", "artisan"))
+    parser.add_argument("--artisan-command", default=os.getenv("CTAB_ARTISAN_COMMAND", "ctab:test-send"))
+    parser.add_argument("--project-root", default=str(Path(__file__).resolve().parents[2]))
+    parser.add_argument("--once", action="store_true", help="Zpracuj první událost a ukonči se")
     return parser
 
 
@@ -454,7 +510,20 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    sink = BackendSink(args.webhook, args.token, args.timeout)
+    if getattr(args, "timeout_ms", None) is not None:
+        args.timeout_serial = max(0.01, args.timeout_ms / 1000.0)
+
+    project_root = Path(args.project_root).expanduser()
+
+    sink = BackendSink(
+        args.webhook,
+        args.token,
+        args.timeout,
+        artisan_bin=args.artisan_bin,
+        artisan_path=args.artisan_path,
+        artisan_command=args.artisan_command,
+        project_root=project_root,
+    )
 
     transport: Optional[ControlTabSerial]
     if args.simulate:
@@ -476,6 +545,7 @@ def main() -> None:
         poll_interval=args.poll,
         graceful_timeout=args.graceful,
         retry_backoff=float(args.retry_backoff),
+        once=bool(args.once),
     )
 
     def handle_signal(signum, _frame):  # noqa: ANN001
@@ -485,7 +555,12 @@ def main() -> None:
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    listener.start()
+    lock_context = nullcontext()
+    if not args.simulate and args.port:
+        lock_context = PortLock(args.port)
+
+    with lock_context:
+        listener.start()
 
 
 if __name__ == "__main__":  # pragma: no cover

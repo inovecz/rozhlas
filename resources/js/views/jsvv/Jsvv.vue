@@ -22,6 +22,7 @@ const jsvvAlarms = ref([]);
 const jsvvAudios = ref([]);
 const loadingQuick = ref(false);
 const sendingCustom = ref(false);
+const stopInProgress = ref(false);
 const fmInfo = ref(null);
 const fmLoading = ref(false);
 const fmPreviewLoading = ref(false);
@@ -448,6 +449,28 @@ function manageAlarm(alarm) {
   router.push({name: 'EditJSVV', params: {id: alarm.id}});
 }
 
+async function stopJsvvPlayback() {
+  if (stopInProgress.value) {
+    return;
+  }
+  stopInProgress.value = true;
+  try {
+    const response = await JsvvSequenceService.sendCommand({type: 'STOP', payload: {reason: 'ui_stop_button'}});
+    const status = response?.status ?? response?.sequence?.status ?? 'stopped';
+    if (status === 'busy') {
+      toast.warning('Sekvencer právě zpracovává poplach, zkuste to znovu.');
+    } else {
+      toast.success('Vysílání JSVV bylo ukončeno.');
+    }
+  } catch (error) {
+    console.error(error);
+    const message = error?.response?.data?.message ?? error?.message ?? 'Nepodařilo se odeslat příkaz STOP.';
+    toast.error(message);
+  } finally {
+    stopInProgress.value = false;
+  }
+}
+
 function expandSequenceDefinition(rawSequence, fallbackSymbol) {
   if (Array.isArray(rawSequence)) {
     return rawSequence;
@@ -692,13 +715,15 @@ async function sendCustomSequence() {
   }
   sendingCustom.value = true;
   try {
-    const sequence = await JsvvSequenceService.planSequence(items, buildSequenceOptions({}));
-    const sequenceId = sequence?.id ?? sequence?.sequence?.id;
-    if (!sequenceId) {
-      throw new Error('Sequence ID missing');
-    }
-    const triggerResult = await JsvvSequenceService.triggerSequence(sequenceId);
-    notifySequenceTrigger(triggerResult);
+    const options = buildSequenceOptions({});
+    const commandResult = await JsvvSequenceService.sendCommand({
+      type: 'SEQUENCE',
+      payload: {
+        ...options,
+        steps: items,
+      }
+    });
+    notifySequenceTrigger(commandResult?.sequence ?? commandResult);
     customSequence.value = [];
   } catch (error) {
     console.error(error);
@@ -729,6 +754,14 @@ function openProtocol() {
             :disabled="showCustomBuilder"
             @click="openCustomBuilder">
           Vlastní poplach
+        </Button>
+        <Button
+            icon="mdi-stop-circle"
+            size="sm"
+            variant="danger"
+            :disabled="stopInProgress"
+            @click="stopJsvvPlayback">
+          Ukončit JSVV
         </Button>
       </div>
 

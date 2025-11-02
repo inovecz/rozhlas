@@ -188,13 +188,13 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         '--card',
-        default=os.getenv('BROADCAST_MIXER_CARD', '0'),
+        default=os.getenv('AUDIO_MIXER_CARD', '0'),
         help='ALSA card index (default: %(default)s)',
     )
     parser.add_argument(
         '--state-dir',
         default=os.getenv(
-            'BROADCAST_MIXER_STATE_DIR', str(project_root() / 'storage/mixer-presets')
+            'AUDIO_MIXER_STATE_DIR', str(project_root() / 'storage/mixer-presets')
         ),
         help='Directory with .state files',
     )

@@ -1,0 +1,106 @@
+Kontrolní seznam připravenosti systému (aplikace na ústředně)
+
+A) Ovládání vysílání přes webové UI (živé, ze záznamu, plán)
+	1.	Přímé hlášení – výběr zdroje, cíle a spuštění/ukončení
+	•	Kritéria: ve “Přímé hlášení” lze vybrat vstup (mikrofon / soubor / systémový vstup…), vybrat lokality/hnízda, nastavit hlasitost, spustit a ukončit vysílání tlačítky. Zdroj lze za běhu přepnout. Zdokumentováno v uživatelské dokumentaci.  ￼
+	•	Status / poznámka: ________
+	2.	Záznamy – pořízení, správa, náhled
+	•	Kritéria: lze spustit/ukončit nahrávání, přehrát náhled, psát poznámku, mazat/přejmenovat, vyhledávat/třídit/stránkovat (5/10/25/50).
+	•	Status / poznámka: ________
+	3.	Plán vysílání – naplánované úlohy a opakování
+	•	Kritéria: vytvořit úlohu (název, termín, výběr nahrávek), kontrola kolizí, opakování (minuty/hodiny/dny/týdny/měsíce/roky) s recalculací délky.  ￼
+	•	Status / poznámka: ________
+	4.	Poplachy JSVV – rychlá tlačítka
+	•	Kritéria: 8 konfigurovatelných tlačítek poplachů; viditelný název, sekvence, slovní popis; potvrzovací dialog před spuštěním; napojení na editor v “Nastavení JSVV”.  ￼
+	•	Status / poznámka: ________
+	5.	Protokoly (logy) a uživatelské role
+	•	Kritéria: viditelnost logu událostí a správa uživatelů dle hlavního menu dokumentace.  ￼
+	•	Status / poznámka: ________
+
+B) Ovládání přes Control Tab (UART S5 Control)
+	6.	Parametry linky a rámec zpráv
+	•	Kritéria: UART 115200/8N1; TX formát \n<<<:X:Y:Z=data>>CRC<<<\n; RX ACK \n>>>:X:Y:Z=S>>CRC<<<\n; TEXT odpověď \n>>>TEXT:Z:"..." >>CRC<<<\n; CRC 1-byte XOR. V aplikaci je implementováno odeslání, příjem, výpočet/ověření CRC, retransmise/timeouty.
+	•	Status / poznámka: ________
+	7.	Mapování UI → Control Tab eventy
+	•	Kritéria: stisk/události z Control Tabu (např. “button_pressed”) spouští adekvátní akce v aplikaci (start/stop, výběr profilu, hlasitost, atd.) a aplikace vrací ACK/ERROR v definovaném formátu.  ￼
+	•	Status / poznámka: ________
+
+C) Reakce na JSVV (vstup přes KPPS) – funkční požadavky
+	8.	Rozhraní KPPS ↔ EKPV (na ústředně) – RS-232 / parametry
+	•	Kritéria: dostupný konektor RS-232 DE-9 (null-modem) s 9600 8N1 bez flow; zajištěno napojení na emulátor KPPS dle pokynů k testům.
+	•	Status / poznámka: ________
+	9.	Servisní rozhraní KPPS (pokud používáno)
+	•	Kritéria: pokud je využito servisní UART rozhraní KPPS (115200/8N1/bez flow), aplikace počítá s jeho použitím (diagnostika, změny parametrů do 3 s).  ￼
+	•	Status / poznámka: ________
+	10.	Časování a priority JSVV
+	•	Kritéria: příkazy aktivace KP (JSVV 2.5.4.1) zahájit do 3 s, akustická aktivace do 10 s; priorita P2/P3 a chování při běžícím rozhlasovém vysílání (STOP + zpoždění 15–30 s pro P2 při 1. vrstvě). Loguje se časová značka UNIX (UINT64).  ￼
+	•	Status / poznámka: ________
+	11.	Nouzové STOP (fyzické i vzdálené)
+	•	Kritéria: v aplikaci je ekvivalent příkazu „STOP“ – ukončí jakoukoliv činnost a přepne do pohotovosti; pokud je na panelu fyzické tlačítko STOP, má stejnou funkci.  ￼
+	•	Status / poznámka: ________
+	12.	Autodiagnostika / stavové odpovědi pro KPPS
+	•	Kritéria: aplikace na dotaz (perioda KPPS) vrátí požadované diagnostické stavy (provozní stav, otevření skříně, napájení, stav audio cesty, počet/poruchy hlavic, atd.).  ￼
+	•	Status / poznámka: ________
+
+D) Komunikace s vysílačem a přijímači (DTRX) – Modbus/registry
+	13.	Adresace, trasa a RF identita
+	•	Kritéria: práce s RAM trasou numAddrRam, Addr0..4Ram pro vyžádané zprávy; RF adresa ústřednového obousměru = 1 (neukládat trasu do Flash); správa RFAddr, RFNetID.
+	•	Status / poznámka: ________
+	14.	Režim Tx/Rx a kmitočet
+	•	Kritéria: nastavení Mode (0=vysílač, >0=přijímač) a Frequency (násobek 10 kHz; např. 7200 = 72,00 MHz) dle potřeby profilů.  ￼
+	•	Status / poznámka: ________
+	15.	Zónování cílového vysílání
+	•	Kritéria: zápis cílových zón pro digitální audio (RFDestZone0..4) a zón příjmu/recordingu (Zone*, RecZone*).
+	•	Status / poznámka: ________
+	16.	Start/Stop vysílání a řízení přehrávání
+	•	Kritéria: pro vysílač TxControl: 1=stop, 2=start (audio stream); pro přijímač RxControl: 1=stop, 2=hraje RF, 3=požadavek “poslední záznam”, 4=rezerva; aplikace umí tyto povely vyslat a potvrdit.  ￼
+	•	Status / poznámka: ________
+	17.	Stavy/Chyby/Ogg bitrate
+	•	Kritéria: čtení registrů Status, Error (bit0 RF modem FW, bit1 audio kodek, bit2 CRC konfigurace…), OggBitrate pro monitoring; promítnutí do diagnostiky UI/logu.  ￼
+	•	Status / poznámka: ________
+	18.	Příjem nevyžádaných zpráv (alarmy) – LIFO buffer
+	•	Kritéria: periodické čtení Buff0..Buff9 (0x3000–0x3009) funkcí 3 vždy s následným nulováním; zajištění LIFO a přetečení (zahazovat nejstarší), aby se nestrácely alarmy z hnízd. Implementováno robustně v aplikaci.
+	•	Status / poznámka: ________
+	19.	Resety zařízení
+	•	Kritéria: možnost provést SW reset (0x0666, klíč 0x7A1C) a HW reset (0x0667, klíč 0x7A1D) pro servisní účely.  ￼
+	•	Status / poznámka: ________
+	20.	Identifikace FW/HW
+	•	Kritéria: čtení INSTID, FNUM, FWINST, FWDATE, UNUMBER; schopnost zapsat UNUM_01..04 pro identifikaci.
+	•	Status / poznámka: ________
+
+E) Příprava na zkoušky HZS (polygon Boreček, 10.–14. 11. 2025)
+	21.	Termín, místo, kontakty
+	•	Kritéria: zařízení připraveno k předání 10. 11. 2025 09:00; kontakty dle pokynů HZS (IOO, VEC Mimoň).  ￼
+	•	Status / poznámka: ________
+	22.	Kompletní dokumentace před předáním
+	•	Kritéria: prohlášení o shodě, certifikáty dle ČIA, doklad k 1. a 2. vrstvě, technické listy, návod, popis zařízení se zaměřením na JSVV apod.; bez těchto podkladů zařízení k testu nepřipuštěno.
+	•	Status / poznámka: ________
+	23.	Připojení KPPS/emulátoru a audio vstupy
+	•	Kritéria: přístup k portu EKPV pro připojení KPPS/emulátoru (DB9/F, null-modem), k FM přijímači (naladění 88,8 / 102 / 104,5 MHz), vstupy audio (VyC JACK 3,5 mm + externí/sekundární zdroj).  ￼
+	•	Status / poznámka: ________
+	24.	Test „STOP“ a délka příkazu „TEST“
+	•	Kritéria: obsluha zná dobu provedení příkazu TEST; fyzické/soft STOP funkční dle požadavků.
+	•	Status / poznámka: ________
+	25.	Profil hlásičů a hlasitosti
+	•	Kritéria: min. 2 bezdrátové hlásiče (standardní sestava), 1 hlásič se sníženým SPL pro vnitřní testy; možnost nastavit hlasitost na místě; stojany/stěžně připraveny.  ￼
+	•	Status / poznámka: ________
+
+F) Soulad s “Požadavky na zařízení pro JSVV” (výběr relevantních bodů pro SW + integrační rozhraní)
+	26.	Reakční doby a odpovědi KP (druhá vrstva)
+	•	Kritéria: KP (ústředna) na dotaz KPPS odešle odpověď o posledním známém stavu do ≤3 s; automatické stavy/aktivace ve stejném limitu.  ￼
+	•	Status / poznámka: ________
+	27.	Řazení příkazů a priority
+	•	Kritéria: fronta příkazů respektuje priority (P2 před P3; P3 na konec fronty); logika STOP u běžícího rozhlasu pro P2 (u 1. vrstvy).
+	•	Status / poznámka: ________
+	28.	Diagnostika a monitoring
+	•	Kritéria: vykazování stavů dle 5.4.14 (napájení, baterie, audio cesta, počty hlavic, atd.) přes rozhraní k KPPS (RS-232).  ￼
+	•	Status / poznámka: ________
+
+⸻
+
+Poznámky k ověření (doporučené testy pro Codex)
+	•	End-to-end JSVV scénář: z emulátoru KPPS poslat příkaz aktivace → do 3 s potvrdit zahájení a do 10 s akustickou aktivaci; následně poslat STOP a ověřit přechod do pohotovosti.  ￼
+	•	DTRX vysílání: nastavit RFDestZone*, Mode=0 (Tx), TxControl=2 a ověřit, že přijímače hlásí hraní RF (RxControl=2); logovat OggBitrate a případné Error bity.
+	•	Alarmy z hnízd: vygenerovat 2–3 nevyžádané zprávy rychle po sobě; ověřit LIFO čtení Buff0..9 s nulováním a žádnou ztrátou posledních dvou balíků.  ￼
+	•	Control Tab: simulovat panel_loaded, button_pressed, text_field_request; ověřit ACK a CRC; u chyby poslat S=0 a ověřit retry v aplikaci.  ￼
+	•	Testovací polygon: přímé připojení emulátoru (DB9 null-modem), FM příjem na zadaných kmitočtech, audio vstupy (VyC JACK 3,5 + externí) a předvolená aktivace na bezpotenciálovém tlačítku.  ￼

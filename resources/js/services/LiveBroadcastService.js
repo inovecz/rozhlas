@@ -41,5 +41,22 @@ export default {
 
     cancelPlaylist(id) {
         return http.post(`live-broadcast/playlist/${id}/cancel`).then(response => response.data);
+    },
+
+    selectLiveSource(identifier) {
+        const payload = typeof identifier === 'object' && identifier !== null ? identifier : {identifier};
+        return http.post('live/source', payload).then(response => response.data);
+    },
+
+    controlLive(action, payload = {}) {
+        return http.post('live/control', {action, ...payload}).then(response => response.data);
+    },
+
+    startRecording(payload = {}) {
+        return http.post('recording/start', payload).then(response => response.data);
+    },
+
+    stopRecording() {
+        return http.post('recording/stop').then(response => response.data);
     }
 }

@@ -17,11 +17,14 @@ import signal
 import subprocess
 import threading
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from jsvv import JSVVClient, JSVVError, SerialSettings  # type: ignore
+
+from _locks import PortLock
 
 PRIORITY_MAP = {"P1": 0, "P2": 1, "P3": 2}
 DEFAULT_PRIORITY_VALUE = 3
@@ -42,6 +45,7 @@ class ListenerConfig:
     log_file: Path | None
     log_level: str
     audio_root: Path | None
+    run_once: bool = False
 
 
 @dataclass(slots=True)
@@ -285,6 +289,9 @@ class ParserDaemon:
             self._logger.info("[QUEUED] %s priority=%s", frame.body(), priority)
             self._scheduler.put(task)
 
+            if self._config.run_once:
+                self.stop()
+
         self._logger.info("JSVV parser stopping ...")
         self._worker.stop()
         self._worker.join(timeout=5.0)
@@ -307,6 +314,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--stopbits", type=int, default=int(os.getenv("JSVV_STOPBITS", "1")))
     parser.add_argument("--bytesize", type=int, default=int(os.getenv("JSVV_BYTESIZE", "8")))
     parser.add_argument("--timeout", type=float, default=float(os.getenv("JSVV_TIMEOUT", "1.0")))
+    parser.add_argument("--timeout-ms", type=int, help="Serial read timeout v milisekundách (přepíše --timeout)")
     parser.add_argument("--network", type=int, default=int(os.getenv("JSVV_NETWORK_ID", "1")))
     parser.add_argument("--vyc", type=int, default=int(os.getenv("JSVV_VYC_ID", "1")))
     parser.add_argument("--kpps", default=os.getenv("JSVV_KPPS_ADDRESS", "0x0001"))
@@ -320,6 +328,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-file", default=os.getenv("JSVV_PARSER_LOG"))
     parser.add_argument("--log-level", default=os.getenv("JSVV_LOG_LEVEL", "INFO"))
     parser.add_argument("--audio-root", default=os.getenv("JSVV_AUDIO_ROOT"))
+    parser.add_argument("--once", action="store_true", help="Zpracuj pouze jeden rámec a ukonči se")
     return parser
 
 
@@ -346,6 +355,9 @@ def configure_logging(config: ListenerConfig) -> logging.Logger:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+
+    if getattr(args, "timeout_ms", None) is not None:
+        args.timeout = max(0.01, args.timeout_ms / 1000.0)
 
     if not args.port:
         raise SystemExit("JSVV port must be provided via --port or JSVV_PORT env var")
@@ -374,6 +386,7 @@ def main() -> None:
         log_file=Path(args.log_file).expanduser() if args.log_file else None,
         log_level=args.log_level,
         audio_root=audio_root,
+        run_once=bool(args.once),
     )
 
     logger = configure_logging(config)
@@ -387,8 +400,10 @@ def main() -> None:
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    with client:
-        daemon.start()
+    lock_context = PortLock(args.port) if args.port else nullcontext()
+    with lock_context:
+        with client:
+            daemon.start()
 
 
 if __name__ == "__main__":  # pragma: no cover

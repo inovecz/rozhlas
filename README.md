@@ -4,7 +4,7 @@
 
 - For API endpoints see `docs/api.md`.
 - Daemon management guide: `docs/daemons.md`.
-- Supervisor configs: `supervisor/*.conf` for GSM/JSVV listeners and queue workers.
+- Supervisor configs: `deploy/supervisor/*.conf` for GSM/JSVV listeners, alarm poller and queue workers.
 - Seeder `BroadcastSeeder` seeds demo broadcast/JSVV/GSM data; run `php artisan migrate --seed`.
 
 ## Instalace
@@ -25,6 +25,29 @@
 3. Otevřít v prohlížeči: http://rozhlas.lan:8000
 4. Přihlásit se jako admin (výchozí uživatel: admin, heslo: admin)
 5. Prohlížeč může vyžadovat povolení přístupu k mikrofonu a reproduktorům - povolit
+
+## RS-485 / Modbus konfigurace
+
+- Režim ovladače se nastavuje proměnnou `RF_RS485_MODE` (`gpio`, `rts`, `none`). Pokud není vyplněna, logika v `config/rf.php` automaticky sáhne po GPIO (`MODBUS_RS485_GPIO_ENABLE=true`) nebo RTS (`MODBUS_RS485_DRIVER_ENABLE=true`).
+- GPIO režim očekává proměnné `RS485_GPIO_CHIP`, `RS485_GPIO_LINE`, `RS485_GPIO_ACTIVE_HIGH`, případně `RS485_GPIO_LEAD_SECONDS` a `RS485_GPIO_TAIL_SECONDS` pro jemné nastavení přepínání DE/RE linky.
+- RTS režim používá `RS485_RTS_DEVICE` (typicky shodný se sériovým portem), `RS485_RTS_TX_HIGH`, `RS485_RTS_RX_HIGH` a volitelné `RS485_RTS_LEAD_SECONDS` / `RS485_RTS_TAIL_SECONDS`.
+- Jednotka Modbusu se řídí proměnnými `MODBUS_UNIT_ID` a `RF_UNIT_ID`. Pokud je nutné přepnout kartu mixéru nebo výchozí trasu, použijte skupinu `AUDIO_*` proměnných popsanou v `env-file.txt`.
+
+## Daemony a Supervisor
+
+- Lokální skript `./run_daemons.sh start|stop` načte `.env`, nastaví `PYTHONPATH` a spustí všechny Python listenery v `storage/logs/daemons/*.log`. Prerekvizity jako `socat`, `pyserial` a přístup k sériovým portům musí být k dispozici před startem.
+- Produkční nasazení využívá vzorové konfigurace v `deploy/supervisor/*.conf`. Každý program načítá `/etc/rozhlas/rozhlas.env`, přepne se do aplikačního adresáře (`/opt/rozhlas`) a spouští odpovídající wrapper v `daemons/`. Upravte cesty, uživatele a logy (`/var/log/rozhlas/*.log`) podle konkrétní instalace.
+- Queue worker používá stejný .env – proměnné `QUEUE_NAMES`, `QUEUE_SLEEP`, `QUEUE_TRIES` můžete ladit přímo v prostředí supervisoru.
+
+## Integrační testy (PTY)
+
+- Pro ověření sériové komunikace bez fyzického HW je připraven balík skriptů v `scripts/tests`. Testy využívají `socat`, `sqlite3` a lokální Python/Laravel CLI – před spuštěním se ujistěte, že jsou tyto nástroje dostupné.
+- Spuštění všech scénářů: `make test-scripts`. Target iteruje přes:
+  - `jsvv_roundtrip.sh` (parsing JSVV rámce),
+  - `control_tab_crc_and_events.sh` (CRC a ACK Control Tabu),
+  - `gsm_incoming_call_whitelist.sh` (whitelist + simulovaný hovor),
+  - `rf_tx_start_stop.sh` a `rf_read_buffers_lifo.sh` (stubovaný Modbus).
+- Skripty zapisují logy do `storage/logs/tests`; v případě selhání zobrazí cestu k logům a neuklízí dočasné soubory pro snadnou diagnostiku.
 
 ## Popis funkcí
 

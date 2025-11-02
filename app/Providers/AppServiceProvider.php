@@ -7,6 +7,8 @@ use App\Listeners\CoordinateControlChannel;
 use App\Listeners\HandleJsvvFaultNotifications;
 use App\Services\ControlChannelProcessManager;
 use App\Services\ControlChannelTransport;
+use App\Libraries\PythonClient;
+use App\Services\RF\RfBus;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -43,6 +45,13 @@ class AppServiceProvider extends ServiceProvider
                 (int) ($channelConfig['retry_attempts'] ?? 3),
                 (int) ($channelConfig['handshake_timeout_ms'] ?? 150),
                 $processManager,
+            );
+        });
+
+        $this->app->singleton(RfBus::class, function ($app): RfBus {
+            return new RfBus(
+                client: new PythonClient(),
+                cache: $app->make('cache'),
             );
         });
     }

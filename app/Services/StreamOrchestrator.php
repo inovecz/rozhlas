@@ -21,6 +21,7 @@ use App\Services\Mixer\MixerController;
 use App\Services\Mixer\PulseLoopbackManager;
 use App\Services\ControlChannelService;
 use App\Services\FmRadioService;
+use App\Services\RF\RfBus;
 use App\Services\VolumeManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Arr;
@@ -48,6 +49,7 @@ class StreamOrchestrator extends Service
         private readonly AudioRoutingService $audioRouting = new AudioRoutingService(),
         private readonly PulseLoopbackManager $loopbackManager = new PulseLoopbackManager(),
         private readonly FmRadioService $fmRadio = new FmRadioService(),
+        private readonly RfBus $rfBus = new RfBus(),
         ?ControlChannelService $controlChannel = null,
     ) {
         parent::__construct();
@@ -55,6 +57,16 @@ class StreamOrchestrator extends Service
     }
 
     public function start(array $payload): array
+    {
+        $source = (string) Arr::get($payload, 'source', 'unknown');
+        $priority = $this->resolveRfPriority($source);
+
+        return $this->rfBus->pushRequest($priority, function () use ($payload, $source): array {
+            return $this->startInternal($payload, $source);
+        });
+    }
+
+    private function startInternal(array $payload, string $source): array
     {
         $manualRoute = $this->normalizeNumericArray(Arr::get($payload, 'route', []));
         $originalLocationGroupIds = $this->normalizeNumericArray(
@@ -64,7 +76,6 @@ class StreamOrchestrator extends Service
         $originalNestIds = $this->normalizeNumericArray(Arr::get($payload, 'nests', []));
         $nestIds = $includeOrphanNests ? $this->mergeUnassignedNestIds($originalNestIds) : $originalNestIds;
         $options = Arr::get($payload, 'options', []);
-        $source = (string) Arr::get($payload, 'source', 'unknown');
 
         $targets = $this->resolveTargets($locationGroupIds, $nestIds);
         $route = $this->resolveRoute($manualRoute, $targets);
@@ -276,6 +287,13 @@ class StreamOrchestrator extends Service
 
     public function stop(?string $reason = null): array
     {
+        return $this->rfBus->pushRequest('stop', function () use ($reason): array {
+            return $this->stopInternal($reason);
+        });
+    }
+
+    private function stopInternal(?string $reason = null): array
+    {
         $session = BroadcastSession::query()
             ->where('status', 'running')
             ->latest('started_at')
@@ -382,8 +400,12 @@ class StreamOrchestrator extends Service
     public function getStatusDetails(): array
     {
         $session = BroadcastSession::query()->latest('created_at')->first();
-        $status = $this->client->getStatusRegisters();
-        $device = $this->client->getDeviceInfo();
+        $status = $this->rfBus->pushRequest('polling', function (): array {
+            return $this->client->getStatusRegisters();
+        });
+        $device = $this->rfBus->pushRequest('polling', function () {
+            return $this->client->getDeviceInfo();
+        });
 
         $details = [
             'session' => $session?->toArray(),
@@ -685,6 +707,21 @@ class StreamOrchestrator extends Service
 
             return null;
         }
+    }
+
+    private function resolveRfPriority(string $source): string
+    {
+        $normalized = strtolower($source);
+
+        return match ($normalized) {
+            'jsvv',
+            'jsvv_remote_voice',
+            'jsvv_local_voice',
+            'jsvv_external_primary',
+            'jsvv_external_secondary' => 'jsvv',
+            'gsm' => 'gsm',
+            default => 'plan',
+        };
     }
 
     private function sendControlChannelCommand(string $action, string $reason): ?ControlChannelCommand

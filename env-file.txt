@@ -1,0 +1,32 @@
+# Canonical environment keys for audio/broadcast configuration
+# Values shown represent sensible defaults for development. Adjust as needed.
+
+AUDIO_ROUTING_ENABLED=true
+AUDIO_FALLBACK_OUTPUT=default
+AUDIO_MIXER_ENABLED=true
+AUDIO_MIXER_BINARY=./python-client/mixer_control.py
+AUDIO_MIXER_TIMEOUT=10
+AUDIO_MIXER_CARD=0
+AUDIO_MIXER_RESET_PRESET=default
+AUDIO_MIXER_STATE_DIR=storage/mixer-presets
+
+AUDIO_DEFAULT_ROUTE=1,116,225
+AUDIO_LIVE_SOURCE=microphone
+AUDIO_LIVE_ROUTE=
+AUDIO_LIVE_ZONES=
+AUDIO_LIVE_UPDATE_ROUTE=false
+AUDIO_LIVE_TIMEOUT=
+AUDIO_LIVE_VOLUME_GROUPS=inputs,outputs
+
+AUDIO_SCHEDULE_INPUT=file
+AUDIO_SCHEDULE_RESET_INPUT=
+AUDIO_SCHEDULE_QUEUE=
+
+# Supplementary binaries/timeouts used by config/audio.php
+AUDIO_AMIXER_BINARY=amixer
+AUDIO_APLAY_BINARY=aplay
+AUDIO_ARECORD_BINARY=arecord
+AUDIO_ALSACTL_BINARY=alsactl
+AUDIO_PROCESS_TIMEOUT=5
+AUDIO_CAPTURE_DEVICE=default
+AUDIO_CAPTURE_FORMAT=cd

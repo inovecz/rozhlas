@@ -1,0 +1,233 @@
+CODEX RUNBOOK – Detailní implementační průvodce
+Bezdrátový rozhlas (Laravel + Python daemony)
+
+Repozitář: github.com/inovecz/rozhlas
+Databáze: SQLite (database.sqlite)
+Konfigurace: env-file.txt
+Dokumentace: docs/requirements/final/
+Audio: ALSA mixér (mic/file/fm)
+Komunikace: RS-485 (DE/RE přes GPIO16 nebo RTS)
+Daemony: Python (spouštěné přes ./run_daemons.sh a supervisor)
+
+⸻
+
+KROK 1 — Živé vysílání (ALSA okamžité přemapování vstupů)
+Cíl: uživatel si zvolí vstup (mikrofon / soubor / FM rádio) a změna se okamžitě aplikuje v ALSA.
+
+Codex:
+	1.	Zkontroluj, zda v app/Services/Audio/MixerService.php existuje metoda selectInput(). Pokud ano, doplň, aby volala amixer nebo alsactl restore.
+	2.	Přidej nebo ověř API endpointy:
+	•	POST /api/live/source → mění vstup (mic/file/fm)
+	•	POST /api/live/control → Play/Stop
+	3.	V UI přidej radio buttony pro výběr vstupu a file picker (pokud se volí soubor).
+	4.	Backend musí číst parametry z env: BROADCAST_MIXER_ENABLED a BROADCAST_MIXER_CARD.
+	5.	Pokud je ALSA karta nedostupná, zaloguj chybu, ale nespadni.
+
+Commit: live: UI + ALSA immediate routing
+
+⸻
+
+KROK 2 — ALSA profily a instalační skript
+Cíl: vytvořit a používat uložené profily vstupů (mic, file, fm).
+
+Codex:
+	1.	Prohledej projekt, zda existuje složka scripts/alsa/. Pokud ne, vytvoř ji.
+	2.	Vytvoř scripts/alsa/install_profiles.sh, který uloží výchozí mixéry do:
+	•	storage/app/alsa-profiles/mic.profile
+	•	storage/app/alsa-profiles/file.profile
+	•	storage/app/alsa-profiles/fm.profile
+	3.	Uprav MixerService::selectInput(), aby:
+	•	pokud profily existují, použila alsactl restore <path>
+	•	jinak fallback na příkaz amixer
+	4.	Zaloguj akci do storage/logs/mixer.log.
+
+Commit: alsa: profiles + installer + service wiring
+
+⸻
+
+KROK 3 — Záznam vysílání
+Cíl: umožnit nahrávání právě přehrávaného vstupu.
+
+Codex:
+	1.	Ověř, zda MixerService obsahuje startCapture() a stopCapture(). Pokud ne, doplň.
+	2.	Metoda startCapture spustí záznam přes arecord nebo ffmpeg na výstupní zařízení z ALSA.
+	3.	Záznam se ukládá do storage/app/public/recordings/.wav.
+	4.	Vytvoř API endpointy:
+	•	POST /api/recording/start
+	•	POST /api/recording/stop
+	5.	Pokud model Recording neexistuje, vytvoř migration a model (path, started_at, ended_at, duration_s, source).
+
+Commit: recording: API + service + minimal UI
+
+⸻
+
+KROK 4 — Plán vysílání (queue)
+Cíl: naplánovat vysílání tak, aby se spustilo a zastavilo ve stanovený čas.
+
+Codex:
+	1.	Ověř, zda existuje job StartPlannedBroadcast. Pokud ne, vytvoř.
+	2.	Job musí:
+	•	načíst plán ze DB
+	•	přepnout ALSA vstup
+	•	spustit přehrávání
+	•	po uplynutí času přehrávání stopnout.
+	3.	Ověř, že queue worker běží a používá konfiguraci z .env (QUEUE_CONNECTION).
+
+Commit: schedule: job + wiring
+
+⸻
+
+KROK 5 — JSVV z UI (STOP + ad-hoc sekvence)
+Cíl: přidat funkce do UI JSVV: STOP přehrávání a ad-hoc sekvence.
+
+Codex:
+	1.	Najdi část UI pro JSVV (v Blade/Livewire). Přidej tlačítko “Ukončit JSVV”.
+	2.	Backend:
+	•	POST /api/jsvv/command {type:‘STOP’}
+	•	POST /api/jsvv/command {type:‘SEQUENCE’, payload:{steps:[…]}}
+	3.	Aplikace musí zvládnout přehrát sekvenci předpřipravenou i dynamicky vytvořenou uživatelem.
+	4.	Ověř, že se při STOP správně zastaví případné přehrávání.
+
+Commit: jsvv: UI stop + ad-hoc composer
+
+⸻
+
+KROK 6 — RF Service + Modbus / RS-485
+Cíl: sjednotit komunikaci s vysílačem a přijímači.
+
+Codex:
+	1.	Ověř, zda v app/Services/RF/RfBus.php existují metody:
+	•	txStart(), txStop(), rxPlayLast(), readStatus(), readBuffersLifo().
+Pokud chybí, doplň je.
+	2.	Implementuj drivery:
+	•	DriverRs485Gpio – používá libgpiod (lead/tail/active_high z .env).
+	•	DriverRs485Rts – používá RTS linku pro přepínání TX/RX.
+	3.	Přidej config/rf.php, který mapuje MODBUS_* a RS485_* klíče z .env.
+	4.	Implementuj krátké cache locky (např. pomocí Laravel cache nebo Redis) pro zabránění kolizí.
+
+Commit: rf: service + rs485 drivers + config
+
+⸻
+
+KROK 7 — Artisan příkazy pro RF / JSVV / Alarm
+Cíl: CLI příkazy pro integraci a testování.
+
+Codex:
+	1.	Ověř, zda existují příkazy: rf:tx-start, rf:tx-stop, rf:rx-play-last, rf:read-status, jsvv:handle, alarm:poll.
+	2.	Pokud chybí, vytvoř nové Artisan Commands.
+	3.	Každý příkaz by měl využívat RfBus nebo MixerService.
+	4.	Přidej test-friendly příkazy:
+	•	port:send, port:expect
+	•	jsvv:test-send, ctab:test-send, gsm:test-send
+	•	modbus:test-read, modbus:test-write
+
+Commit: cli: artisan commands for rf/jsvv/alarm + test helpers
+
+⸻
+
+KROK 8 — Python daemony a listenery
+Cíl: implementovat daemony pro komunikaci (Python, ne PHP).
+
+Codex:
+	1.	Ověř, zda existují tyto soubory v daemons/:
+	•	jsvv_listener.py
+	•	gsm_listener.py
+	•	control_tab_listener.py
+	•	alarm_poller.py
+	2.	Každý má podporovat CLI parametry (–port, –baud, –once, –timeout-ms).
+	3.	Každý daemon:
+	•	otevře port, čte data,
+	•	zavolá php artisan příkaz (např. jsvv:handle nebo rf:tx-start),
+	•	uzavře port, i při chybě.
+	4.	Implementuj režim –once (pro testy).
+	5.	Přidej skript run_daemons.sh, který spustí všechny Python skripty a zapisuje logy.
+
+Commit: daemons(py): listeners + runner + supervisor
+
+⸻
+
+KROK 9 — Priority a kolize
+Cíl: zavést řízení priorit mezi procesy (STOP > JSVV > GSM > plán > polling).
+
+Codex:
+	1.	Uprav RfBus tak, aby obsahoval metodu pushRequest(priority, callable).
+	2.	Implementuj jednoduchou frontu požadavků s cache lockem.
+	3.	Python daemony posílají prioritu podle typu akce.
+
+Commit: rf: priority queue + integration with python daemons
+
+⸻
+
+KROK 10 — Testy (.sh) s reálnou simulací portů (PTY)
+Cíl: testy simulují skutečnou komunikaci – aplikace si porty otevře a zavře sama.
+
+Codex:
+	1.	Vytvoř scripts/tests/_pty.sh – helper, který přes socat vytvoří pár PTY (APP_TTY, FEED_TTY).
+	2.	Přidej testy:
+	•	jsvv_roundtrip.sh
+	•	control_tab_crc_and_events.sh
+	•	gsm_incoming_call_whitelist.sh
+	•	rf_tx_start_stop.sh
+	•	rf_read_buffers_lifo.sh
+	3.	Každý test:
+	•	spustí python listener s –once –port=”$APP_TTY”
+	•	pošle data přes artisan příkaz –port=”$FEED_TTY”
+	•	ověří výsledek (log nebo DB)
+	4.	Každý test musí vracet 0 při úspěchu, ≠0 při chybě.
+
+Commit: tests: PTY integration suite (python listeners + artisan senders)
+
+⸻
+
+KROK 11 — Revize .env
+Cíl: odstranit duplicity, sjednotit názvy, kontrola portů.
+
+Codex:
+	1.	Ověř, že scripts/env_sanity_check.sh kontroluje duplicity, prázdné hodnoty a kolize portů.
+	2.	Nahraď všechny staré názvy proměnných v kódu novými z env-file.txt.
+	3.	Neodstraňuj staré klíče z env souboru, ale ignoruj je v kódu.
+
+Commit: env: consolidation + sanity checks
+
+⸻
+
+KROK 12 — Supervisor & README
+Cíl: správné spuštění python démonů + queue worker.
+
+Codex:
+	1.	Přidej supervisor konfigurace:
+	•	deploy/supervisor/jsvv.conf
+	•	deploy/supervisor/gsm.conf
+	•	deploy/supervisor/controltab.conf
+	•	deploy/supervisor/alarm.conf
+	•	deploy/supervisor/queue.conf
+	2.	Aktualizuj README:
+	•	popis RS-485 režimů (gpio/rts)
+	•	jak spustit run_daemons.sh
+	•	jak spustit testy (make test-scripts).
+
+Commit: ops: supervisor (python) + README + runner
+
+⸻
+
+BONUS — Kontrakt pro testovací porty
+Každý listener i Artisan příkaz musí:
+	•	brát argument –port= (nebo PTY z testu)
+	•	otevřít port exkluzivně (flock nebo cache lock)
+	•	po IO port zavřít (i při chybě)
+	•	vrátit kód 0/≠0
+
+Testy používají PTY páry (APP_TTY, FEED_TTY) ze scripts/tests/_pty.sh.
+Listener běží na APP_TTY, test sender na FEED_TTY.
+
+⸻
+
+Akceptační body:
+	•	Live UI → ALSA: okamžité přepnutí vstupu
+	•	Záznam: vznikl soubor a metadata
+	•	JSVV: STOP + ad-hoc sekvence
+	•	Python daemony: stabilní, logované, testovatelné (–once)
+	•	RF/Modbus: TxControl 2/1, RxControl, buffery 0x3000–0x3009 (LIFO + zero)
+	•	Priority: STOP > JSVV > GSM > plán > polling
+	•	Testy: PTY simulace bez HW
+	•	.env: vyčištěný a bez duplicit

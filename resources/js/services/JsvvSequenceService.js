@@ -21,5 +21,9 @@ export default {
 
     fetchAssets(params = {}) {
         return http.get('jsvv/assets', {params}).then(response => response.data?.assets ?? []);
+    },
+
+    sendCommand({type, payload = {}}) {
+        return http.post('jsvv/command', {type, payload}).then(response => response.data ?? response);
     }
 }

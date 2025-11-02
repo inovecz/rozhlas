@@ -21,6 +21,7 @@ use App\Services\PlaylistAudioPlayer;
 use App\Services\SmsNotificationService;
 use App\Settings\JsvvSettings;
 use App\Services\StreamOrchestrator;
+use App\Services\RF\RfBus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Arr;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -155,6 +156,7 @@ class JsvvSequenceService extends Service
         private readonly PlaylistAudioPlayer $audioPlayer = new PlaylistAudioPlayer(),
         private readonly SmsNotificationService $smsService = new SmsNotificationService(),
         private readonly EmailNotificationService $emailService = new EmailNotificationService(),
+        private readonly RfBus $rfBus = new RfBus(),
     ) {
         parent::__construct();
     }
@@ -261,6 +263,82 @@ class JsvvSequenceService extends Service
 
         return $sequence->fresh()->toArray() + [
             'queue_position' => $this->calculateQueuePosition($sequence->id),
+        ];
+    }
+
+    public function stopAll(string $reason = 'manual_stop'): array
+    {
+        $lock = Cache::lock(self::RUNNER_LOCK_KEY, self::LOCK_TTL_SECONDS);
+        if (!$lock->get()) {
+            return [
+                'status' => 'busy',
+                'message' => 'Sekvencer je aktuálně zaneprázdněn.',
+            ];
+        }
+
+        $cancelled = [];
+        $stopped = null;
+
+        try {
+            DB::transaction(function () use (&$cancelled, &$stopped, $reason): void {
+                $running = JsvvSequence::query()
+                    ->where('status', 'running')
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($running !== null) {
+                    $running->update([
+                        'status' => 'cancelled',
+                        'failed_at' => now(),
+                        'error_message' => $reason,
+                    ]);
+                    $stopped = $running->id;
+                }
+
+                $queuedIds = JsvvSequence::query()
+                    ->where('status', 'queued')
+                    ->lockForUpdate()
+                    ->pluck('id');
+
+                if ($queuedIds->isNotEmpty()) {
+                    JsvvSequence::query()
+                        ->whereIn('id', $queuedIds->all())
+                        ->update([
+                            'status' => 'cancelled',
+                            'failed_at' => now(),
+                            'error_message' => $reason,
+                        ]);
+                    $cancelled = $queuedIds->all();
+                }
+            });
+        } finally {
+            $lock->release();
+        }
+
+        $this->clearActiveSequenceLock();
+
+        try {
+            $this->stopIfCurrentSourceIsJsvv('jsvv_manual_stop');
+        } catch (Throwable $exception) {
+            Log::warning('Unable to stop active JSVV session via orchestrator.', [
+                'error' => $exception->getMessage(),
+            ]);
+        }
+
+        try {
+            $this->withModbusLock(function (): void {
+                $this->client->stopStream();
+            });
+        } catch (Throwable $exception) {
+            Log::warning('Unable to stop JSVV stream via Modbus client.', [
+                'error' => $exception->getMessage(),
+            ]);
+        }
+
+        return [
+            'status' => 'stopped',
+            'stopped' => $stopped,
+            'cancelled' => $cancelled,
         ];
     }
 
@@ -406,19 +484,21 @@ class JsvvSequenceService extends Service
                     $remoteCommandPayload = $this->buildRemoteDtrxCommandPayload($items, $remoteDtrxConfig, $sequence->priority);
                 }
 
-                $startResponse = $this->withModbusLock(function () use (&$remoteCommandsWritten, $remoteCommandPayload, $route, $zones, $modbusUnitId): array {
-                    if ($remoteCommandPayload !== null) {
-                        $this->programRemoteDtrxCommands($remoteCommandPayload, $modbusUnitId);
-                        $remoteCommandsWritten = true;
-                    }
+                $startResponse = $this->rfBus->pushRequest('jsvv', function () use (&$remoteCommandsWritten, $remoteCommandPayload, $route, $zones, $modbusUnitId): array {
+                    return $this->withModbusLock(function () use (&$remoteCommandsWritten, $remoteCommandPayload, $route, $zones, $modbusUnitId): array {
+                        if ($remoteCommandPayload !== null) {
+                            $this->programRemoteDtrxCommands($remoteCommandPayload, $modbusUnitId);
+                            $remoteCommandsWritten = true;
+                        }
 
-                    return $this->client->startStream(
-                        $route !== [] ? $route : null,
-                        $zones !== [] ? $zones : null,
-                        null,
-                        $route !== [],
-                        $modbusUnitId
-                    );
+                        return $this->client->startStream(
+                            $route !== [] ? $route : null,
+                            $zones !== [] ? $zones : null,
+                            null,
+                            $route !== [],
+                            $modbusUnitId
+                        );
+                    });
                 });
 
                 if (($startResponse['success'] ?? false) === false) {
@@ -463,8 +543,10 @@ class JsvvSequenceService extends Service
                 $this->waitForRemotePlayback($sequence, $estimatedDuration);
                 $actualDuration = max(0.0, microtime(true) - $sequenceStart);
 
-                $stopResponse = $this->withModbusLock(function () use ($modbusUnitId): array {
-                    return $this->client->stopStream(null, $modbusUnitId);
+                $stopResponse = $this->rfBus->pushRequest('stop', function () use ($modbusUnitId): array {
+                    return $this->withModbusLock(function () use ($modbusUnitId): array {
+                        return $this->client->stopStream(null, $modbusUnitId);
+                    });
                 });
                 if (($stopResponse['success'] ?? true) === false) {
                     Log::warning('JSVV remote stop-stream reported error', [
@@ -489,8 +571,10 @@ class JsvvSequenceService extends Service
         } catch (Throwable $throwable) {
             if (!$useLocalStream && $remoteStreamStarted) {
                 try {
-                    $this->withModbusLock(function () use ($modbusUnitId): array {
-                        return $this->client->stopStream(null, $modbusUnitId);
+                    $this->rfBus->pushRequest('stop', function () use ($modbusUnitId): array {
+                        return $this->withModbusLock(function () use ($modbusUnitId): array {
+                            return $this->client->stopStream(null, $modbusUnitId);
+                        });
                     });
                 } catch (Throwable $stopException) {
                     Log::warning('Failed to stop remote JSVV stream after exception', [
@@ -521,8 +605,10 @@ class JsvvSequenceService extends Service
         } finally {
             if (!$useLocalStream && $remoteStreamStarted) {
                 try {
-                    $this->withModbusLock(function () use ($modbusUnitId): array {
-                        return $this->client->stopStream(null, $modbusUnitId);
+                    $this->rfBus->pushRequest('stop', function () use ($modbusUnitId): array {
+                        return $this->withModbusLock(function () use ($modbusUnitId): array {
+                            return $this->client->stopStream(null, $modbusUnitId);
+                        });
                     });
                 } catch (Throwable $stopException) {
                     Log::warning('Failed to stop remote JSVV stream in finally block', [
@@ -539,8 +625,10 @@ class JsvvSequenceService extends Service
                 && $remoteCommandsWritten
             ) {
                 try {
-                    $this->withModbusLock(function () use ($remoteCommandPayload, $modbusUnitId): void {
-                        $this->resetRemoteDtrxCommands($remoteCommandPayload, $modbusUnitId);
+                    $this->rfBus->pushRequest('jsvv', function () use ($remoteCommandPayload, $modbusUnitId): void {
+                        $this->withModbusLock(function () use ($remoteCommandPayload, $modbusUnitId): void {
+                            $this->resetRemoteDtrxCommands($remoteCommandPayload, $modbusUnitId);
+                        });
                     });
                 } catch (Throwable $resetException) {
                     Log::warning('Failed to reset remote DTRX registers after JSVV sequence', [

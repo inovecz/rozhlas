@@ -23,13 +23,7 @@ $toBool = static function (mixed $value, bool $default = true): bool {
     return $default;
 };
 
-$routingEnabledEnv = env('BROADCAST_AUDIO_ROUTING_ENABLED');
-if ($routingEnabledEnv === null) {
-    $routingEnabledEnv = env('BROADCAST_MIXER_ENABLED');
-}
-if ($routingEnabledEnv === null) {
-    $routingEnabledEnv = true;
-}
+$routingEnabledEnv = env('AUDIO_ROUTING_ENABLED', true);
 
 $defaultOutputIdentifier = (string) env('AUDIO_DEFAULT_OUTPUT', 'lineout');
 if ($defaultOutputIdentifier === '') {
@@ -41,6 +35,8 @@ if ($defaultPresetIdentifier === '') {
     $defaultPresetIdentifier = 'microphone';
 }
 
+$mixerCard = env('AUDIO_MIXER_CARD', '0');
+
 return [
     /*
      * When false, mixer commands are skipped entirely. Falls back to the mixer toggle.
@@ -51,13 +47,13 @@ return [
      * ALSA device that should receive audio when routing is disabled. Not applied automatically
      * while routing is enabled (the mixer definitions take precedence).
      */
-    'fallback_output_device' => (string) env('BROADCAST_AUDIO_FALLBACK_OUTPUT', 'default'),
+    'fallback_output_device' => (string) env('AUDIO_FALLBACK_OUTPUT', 'default'),
 
     /*
      * Default ALSA card used when invoking amixer/aplay/arecord.
      * Set AUDIO_MIXER_CARD in the environment to override.
      */
-    'card' => env('AUDIO_MIXER_CARD', '0'),
+    'card' => $mixerCard,
 
     /*
      * Executables used for mixer and device probing.
@@ -277,5 +273,14 @@ return [
             'mute_control' => 'ADC Capture Switch',
             'type' => 'capture',
         ],
+    ],
+
+    /*
+     * Audio capture defaults for live recordings.
+     */
+    'capture' => [
+        'device' => env('AUDIO_CAPTURE_DEVICE', 'default'),
+        'format' => env('AUDIO_CAPTURE_FORMAT', 'cd'),
+        'directory' => storage_path('app/public/recordings'),
     ],
 ];

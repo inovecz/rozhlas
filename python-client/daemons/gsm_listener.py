@@ -18,6 +18,7 @@ import json
 import os
 import queue
 import signal
+import subprocess
 import threading
 import time
 import uuid
@@ -25,6 +26,7 @@ from dataclasses import dataclass, asdict
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
+from contextlib import nullcontext
 
 import requests
 
@@ -34,6 +36,8 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # pragma: no cover - graceful fallback
     serial = None  # type: ignore
     Serial = object  # type: ignore
+
+from _locks import PortLock
 
 
 class CallState(Enum):
@@ -55,17 +59,52 @@ class CallEvent:
     def to_payload(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["state"] = self.state.value
+        payload.setdefault("priority", "gsm")
         return payload
 
 
 class BackendSink:
-    def __init__(self, webhook_url: str | None, auth_token: str | None, timeout: float) -> None:
+    def __init__(
+        self,
+        webhook_url: str | None,
+        auth_token: str | None,
+        timeout: float,
+        artisan_bin: str | None = None,
+        artisan_path: str = "artisan",
+        artisan_command: str = "gsm:test-send",
+        project_root: Path | None = None,
+    ) -> None:
         self._webhook_url = webhook_url
         self._auth_token = auth_token
         self._timeout = timeout
+        self._artisan_bin = artisan_bin
+        self._artisan_path = artisan_path
+        self._artisan_command = artisan_command
+        self._project_root = project_root or Path(__file__).resolve().parents[2]
 
     def send(self, event: CallEvent) -> dict[str, Any]:
         payload = event.to_payload()
+        if not self._webhook_url and self._artisan_bin:
+            try:
+                completed = subprocess.run(
+                    [self._artisan_bin, self._artisan_path, self._artisan_command],
+                    input=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=self._timeout,
+                    check=False,
+                    cwd=str(self._project_root),
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                return {"status": "error", "message": str(exc)}
+
+            if completed.stdout:
+                try:
+                    return json.loads(completed.stdout.decode("utf-8"))
+                except json.JSONDecodeError:
+                    pass
+            return {"status": "ok", "exit_code": completed.returncode}
+
         if not self._webhook_url:
             print(json.dumps(payload, ensure_ascii=False), flush=True)
             return {"status": "simulated"}
@@ -246,6 +285,7 @@ class GSMListener:
         signal_interval: float,
         auto_answer_delay_ms: int,
         max_ring_attempts: int,
+        once: bool = False,
     ) -> None:
         self._sink = sink
         self._client = client
@@ -254,6 +294,7 @@ class GSMListener:
         self._signal_interval = max(5.0, signal_interval)
         self._auto_answer_delay_ms = auto_answer_delay_ms
         self._max_ring_attempts = max(1, max_ring_attempts)
+        self._once = once
 
         self._queue: queue.Queue[tuple[CallEvent, bool]] = queue.Queue()
         self._stop_event = threading.Event()
@@ -270,6 +311,7 @@ class GSMListener:
 
         if self._simulation:
             self._simulate_events()
+            self.stop()
             return
 
         assert self._client is not None
@@ -289,10 +331,12 @@ class GSMListener:
                 self._handle_modem_line(line)
         finally:
             self._client.close()
+            self.stop()
 
     def stop(self) -> None:
         self._stop_event.set()
-        self._dispatcher.join(timeout=self._graceful_timeout)
+        if self._dispatcher.is_alive():
+            self._dispatcher.join(timeout=self._graceful_timeout)
 
     def _dispatch_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -447,6 +491,8 @@ class GSMListener:
             metadata=metadata,
         )
         self._queue.put((event, expect_response))
+        if self._once:
+            self.stop()
 
     def _simulate_events(self) -> None:
         session_id = uuid.uuid4().hex
@@ -461,6 +507,8 @@ class GSMListener:
                 break
             self._queue.put((event, True))
             time.sleep(1.0)
+            if self._once:
+                break
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -474,6 +522,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--parity", default=os.getenv("GSM_SERIAL_PARITY", "N"))
     parser.add_argument("--stopbits", type=int, default=int(os.getenv("GSM_SERIAL_STOPBITS", "1")))
     parser.add_argument("--timeout-serial", type=float, default=float(os.getenv("GSM_SERIAL_TIMEOUT", "0.5")))
+    parser.add_argument("--timeout-ms", type=int, help="Serial timeout v milisekundách (přepíše --timeout-serial)")
     parser.add_argument("--write-timeout", type=float, default=float(os.getenv("GSM_SERIAL_WRITE_TIMEOUT", "1")))
     parser.add_argument("--poll", type=float, default=float(os.getenv("GSM_POLL_INTERVAL", "0.2")))
     parser.add_argument("--graceful", type=float, default=float(os.getenv("GSM_GRACEFUL_TIMEOUT", "5")))
@@ -482,6 +531,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-ring", type=int, default=int(os.getenv("GSM_MAX_RING_ATTEMPTS", "6")))
     parser.add_argument("--simulate", action="store_true", help="Force simulation mode (ignore modem)")
     parser.add_argument("--sim-pin", default=os.getenv("GSM_SIM_PIN"))
+    parser.add_argument("--artisan-bin", default=os.getenv("ARTISAN_BIN", "php"))
+    parser.add_argument("--artisan-path", default=os.getenv("ARTISAN_PATH", "artisan"))
+    parser.add_argument("--artisan-command", default=os.getenv("GSM_ARTISAN_COMMAND", "gsm:test-send"))
+    parser.add_argument("--project-root", default=str(Path(__file__).resolve().parents[2]))
+    parser.add_argument("--once", action="store_true", help="Zpracuj první událost a ukonči se")
     return parser
 
 
@@ -489,7 +543,20 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    sink = BackendSink(args.webhook, args.token, args.timeout)
+    if getattr(args, "timeout_ms", None) is not None:
+        args.timeout_serial = max(0.01, args.timeout_ms / 1000.0)
+
+    project_root = Path(args.project_root).expanduser()
+
+    sink = BackendSink(
+        args.webhook,
+        args.token,
+        args.timeout,
+        artisan_bin=args.artisan_bin,
+        artisan_path=args.artisan_path,
+        artisan_command=args.artisan_command,
+        project_root=project_root,
+    )
 
     client: Optional[Sim7600ATClient]
     if args.simulate:
@@ -514,6 +581,7 @@ def main() -> None:
         signal_interval=args.signal_interval,
         auto_answer_delay_ms=args.answer_delay,
         max_ring_attempts=args.max_ring,
+        once=bool(args.once),
     )
 
     def handle_signal(signum, _frame):  # noqa: ANN001
@@ -523,7 +591,12 @@ def main() -> None:
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    listener.start()
+    lock_context = nullcontext()
+    if client is not None and args.port:
+        lock_context = PortLock(args.port)
+
+    with lock_context:
+        listener.start()
 
 
 if __name__ == "__main__":  # pragma: no cover

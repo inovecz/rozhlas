@@ -17,11 +17,14 @@ use App\Http\Controllers\Api\ControlTabController;
 use App\Http\Controllers\Api\GsmController;
 use App\Http\Controllers\Api\JsvvEventController;
 use App\Http\Controllers\Api\JsvvSequenceController;
+use App\Http\Controllers\Api\JsvvCommandController;
 use App\Http\Controllers\Api\LiveBroadcastApiController;
 use App\Http\Controllers\Api\ManualControlController;
 use App\Http\Controllers\Api\TelemetryController;
 use App\Http\Controllers\Api\AudioIoController;
 use App\Http\Controllers\Api\SystemStatusController;
+use App\Http\Controllers\Api\LiveAudioController;
+use App\Http\Controllers\Api\RecordingController;
 
 Route::group(['prefix' => 'auth', 'middleware' => ['api', 'auth:api']], static function () {
     Route::post('/login', [AuthController::class, 'login'])->withoutMiddleware(['auth:api']);
@@ -77,6 +80,9 @@ Route::group(['middleware' => ['api']], static function () {
         Route::get('/audio-devices', [LiveBroadcastApiController::class, 'audioDevices']);
     });
 
+    Route::post('/live/source', [LiveAudioController::class, 'selectSource']);
+    Route::post('/live/control', [LiveAudioController::class, 'control']);
+
     Route::group(['prefix' => 'audio'], static function () {
         Route::get('/', [AudioIoController::class, 'status']);
         Route::post('/input', [AudioIoController::class, 'setInput']);
@@ -84,11 +90,17 @@ Route::group(['middleware' => ['api']], static function () {
         Route::post('/volume', [AudioIoController::class, 'setVolume']);
     });
 
+    Route::group(['prefix' => 'recording'], static function () {
+        Route::post('/start', [RecordingController::class, 'start']);
+        Route::post('/stop', [RecordingController::class, 'stop']);
+    });
+
     Route::group(['prefix' => 'jsvv'], static function () {
         Route::post('/sequences', [JsvvSequenceController::class, 'plan']);
         Route::post('/sequences/{sequenceId}/trigger', [JsvvSequenceController::class, 'trigger']);
         Route::get('/assets', [JsvvSequenceController::class, 'assets']);
         Route::post('/events', JsvvEventController::class);
+        Route::post('/command', JsvvCommandController::class);
     });
 
     Route::group(['prefix' => 'gsm'], static function () {

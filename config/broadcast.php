@@ -95,7 +95,7 @@ $mixerPresets['default'] = [
     'args' => ['artisan', 'audio:preset', 'default'],
 ];
 
-$resetPreset = (string) env('BROADCAST_MIXER_RESET_PRESET', 'default');
+$resetPreset = (string) env('AUDIO_MIXER_RESET_PRESET', 'default');
 if ($resetPreset === '') {
     $resetPreset = 'default';
 }
@@ -134,12 +134,12 @@ foreach ($outputRoutingIdentifiers as $identifier) {
 return [
     'default_route' => array_values(array_filter(array_map(
         static fn ($value) => (int) trim($value),
-        explode(',', (string) env('BROADCAST_DEFAULT_ROUTE', '1,116,225')),
+        explode(',', (string) env('AUDIO_DEFAULT_ROUTE', '1,116,225')),
     ))),
     'mixer' => [
-        'enabled' => env('BROADCAST_MIXER_ENABLED', false),
-        'binary' => env('BROADCAST_MIXER_BINARY', PHP_BINARY),
-        'timeout' => (int) env('BROADCAST_MIXER_TIMEOUT', 10),
+        'enabled' => env('AUDIO_MIXER_ENABLED', false),
+        'binary' => env('AUDIO_MIXER_BINARY', PHP_BINARY),
+        'timeout' => (int) env('AUDIO_MIXER_TIMEOUT', 10),
         'presets' => $mixerPresets,
         'reset' => [
             'args' => ['artisan', 'audio:preset', $resetPreset],
@@ -150,14 +150,14 @@ return [
         ],
     ],
     'live' => [
-        'source' => env('BROADCAST_LIVE_SOURCE', 'microphone'),
-        'route' => $parseIntList(env('BROADCAST_LIVE_ROUTE')),
-        'zones' => $parseIntList(env('BROADCAST_LIVE_ZONES')),
-        'update_route' => $parseBool(env('BROADCAST_LIVE_UPDATE_ROUTE', false)),
-        'timeout' => ($timeout = env('BROADCAST_LIVE_TIMEOUT')) !== null && $timeout !== ''
+        'source' => env('AUDIO_LIVE_SOURCE', 'microphone'),
+        'route' => $parseIntList(env('AUDIO_LIVE_ROUTE')),
+        'zones' => $parseIntList(env('AUDIO_LIVE_ZONES')),
+        'update_route' => $parseBool(env('AUDIO_LIVE_UPDATE_ROUTE', false)),
+        'timeout' => ($timeout = env('AUDIO_LIVE_TIMEOUT')) !== null && $timeout !== ''
             ? (float) $timeout
             : null,
-        'volume_groups' => $parseStringList(env('BROADCAST_LIVE_VOLUME_GROUPS', 'inputs,outputs')),
+        'volume_groups' => $parseStringList(env('AUDIO_LIVE_VOLUME_GROUPS', 'inputs,outputs')),
     ],
     'playlist' => [
         'storage_root' => env('PLAYLIST_STORAGE_ROOT', storage_path('app/recordings')),
@@ -187,5 +187,11 @@ return [
                 ? (float) $playerTimeout
                 : null,
         ],
+    ],
+
+    'schedule' => [
+        'input' => env('AUDIO_SCHEDULE_INPUT', 'file'),
+        'reset_input' => env('AUDIO_SCHEDULE_RESET_INPUT'),
+        'queue' => env('AUDIO_SCHEDULE_QUEUE'),
     ],
 ];

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-$mixerCard = env('AUDIO_MIXER_CARD', env('BROADCAST_MIXER_CARD', '2'));
+$mixerCard = env('AUDIO_MIXER_CARD', '2');
 $volumeCommandParts = ['amixer'];
 if ($mixerCard !== null && $mixerCard !== '') {
     $volumeCommandParts[] = '-c';

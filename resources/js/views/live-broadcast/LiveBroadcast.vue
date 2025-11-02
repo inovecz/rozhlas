@@ -159,6 +159,23 @@ const hasPlaylistSelection = computed(() => {
     || form.outroJingle !== null;
 });
 
+const recordingStatusLabel = computed(() => {
+  if (recordingState.active) {
+    return 'Záznam právě probíhá. Ukončete jej před spuštěním dalšího.';
+  }
+  const info = recordingState.info;
+  if (info?.ended_at) {
+    const endedAt = new Date(info.ended_at);
+    if (!Number.isNaN(endedAt.getTime())) {
+      return `Poslední záznam dokončen ${formatDate(endedAt, 'd.m.Y H:i:s')}`;
+    }
+  }
+  if (info?.path) {
+    return `Poslední soubor: ${info.path}`;
+  }
+  return 'Záznam neběží.';
+});
+
 const routingEnabled = computed(() => mixerStatus.value?.enabled !== false);
 
 const isStreaming = computed(() => status.value?.session?.status === 'running');
@@ -177,6 +194,12 @@ const volumeSlider = {
   max: 100,
   step: 1,
 };
+
+const recordingState = reactive({
+  active: false,
+  info: null,
+});
+const recordingBusy = ref(false);
 
 const hardwareSourceIds = new Set([
   'microphone',
@@ -217,6 +240,21 @@ const sourceToMixerInputMap = {
   input_8: 'aux8',
   input_9: 'aux9',
 };
+
+const primaryInputIds = ['mic', 'file', 'fm'];
+const primaryMixerOptions = computed(() => primaryInputIds
+  .map((identifier) => {
+    const item = mixerInputs.value.find((entry) => entry.id === identifier);
+    if (!item) {
+      return null;
+    }
+    return {
+      id: item.id,
+      label: item.label ?? item.id,
+    };
+  })
+  .filter(Boolean)
+);
 
 const parseSimpleMixerControl = (entry) => {
   if (typeof entry !== 'string') {
@@ -1029,8 +1067,9 @@ watch(selectedMixerInputId, async (newValue, oldValue) => {
 
   mixerInputUpdating.value = true;
   try {
-    const updatedStatus = await AudioService.setInput(newValue);
-    await refreshMixerStatus(true, updatedStatus);
+    const response = await LiveBroadcastService.selectLiveSource({identifier: newValue});
+    const updatedStatus = response?.mixer ?? null;
+    await refreshMixerStatus(true, updatedStatus ?? null);
     toast.success('Vstup ústředny byl přepnut.');
   } catch (error) {
     console.error('Failed to switch audio input', error);
@@ -1714,6 +1753,44 @@ const removePlaylistItem = (index) => {
   form.playlistItems.splice(index, 1);
 };
 
+const startRecordingCapture = async () => {
+  if (recordingBusy.value) {
+    return;
+  }
+  recordingBusy.value = true;
+  try {
+    const response = await LiveBroadcastService.startRecording({source: form.source});
+    recordingState.active = true;
+    recordingState.info = response?.recording ?? null;
+    toast.success('Záznam byl spuštěn.');
+  } catch (error) {
+    console.error('Failed to start capture', error);
+    const message = error?.response?.data?.message ?? 'Nepodařilo se spustit záznam.';
+    toast.error(message);
+  } finally {
+    recordingBusy.value = false;
+  }
+};
+
+const stopRecordingCapture = async () => {
+  if (recordingBusy.value) {
+    return;
+  }
+  recordingBusy.value = true;
+  try {
+    const response = await LiveBroadcastService.stopRecording();
+    recordingState.active = false;
+    recordingState.info = response?.recording ?? null;
+    toast.info('Záznam byl ukončen.');
+  } catch (error) {
+    console.error('Failed to stop capture', error);
+    const message = error?.response?.data?.message ?? 'Nepodařilo se zastavit záznam.';
+    toast.error(message);
+  } finally {
+    recordingBusy.value = false;
+  }
+};
+
 </script>
 
 <template>
@@ -1828,22 +1905,44 @@ const removePlaylistItem = (index) => {
               </p>
             </div>
 
-            <div class="space-y-1">
-              <label class="block text-sm font-medium text-gray-700">Vstup</label>
-              <select
-                  v-model="selectedMixerInputId"
-                  class="form-select w-full border border-gray-300 rounded-md bg-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-40"
-                  :disabled="mixerLoading || mixerInputUpdating || mixerInputs.length === 0">
-                <option v-for="input in mixerInputs" :key="input.id" :value="input.id">
-                  {{ input.label }}
-                </option>
-              </select>
-              <p v-if="mixerLoading" class="text-xs text-gray-500">Načítám dostupné vstupy…</p>
-              <p v-else-if="mixerInputUpdating" class="text-xs text-gray-500">Přepínám vstup…</p>
-              <p v-else-if="mixerInputs.length === 0" class="text-xs text-gray-500">Žádné vstupy nejsou k dispozici.</p>
-              <p class="text-xs text-gray-500">
-                Vybraný vstup se nastaví bez přerušení aktuálního vysílání.
-              </p>
+            <div class="space-y-3">
+              <div v-if="primaryMixerOptions.length > 0" class="space-y-1">
+                <span class="block text-sm font-medium text-gray-700">Rychlý výběr vstupu</span>
+                <div class="flex flex-wrap gap-3">
+                  <label
+                      v-for="option in primaryMixerOptions"
+                      :key="option.id"
+                      class="flex items-center gap-2 rounded border border-gray-200 bg-white px-3 py-2 text-sm shadow-sm transition hover:border-primary focus-within:border-primary"
+                  >
+                    <input
+                        type="radio"
+                        class="form-radio text-primary focus:ring-primary"
+                        :value="option.id"
+                        v-model="selectedMixerInputId"
+                        :disabled="mixerLoading || mixerInputUpdating"
+                    >
+                    <span>{{ option.label }}</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="space-y-1">
+                <label class="block text-sm font-medium text-gray-700">Vstup</label>
+                <select
+                    v-model="selectedMixerInputId"
+                    class="form-select w-full border border-gray-300 rounded-md bg-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-40"
+                    :disabled="mixerLoading || mixerInputUpdating || mixerInputs.length === 0">
+                  <option v-for="input in mixerInputs" :key="input.id" :value="input.id">
+                    {{ input.label }}
+                  </option>
+                </select>
+                <p v-if="mixerLoading" class="text-xs text-gray-500">Načítám dostupné vstupy…</p>
+                <p v-else-if="mixerInputUpdating" class="text-xs text-gray-500">Přepínám vstup…</p>
+                <p v-else-if="mixerInputs.length === 0" class="text-xs text-gray-500">Žádné vstupy nejsou k dispozici.</p>
+                <p class="text-xs text-gray-500">
+                  Vybraný vstup se nastaví bez přerušení aktuálního vysílání.
+                </p>
+              </div>
             </div>
 
             <div v-if="showCentralFilePicker" class="space-y-3">
@@ -1904,6 +2003,29 @@ const removePlaylistItem = (index) => {
             </div>
 
             <Textarea v-model="form.note" label="Poznámka" rows="2" placeholder="Nepovinné doplňující údaje"/>
+
+            <div class="space-y-2">
+              <div class="flex flex-wrap items-center gap-3">
+                <Button
+                    variant="primary"
+                    icon="mdi-record-circle"
+                    :disabled="recordingBusy || recordingState.active"
+                    @click="startRecordingCapture">
+                  Spustit záznam
+                </Button>
+                <Button
+                    variant="ghost"
+                    icon="mdi-stop-circle"
+                    :disabled="recordingBusy || !recordingState.active"
+                    @click="stopRecordingCapture">
+                  Ukončit záznam
+                </Button>
+                <span v-if="recordingBusy" class="text-xs text-gray-500">Zpracovávám…</span>
+              </div>
+              <div class="text-xs text-gray-500">
+                {{ recordingStatusLabel }}
+              </div>
+            </div>
 
             <div v-if="showFmInfo" class="space-y-2 text-sm">
               <div><strong>Frekvence FM rádia:</strong> {{ form.fmFrequency || 'Neznámá' }}</div>

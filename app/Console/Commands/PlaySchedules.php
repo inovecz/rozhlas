@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Jobs\StartPlannedBroadcast;
 use App\Models\Schedule;
 use Illuminate\Console\Command;
 
@@ -21,33 +22,24 @@ class PlaySchedules extends Command
      *
      * @var string
      */
-    protected $description = 'Command description';
+    protected $description = 'Dispatch planned broadcast jobs for schedules that are due.';
 
     /**
      * Execute the console command.
      */
     public function handle(): void
     {
-        $broadcast = Schedule::where('scheduled_at', now()->setSecond(0))->first();
-        if ($broadcast) {
-            if ($intro = $broadcast->intro) {
-                exec('afplay "'.storage_path('app/'.$intro->getStoragePath()).'"');
-            }
-            if ($opening = $broadcast->opening) {
-                exec('afplay "'.storage_path('app/'.$opening->getStoragePath()).'"');
-            }
-            if ($commons = $broadcast->commons) {
-                foreach ($commons as $common) {
-                    exec('afplay "'.storage_path('app/'.$common->getStoragePath()).'"');
-                }
-            }
-            if ($closing = $broadcast->closing) {
-                exec('afplay "'.storage_path('app/'.$closing->getStoragePath()).'"');
-            }
-            if ($outro = $broadcast->outro) {
-                exec('afplay "'.storage_path('app/'.$outro->getStoragePath()).'"');
-            }
-            $broadcast->update(['processed_at' => now()]);
+        $now = now();
+
+        $dueSchedules = Schedule::query()
+            ->whereNull('processed_at')
+            ->where('scheduled_at', '<=', $now)
+            ->orderBy('scheduled_at')
+            ->limit(25)
+            ->pluck('id');
+
+        foreach ($dueSchedules as $scheduleId) {
+            StartPlannedBroadcast::dispatch((int) $scheduleId);
         }
     }
 }
