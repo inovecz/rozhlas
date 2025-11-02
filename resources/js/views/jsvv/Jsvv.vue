@@ -71,6 +71,14 @@ const builderFilters = reactive({
   search: '',
 });
 
+function goBack() {
+  if (typeof window !== 'undefined' && window.history && window.history.length > 1) {
+    router.back();
+    return;
+  }
+  router.push({name: 'LiveBroadcast'});
+}
+
 onMounted(async () => {
   await Promise.all([fetchJsvvAlarms(), fetchJsvvAudios()]);
   await loadFmSettings();
@@ -742,6 +750,9 @@ function openProtocol() {
   <PageContent label="Poplach JSVV">
     <div class="space-y-6">
       <div class="flex flex-wrap gap-3">
+        <Button icon="mdi-arrow-left" variant="ghost" size="sm" @click="goBack">
+          Zpět
+        </Button>
         <Button icon="mdi-format-list-bulleted" variant="secondary" size="sm" @click="openProtocol">
           Protokol JSVV
         </Button>

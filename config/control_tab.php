@@ -20,6 +20,7 @@ return [
     'graceful_timeout' => (float) env('CONTROL_TAB_GRACEFUL_TIMEOUT', 5.0),
     'retry_backoff_ms' => (int) env('CONTROL_TAB_RETRY_BACKOFF_MS', 250),
     'default_location_group_id' => (int) env('CONTROL_TAB_DEFAULT_LOCATION_GROUP_ID', 1),
+    'test_progress_field' => (int) env('CONTROL_TAB_TEST_PROGRESS_FIELD', 1),
     'text_fields' => [
         1 => 'status_summary',
         2 => 'running_duration',

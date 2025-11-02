@@ -1,5 +1,5 @@
 <script setup>
-import {onBeforeUnmount, onMounted, ref} from "vue";
+import {computed, onBeforeUnmount, onMounted, ref} from "vue";
 import PageContent from "../../components/custom/PageContent.vue";
 import Box from "../../components/custom/Box.vue";
 import Button from "../../components/forms/Button.vue";
@@ -99,6 +99,55 @@ const refreshNow = async () => {
     return;
   }
   await loadOverview();
+};
+
+const diagnosticsList = computed(() => {
+  const metrics = overview.value?.diagnostics?.metrics ?? {};
+  return Object.keys(metrics).map((key) => {
+    const item = metrics[key] ?? {};
+    return {
+      key,
+      label: item.label ?? key,
+      state: item.state ?? 'unknown',
+      value: item.value ?? null,
+      updatedAt: item.updated_at ?? null,
+    };
+  });
+});
+
+const diagnosticStateClass = (state) => {
+  switch ((state ?? '').toLowerCase()) {
+    case 'ok':
+      return 'badge-success';
+    case 'fault':
+      return 'badge-error';
+    default:
+      return 'badge-warning';
+  }
+};
+
+const diagnosticStateLabel = (state) => {
+  switch ((state ?? '').toLowerCase()) {
+    case 'ok':
+      return 'V pořádku';
+    case 'fault':
+      return 'Porucha';
+    default:
+      return 'Neznámý';
+  }
+};
+
+const formatDiagnosticValue = (value) => {
+  if (value === null || value === undefined) {
+    return '—';
+  }
+  if (value === true || value === 1) {
+    return 'Ano';
+  }
+  if (value === false || value === 0) {
+    return 'Ne';
+  }
+  return String(value);
 };
 </script>
 
@@ -212,6 +261,40 @@ const refreshNow = async () => {
             </tbody>
           </table>
         </div>
+      </Box>
+
+      <Box label="Diagnostika VP">
+        <div v-if="!overview" class="text-sm text-gray-500">Načítám data…</div>
+        <template v-else>
+          <div
+              v-if="overview.diagnostics?.error"
+              class="alert alert-warning shadow mb-3 flex items-center gap-2">
+            <span class="mdi mdi-alert"></span>
+            <span>Diagnostiku se nepodařilo načíst: {{ overview.diagnostics.error }}</span>
+          </div>
+          <div v-if="diagnosticsList.length === 0" class="text-sm text-gray-500">
+            Žádné diagnostické metriky nejsou k dispozici.
+          </div>
+          <div v-else class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div
+                v-for="metric in diagnosticsList"
+                :key="metric.key"
+                class="border border-gray-200 rounded-lg p-4 bg-white shadow-sm space-y-2">
+              <div class="flex items-center justify-between gap-3">
+                <div class="font-semibold text-gray-800">{{ metric.label }}</div>
+                <div class="badge" :class="diagnosticStateClass(metric.state)">
+                  {{ diagnosticStateLabel(metric.state) }}
+                </div>
+              </div>
+              <div class="text-sm text-gray-600">
+                Hodnota: <span class="font-medium">{{ formatDiagnosticValue(metric.value) }}</span>
+              </div>
+              <div class="text-xs text-gray-500">
+                Aktualizováno: {{ formatTimestamp(metric.updatedAt) }}
+              </div>
+            </div>
+          </div>
+        </template>
       </Box>
     </div>
   </PageContent>

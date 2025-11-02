@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Exceptions\BroadcastLockedException;
+use App\Jobs\EnforceBroadcastTimeout;
 use App\Jobs\ProcessRecordingPlaylist;
 use App\Libraries\PythonClient;
 use App\Models\ControlChannelCommand;
@@ -40,8 +41,32 @@ class StreamOrchestrator extends Service
     private const MAX_DEST_ZONES = 5;
     private const JSVV_ACTIVE_LOCK_KEY = 'jsvv:sequence:active';
     private const MODBUS_LOCK_KEY = 'modbus:serial';
+    private const AUTO_TIMEOUT_DEFAULT_SECONDS = 595;
+    private const AUTO_TIMEOUT_FALLBACK_SOURCES = [
+        'microphone',
+        'pc_webrtc',
+        'system_audio',
+        'jsvv_remote_voice',
+        'jsvv_local_voice',
+        'jsvv_external_primary',
+        'jsvv_external_secondary',
+        'control_box',
+        'fm_radio',
+        'input_2',
+        'input_3',
+        'input_4',
+        'input_5',
+        'input_6',
+        'input_7',
+        'input_8',
+        'input_9',
+    ];
 
     private ?ControlChannelService $controlChannel;
+    private bool $autoTimeoutEnabled;
+    private int $autoTimeoutSeconds;
+    /** @var array<int, string> */
+    private array $autoTimeoutSources;
 
     public function __construct(
         private readonly PythonClient $client = new PythonClient(),
@@ -54,6 +79,12 @@ class StreamOrchestrator extends Service
     ) {
         parent::__construct();
         $this->controlChannel = $this->resolveControlChannel($controlChannel);
+
+        $autoConfig = config('broadcast.auto_timeout', []);
+        $this->autoTimeoutEnabled = (bool) ($autoConfig['enabled'] ?? true);
+        $seconds = (int) ($autoConfig['seconds'] ?? self::AUTO_TIMEOUT_DEFAULT_SECONDS);
+        $this->autoTimeoutSeconds = max(60, $seconds);
+        $this->autoTimeoutSources = $this->normalizeAutoTimeoutSources($autoConfig['sources'] ?? []);
     }
 
     public function start(array $payload): array
@@ -232,6 +263,8 @@ class StreamOrchestrator extends Service
             $this->logBroadcastEvent($logAction, 'success', $source, $logSessionId, $logContext + [
                 'modbus_response' => $response,
             ]);
+
+            $this->maybeScheduleAutoTimeout($sessionResult, $source);
 
             return $sessionResult;
         } catch (\Throwable $exception) {
@@ -1782,5 +1815,67 @@ class StreamOrchestrator extends Service
         }
 
         return $withoutTrailingSlash . '/' . $file;
+    }
+
+    /**
+     * @param mixed $sources
+     * @return array<int, string>
+     */
+    private function normalizeAutoTimeoutSources($sources): array
+    {
+        if (is_string($sources)) {
+            $sources = preg_split('/[,\s]+/', $sources) ?: [];
+        }
+
+        if (!is_array($sources)) {
+            $sources = [];
+        }
+
+        $normalized = [];
+        foreach ($sources as $source) {
+            if (!is_string($source)) {
+                continue;
+            }
+            $candidate = strtolower(trim($source));
+            if ($candidate === '') {
+                continue;
+            }
+            $normalized[] = $candidate;
+        }
+
+        if ($normalized === []) {
+            $normalized = self::AUTO_TIMEOUT_FALLBACK_SOURCES;
+        }
+
+        return array_values(array_unique($normalized));
+    }
+
+    private function shouldAutoTimeoutSource(string $source): bool
+    {
+        return in_array(strtolower($source), $this->autoTimeoutSources, true);
+    }
+
+    private function maybeScheduleAutoTimeout(array $sessionResult, string $source): void
+    {
+        if (!$this->autoTimeoutEnabled) {
+            return;
+        }
+
+        if (!$this->shouldAutoTimeoutSource($source)) {
+            return;
+        }
+
+        $sessionId = (string) Arr::get($sessionResult, 'id');
+        if ($sessionId === '') {
+            return;
+        }
+
+        $cacheKey = EnforceBroadcastTimeout::cacheKeyFor($sessionId);
+        if (!Cache::add($cacheKey, true, now()->addSeconds($this->autoTimeoutSeconds + 120))) {
+            return;
+        }
+
+        EnforceBroadcastTimeout::dispatch($sessionId, $source, $this->autoTimeoutSeconds)
+            ->delay(now()->addSeconds($this->autoTimeoutSeconds));
     }
 }

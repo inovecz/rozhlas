@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\JsvvSequence;
+use App\Services\DeviceDiagnosticsService;
 use App\Services\StreamOrchestrator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -103,6 +104,9 @@ class SystemStatusService extends Service
         $broadcastDetails = $orchestrator->getStatusDetails();
         $currentSession = $this->resolveCurrentSession($broadcastDetails['session'] ?? null);
 
+        $diagnosticsService = new DeviceDiagnosticsService();
+        $diagnostics = $diagnosticsService->overview(refresh: true, triggerNotifications: true);
+
         return [
             'timestamp' => now()->toIso8601String(),
             'daemons' => $daemons,
@@ -120,6 +124,7 @@ class SystemStatusService extends Service
             'broadcast' => $currentSession,
             'broadcast_previous' => $currentSession ? null : $this->resolveLastCompletedSession(),
             'broadcast_raw' => $broadcastDetails,
+            'diagnostics' => $diagnostics,
         ];
     }
 

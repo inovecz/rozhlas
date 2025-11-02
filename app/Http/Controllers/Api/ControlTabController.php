@@ -84,6 +84,10 @@ class ControlTabController extends Controller
             $responsePayload['ack']['message'] = $result['message'];
         }
 
+        if (isset($result['control_tab']) && is_array($result['control_tab'])) {
+            $responsePayload['control'] = $result['control_tab'];
+        }
+
         $this->recordTelemetry($type, $data, $result, $responsePayload);
 
         return response()->json($responsePayload, $status === 'unsupported' ? 400 : 200);

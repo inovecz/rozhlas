@@ -89,9 +89,9 @@ Tento dokument porovnává repozitář se dvěma kontrolními seznamy, které js
 
 | Bod | Popis | Stav | Poznámka |
 | --- | --- | --- | --- |
-| **a** | Animace průběhu příkazu TEST na Control Tabu | ❌ Logika panelu (`control_tab_listener.py`) aktuálně pouze přijímá události; není implementována vizualizace/průběh Testu na samotném panelu |
-| **b** | Test VP (dvířka, baterie, reproduktor) a odeslání do KPPS | ❌ Chybí senzory i napojení na KPPS diagnostiku; potřeba HW integrace |
-| **c** | Automatické ukončení audio vstupů po ~10 minutách | ❌ StreamOrchestrator neobsahuje watchdog – nutné doplnit (např. zpožděný job) |
-| **d** | Tlačítko „Zpět“ při výběru poplachu | ❌ Ve `resources/js/views/jsvv/Jsvv.vue` zatím chybí; vhodné přidat navigační tlačítko |
-| **e** | Povel TEST se vykoná jen v klidu, jinak se zahodí | ❌ `JsvvSequenceService::trigger` neověřuje aktivní vysílání; potřeba doplnit kontrolu relace |
-| **f** | Stav napájení, baterie, VP na tabletu | ❌ Control Tab ani UI nezobrazují diagnostiku; nutné doplnit backend i frontend |
+| **a** | Animace průběhu příkazu TEST na Control Tabu | ⚠️ Backend vrací pokyny pro animaci (`ControlTabService::buildTestControlTabPayload`), listener je vykreslí jako textovou progresi; je nutné ověřit vzhled na reálném panelu |
+| **b** | Test VP (dvířka, baterie, reproduktor) a odeslání do KPPS | ⚠️ `DeviceDiagnosticsService` dekóduje Modbus status, ukládá do `device_health_metrics` a při poruše odesílá KPPS `FAULT`; nutné ověřit na reálných senzorech |
+| **c** | Automatické ukončení audio vstupů po ~10 minutách | ⚠️ `EnforceBroadcastTimeout` plánuje stop po 9:55 min pro živé vstupy (konfigurovatelné v `broadcast.auto_timeout`); čeká na potvrzení chování front |
+| **d** | Tlačítko „Zpět“ při výběru poplachu | ✅ Přidán navigační prvek v `Jsvv.vue` (`goBack()` s fallbackem na `LiveBroadcast`) |
+| **e** | Povel TEST se vykoná jen v klidu, jinak se zahodí | ⚠️ `ControlTabService` blokuje TEST při aktivním vysílání; potřebné prověřit i scénáře z KPPS rámců |
+| **f** | Stav napájení, baterie, VP na tabletu | ⚠️ Stránka `SystemStatus.vue` zobrazuje diagnostické metriky; zobrazení/refresh závisí na HW datech |

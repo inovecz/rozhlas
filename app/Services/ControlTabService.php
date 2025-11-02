@@ -221,6 +221,13 @@ class ControlTabService extends Service
             ];
         }
 
+        if ($this->shouldAnimateTestOnControlTab($alarm, $items) && $this->hasActiveBroadcast()) {
+            return [
+                'status' => 'jsvv_active',
+                'message' => 'Povel TEST lze vykonat pouze v klidovém stavu ústředny.',
+            ];
+        }
+
         $label = $config['label'] ?? $alarm->name ?? null;
 
         $sequence = $this->jsvvSequenceService->plan($items, [
@@ -229,6 +236,10 @@ class ControlTabService extends Service
         ]);
 
         $result = $this->jsvvSequenceService->trigger($sequence['id']);
+
+        if ($this->shouldAnimateTestOnControlTab($alarm, $items)) {
+            $result['control_tab'] = $this->buildTestControlTabPayload();
+        }
 
         if ($result['status'] === 'not_found') {
             return [
@@ -422,6 +433,13 @@ class ControlTabService extends Service
         return is_array($selected) ? $selected : null;
     }
 
+    private function hasActiveBroadcast(): bool
+    {
+        return BroadcastSession::query()
+            ->where('status', 'running')
+            ->exists();
+    }
+
     private function buildSequenceItems(JsvvAlarm $alarm): array
     {
         $symbols = collect([
@@ -460,6 +478,51 @@ class ControlTabService extends Service
                 ];
             })
             ->toArray();
+    }
+
+    private function shouldAnimateTestOnControlTab(JsvvAlarm $alarm, array $sequenceItems): bool
+    {
+        $sequenceString = strtoupper((string) ($alarm->getSequence() ?? ''));
+        if (str_contains($sequenceString, 'TEST')) {
+            return true;
+        }
+
+        $name = strtoupper((string) ($alarm->name ?? ''));
+        if (str_contains($name, 'TEST')) {
+            return true;
+        }
+
+        foreach ($sequenceItems as $item) {
+            $symbol = strtoupper((string) ($item['symbol'] ?? ''));
+            if ($symbol === 'TEST') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function buildTestControlTabPayload(): array
+    {
+        $fieldId = (int) config('control_tab.test_progress_field', 1);
+
+        $frames = [
+            ['text' => 'TEST spuštěn', 'delay_ms' => 0],
+            ['text' => 'TEST probíhá •', 'delay_ms' => 2000],
+            ['text' => 'TEST probíhá ••', 'delay_ms' => 4000],
+            ['text' => 'TEST probíhá •••', 'delay_ms' => 6000],
+            ['text' => 'TEST dokončen', 'delay_ms' => 8000],
+        ];
+
+        return [
+            'animations' => [
+                [
+                    'type' => 'progress_text',
+                    'fieldId' => $fieldId,
+                    'frames' => $frames,
+                ],
+            ],
+        ];
     }
 
     private function renderTextField(string $callback): string

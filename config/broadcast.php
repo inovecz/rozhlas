@@ -159,6 +159,11 @@ return [
             : null,
         'volume_groups' => $parseStringList(env('AUDIO_LIVE_VOLUME_GROUPS', 'inputs,outputs')),
     ],
+    'auto_timeout' => [
+        'enabled' => $parseBool(env('AUDIO_AUTO_TIMEOUT_ENABLED', true), true),
+        'seconds' => (int) env('AUDIO_AUTO_TIMEOUT_SECONDS', 595),
+        'sources' => $parseStringList(env('AUDIO_AUTO_TIMEOUT_SOURCES')),
+    ],
     'playlist' => [
         'storage_root' => env('PLAYLIST_STORAGE_ROOT', storage_path('app/recordings')),
         'storage_fallbacks' => array_filter([

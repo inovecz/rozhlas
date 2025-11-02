@@ -366,11 +366,56 @@ class ControlTabListener:
             message = self._build_ack(frame, 0)
             self._write(message)
 
+        control_data = response.get("control")
+        if control_data:
+            self._handle_control_data(control_data)
+
     def _write(self, message: str) -> None:
         if self._simulation or self._transport is None:
             print(json.dumps({"outgoing": message.strip()}), flush=True)
             return
         self._transport.write(message)
+
+    def _handle_control_data(self, control: dict[str, Any]) -> None:
+        animations = control.get("animations")
+        if not animations:
+            return
+
+        for animation in animations:
+            animation_type = animation.get("type")
+            if animation_type == "progress_text":
+                worker = threading.Thread(target=self._run_progress_animation, args=(animation,), daemon=True)
+                worker.start()
+
+    def _run_progress_animation(self, animation: dict[str, Any]) -> None:
+        try:
+            field_id_raw = animation.get("fieldId")
+            field_id = int(field_id_raw) if field_id_raw is not None else None
+        except (TypeError, ValueError):
+            field_id = None
+
+        frames = animation.get("frames") or []
+        if field_id is None or field_id < 0 or not frames:
+            return
+
+        base_time = time.monotonic()
+        for frame in frames:
+            delay_ms = frame.get("delay_ms", 0)
+            try:
+                delay = float(delay_ms) / 1000.0
+            except (TypeError, ValueError):
+                delay = 0.0
+
+            target_time = base_time + max(0.0, delay)
+            remaining = target_time - time.monotonic()
+            if remaining > 0:
+                time.sleep(remaining)
+
+            text = str(frame.get("text", ""))
+            if not text:
+                continue
+            message = self._build_text(field_id, text)
+            self._write(message)
 
     def _parse_frame(self, line: str) -> Optional[ControlTabFrame]:
         line = line.strip()

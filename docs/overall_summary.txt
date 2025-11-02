@@ -1,0 +1,471 @@
+Detailní zadání pro Codex
+
+Aplikace ústředny varovacího systému JSVV musí být navržena tak, aby splňovala požadavky jednotného systému varování a vyrozumění. Skládá se z webového rozhraní (PHP) pro obsluhu a uživatelskou konfiguraci a z backendu (Python) pro komunikaci s hardware (sériová rozhraní UART/MODBUS). Níže jsou detailně popsány klíčové funkce, které je potřeba naprogramovat:
+
+Webové rozhraní pro živé a plánované vysílání
+
+Webové UI bude hlavním ovládacím panelem pro obsluhu systému. Umožní spouštění živých hlášení a plánovaných vysílání:
+	•	Přímé (živé) hlášení: Uživatel může z webu spustit okamžité hlášení. V UI bude formulář pro výběr zdroje audio vstupu (např. mikrofon zařízení, vybraný zvukový soubor uložený v ústředně, případně „systémový vstup“ apod.). Dále uživatel zvolí cílové lokality/hnízda (jednu nebo více) – tedy skupiny přijímačů, kam se bude hlášení vysílat. Vícenásobný výběr lokalit bude možný (např. pomocí multi-select seznamu); alespoň jedna lokalita musí být vybrána před spuštěním. Po výběru zdroje a lokalit uživatel nastaví hlasitost vstupu (např. posuvníkem). Aplikace zajistí, že aktivní zdroj má nastavenou příslušnou úroveň hlasitosti (hodnota se může ukládat a průběžně aplikovat). Při připraveném vstupu systém zkontroluje, zda je například povolen přístup k mikrofonu (u webového prohlížeče) nebo zda je vybraný soubor dostupný – v případě chyb zobrazí upozornění.
+	•	Spuštění a ukončení vysílání: Web UI bude mít tlačítko „Spustit vysílání“, které zahájí přenos vybraného vstupu do zvolených lokalit. Po kliknutí se toto tlačítko změní na „Ukončit vysílání“ pro ukončení probíhajícího hlášení. Zahájením vysílání se v backendu provede potřebná akce: pokud je zdrojem mikrofon, otevře se audio stream z mikrofonu; pokud je zdrojem soubor, začne se přehrávat. Současně backend přes MODBUS nastaví vysílač do režimu vysílání (viz níže Control Tab a MODBUS komunikace) tak, aby audio šlo do éteru. Během vysílání by UI mohlo zobrazovat stav (např. čas běžícího hlášení, délku či indikaci aktivního vstupu). Uživatel může během vysílání přepínat zdroj (např. z mikrofonu na jiný soubor) – v takovém případě aplikace plynule přepne vstupy a ponechá vysílání aktivní; po změně zdroje upozorní na případnou nutnost upravit hlasitost. Hlasitost je možné měnit během vysílání posuvníkem – změna se aplikuje okamžitě na aktuální vstup. Tlačítko „Zastavit“ (ukončit vysílání) ukončí aktuální hlášení okamžitě bez dalšího potvrzení.
+	•	Automatické hlášení z telefonu (GSM): Systém umožní spuštění přímého hlášení také telefonním hovorem. Volající z předem definovaného whitelistu čísel může na dané GSM bráně vytočit číslo ústředny; aplikace hovor automaticky přijme. Je-li vyžadován PIN, systém jej DTMF tónově odvolá (tj. volající musí zadat PIN kód před pokračováním). Po ověření hovor přejde do režimu přímého přenosu – zvuk z telefonu se začne vysílat do sirén podobně jako mikrofon. Jakmile začne toto telefonní hlášení, systém ukončí jakékoliv právě probíhající hlášení nižší priority (např. plánované vysílání) a předá přednost telefonu. Implementace této funkce zahrnuje integraci s GSM modulem nebo VoIP (doporučeno použít GSM modem, operátor Vodafone byl doporučen pro pokrytí testů). Je třeba obsloužit DTMF pro zadání PIN a po ukončení hovoru opět uvést systém do pohotovosti.
+	•	Plán vysílání (plánovaná hlášení): Webová aplikace bude obsahovat modul pro plánování automatických hlášení. Uživatel bude moci vytvořit naplánovanou úlohu s určeným časem a datem vysílání. Každá úloha obsahuje název, datum a čas zahájení a výběr audio záznamů pro přehrání. Typicky se volí záznamy pro úvod, hlavní hlášení a závěr (tyto tři části tvoří playlist zprávy). Uživatel vybere z dostupných nahrávek, případně žádný (např. pokud nechce úvodní znělku). Systém spočítá celkovou délku hlášení. Volitelně lze nastavit opakování úlohy – uživatel může zvolit, že se hlášení má opakovat, a zadat počet opakování a interval (typ intervalu: minuty, hodiny, dny, konkrétní den v týdnu, měsíce, roky atd. podle potřeby). Při např. týdenním opakování se vybírá den v týdnu. Aplikace musí tato nastavení uložit a vypočítat z nich termíny vysílání. Detekce kolizí: Při ukládání naplánované úlohy systém zkontroluje, zda v daném čase již neběží nebo nezačíná jiné plánované vysílání, a případně na to upozorní nebo neumožní překryv. Naplánované úlohy budou zobrazeny v přehledné tabulce s možností řazení, filtrování a stránkování záznamů. Uživatel může úlohy editovat nebo rušit.
+	•	Běh plánovaných úloh: Backend musí neustále sledovat aktuální čas (např. vlákno nebo plánovač) a při dosažení času některé naplánované úlohy ji odstartuje. To zahrnuje sestavení playlistu z příslušných záznamů (úvod, hlášení, závěr) a jeho odvysílání stejně, jako by šlo o přímé hlášení (tj. nastavit adresy lokalit, spustit vysílání, přehrát postupně záznamy). Během plánovaného vysílání by web UI mělo zobrazovat, která úloha právě běží a umožnit ji případně předčasně ukončit (např. tlačítkem Zastavit). Po skončení nebo přerušení úlohy se případná další opakování buď zruší (pokud to byl poslední cyklus), nebo se naplánuje další podle intervalu.
+	•	Modul Poplach JSVV: Součástí webového UI bude i sekce pro lokální vyhlášení poplachu v rámci JSVV. To odpovídá funkcím jako „Spustit Poplach JSVV“ a výběr typu poplachu (viz níže Control Tab). V UI by to mohlo být řešeno podobně jako na panelu: obsluha vybere typ poplachu (chemická havárie, všeobecná výstraha, požární poplach, záplavová vlna, radiační poplach apod.) a potvrdí spuštění poplachu. Systém pak aktivuje příslušnou sirénu (přehráním příslušných varovných tónů a případných navázaných hlášení). Dále umožní ukončení poplachu (vyslání signálu Konec poplachu – tj. tón oznamující odvolání ohrožení). Tyto signály jsou standardizovány dle JSVV; aplikace buď využije předem uložené audio vzorky v zařízení (sireny), nebo přímo generuje příkaz k jejich přehrání (viz MODBUS část, registr sampleCommand). Po vyhlášení poplachu by systém měl umožnit obsluze přejít na mikrofon a poskytnout verbální doplňující informaci (tzv. tísňovou informaci) – to znamená, že po odvysílání tónu poplachu může obsluha spustit mikrofon a mluvit do éteru. Aplikace toto zajistí tak, že po dokončení tónů automaticky přepne vysílač do režimu živého audio streamu a umožní mluvit (případně přes web UI zobrazí výzvu k mluvení).
+	•	Další moduly UI: Implementujte také doplňkové části podle uživatelské dokumentace:
+	•	Záznamy: modul pro pořizování a správu audio záznamů (viz dále část Práce s playlisty a záznamy).
+	•	Zprávy (SMS a E-mail): modul pro odesílání upozornění – umožní nastavit text a seznam adresátů pro rychlé odeslání varovné SMS/e-mailu. Může sloužit k informování krizových pracovníků nebo veřejnosti o vyhlášení poplachu. Při vyhlášení poplachu JSVV by systém mohl automaticky rozeslat přednastavenou zprávu (např. „Byl vyhlášen poplach…“).
+	•	Mapa: zobrazí mapu s umístěním jednotlivých sirén/hlasových hlásičů (lokalit). Každá lokalita může mít svou GPS pozici; v mapě budou značky indikující stav (online/offline, případně právě aktivní při hlášení, porucha apod.). Tato část vyžaduje napojení na mapovou službu a aktualizaci stavů v reálném čase.
+	•	Protokoly událostí: logování všech událostí – systém bude ukládat čas a popis důležitých událostí (spuštění/ukončení hlášení, vyhlášení poplachu, příjem pokynu z JSVV, chyby zařízení, přihlášení uživatele, atd.). Web UI poskytne přehled protokolů s možností filtrování podle typu události a data.
+	•	Uživatelé a nastavení: implementujte přihlašování uživatele (již je naznačeno – URL přístup, formulář jméno/heslo). Bude existovat administrátor (získá přihlašovací údaje při instalaci) a případně další role. Aplikace by měla umožnit změnu hesla, správu uživatelů (přidat/odebrat) a nastavení systémových parametrů. V nastavení budou i technické konfigurace, jako sériové porty, adresy zařízení, hlasitosti default, atd.
+
+Webové rozhraní bude komunikovat s backendem ideálně pomocí API (např. REST nebo WebSocket pro realtime události). Například při kliknutí na „Spustit vysílání“ pošle UI požadavek backendu, ten provede akci (nastaví zařízení, spustí audio) a vrátí potvrzení. Naopak backend bude informovat UI o asynchronních událostech (příchozí pokyn z JSVV, porucha) – např. přes WebSocket aktualizuje protokol nebo stavové zobrazení.
+
+Spolupráce s Control Tab (ovládacím panelem) přes UART
+
+Aplikace se musí integrovat s externím dotykovým ovládacím panelem (Control Tab – zařízení s displejem a tlačítky, postavené na ESP32). Komunikace probíhá po sériové lince UART (typicky UART0 na ESP32) s parametry 115200 baud, 8 N 1, bez flow-control. Je definován proprietární textový protokol:
+	•	Formát zpráv: Panel (ESP32) posílá zprávy ve formátu:
+\n<<<:X:Y:Z=data>>CRC<<<\n
+kde X = ID obrazovky (Screen), Y = ID panelu, Z = typ události, a data závisí na typu. Zpráva je ohraničena sekvencemi <<<: na začátku a >>>/<<< na konci, mezi nimi je 1 byte CRC (XOR všech bytů v řetězci mezi, formátovaný hexadecimálně). Například zpráva Panel Loaded (událost Z=1) pro screen=3, panel=1 vypadá \n<<<:3:1:1=>>0E<<<\n (CRC 0x0E). Aplikace musí umět tyto zprávy ze sériového portu parsovat a ověřovat jejich CRC.
+	•	Události z panelu: Panel funguje primárně jako vstupní zařízení – posílá události do externího systému (naši aplikace). Klíčové události:
+	•	Panel Loaded (Z=1): Odesílá se automaticky, když uživatel na panelu otevře novou obrazovku/panel. Např. při otevření obrazovky playInfo (Screen 3, Panel 1) panel vyšle zprávu o načtení. Aplikace obratem odpoví (viz dále ACK) a následně očekává požadavky na textová pole.
+	•	Button Pressed (Z=2): Odesílá se při stisku některého tlačítka uživatelem. Data pak obsahují =Z kde Z = ID stisknutého tlačítka. Panel má definovanou sadu tlačítek s ID 1–20 (a 100 pro WiFi ikonku). Aplikace podle ID pozná, jakou funkci uživatel vyvolal, a provede příslušnou akci (viz níže mapování funkcí). Panel poté od aplikace očekává ACK a případně další instrukce.
+	•	Text Field Request (Z=3): Panel nemá uložené veškeré texty (např. názvy lokalit, znělek, stavové informace), proto je při otevření některých panelů vyžádá od externího systému. Po načtení panelu s textovými poli panel vyšle několik zpráv s Z=3 a daty =?F? (kde F je ID pole). Např. pro playInfo panel pošle postupně dotazy ?1?, ?2?, ?3? pro tři textová pole (ID 1–3). Aplikace musí na každý takový dotaz odpovědět zasláním textu (viz dále TEXT odpověď).
+	•	Odezva aplikace (externí zařízení) panelu: Komunikace vyžaduje, aby externí zařízení vždy potvrdilo přijetí zpráv:
+	•	ACK (potvrzení): Na každou zprávu panel_loaded a button_pressed musí aplikace odpovědět ACK ve formátu:
+\n>>>:X:Y:Z=S>>CRC<<<\n
+kde X, Y, Z odpovídají původní zprávě a S je status (1 = OK, 0 = Error). Typicky po úspěšném zpracování se posílá ...=1 (OK). Panel zprávu potvrdí obdržením ACK a danou událost vyřadí z fronty. Důležité: ACK odesílejte co nejrychleji (do ~100 ms), jinak panel zprávu po timeoutu posílá znovu (má retry mechanismus max. 3 pokusy). To znamená implementovat obsluhu UART zpráv event-driven: při přijetí ihned spočítat CRC, pokud sedí, tak před zahájením delší akce nejprve vrátit ACK.
+	•	TEXT odpověď: Na každý text_field_request musí aplikace odpovědět zprávou s textem: formát:
+\n>>>TEXT:F:"hodnota">>CRC<<<\n
+(kde F = ID pole, “hodnota” v uvozovkách). CRC se počítá z řetězce F:"hodnota". Např. odpověď pro pole 1 s textem “Systém aktivní” je \n>>>TEXT:1:"Systém aktivní">>7D<<<\n. Panel po obdržení textu ověří CRC; pokud je správné, odpoví TEXT ACK (speciální zpráva \n<<<TEXT:F:1>>...<<<\n se statusem). Pokud by CRC nesedělo, pošle ACK se statusem 0 a dotaz zopakuje. Aplikace tedy musí umět přijmout i tyto TEXT ACK a případně při chybě znovu odeslat text.
+	•	Mapování ovládacích prvků panelu na funkce aplikace: Panel obsahuje obrazovky a tlačítka definované v protokolu. Konkrétní významy tlačítek:
+	•	Screen 2 – menu (hlavní menu): Tlačítka pro základní funkce:
+	•	ID 1 – Spustit Hlášení: vyvolá spuštění přímého hlášení (shodné jako webové „Přímé hlášení“). Po stisku panel pošle zprávu Button 1; aplikace na ACK a poté by měla přepnout panel do režimu ovládání hlášení. V praxi může panel sám přejít na Screen 3 (informační obrazovku) s panelem playInfo, kde se ovládá přehrávání – toto chování je dáno firmware panelu. Úkolem aplikace je tedy připravit systém na přímé hlášení: čekat na vstup (mikrofon) a nastavit adresy (naposledy použité nebo default všechny) pro vysílání. Pokud panel nepřejde automaticky, aplikace mu může poslat panel_loaded ACK s OK a následně požadavky textů (ale panel si texty vyžádá sám).
+	•	ID 2 – Zkouška Sirén: vyvolá test sirén. Po stisku apl. obdrží Button 2 a měla by provést tichý test systému. JSVV specifikace definuje test: bez slyšitelného efektu prověřit funkčnost všech částí a zapsat výsledek do paměti. Pokud hardware (přijímač/siréna) tuto funkci podporuje, aplikace ji aktivuje – například zápisem speciálního příkazu do MODBUS registru (pokud není, lze provést náhradně krátkou zvukovou zkoušku s minimální hlasitostí nebo jen interní dotaz stavu). Po provedení testu aplikace zobrazí výsledky: zejména informaci, zda test proběhl úspěšně či jsou zjištěny chyby (ty lze zjistit z diagnostických registrů zařízení – viz MODBUS část, registr Error). Tato informace může být zobrazena na panelu (např. v infopanelText) i ve webovém logu.
+	•	Typy poplachu JSVV: ID 3 – Chemická Havárie, 4 – Všeobecná Výstraha, 5 – Požární Poplach, 6 – Záplavová Vlna, 17 – Radiační Poplach. Tato tlačítka slouží k výběru druhu poplachu, který chce obsluha vyhlásit. Po stisku některého z nich by aplikace měla: zapamatovat si zvolený typ (nejspíše stačí interně, panel sám může indikovat výběr např. změnou barvy tlačítka). Neprobíhá zatím žádné vysílání – pouze volba. Pokud již nějaký poplach vybrán byl a uživatel zvolí jiný, aplikace přepíše volbu na nový typ.
+	•	ID 13 – Spustit Poplach JSVV: Uživatel tímto potvrzuje spuštění poplachu. Aplikace zkontroluje, zda je vybrán typ (pokud ne, může ignorovat nebo panel by možná neumožnil stisk). Následně provede vyhlášení poplachu: připraví příslušné varovné signály. To zahrnuje nastavení správných audio vzorků pro sirénu podle typu (např. pro všeobecnou výstrahu kolísavý tón 140 s, pro požární poplach kolísavý tón 60 s apod., dle definic JSVV). Systém buď přehraje nahrané zvuky ze své paměti, nebo využije toho, že siréna má dané signály nahrány a stačí poslat příkaz (viz MODBUS – registr sampleCommand). Implementace: v MODBUS registru sampleCode1RAM až sampleCode5RAM nastavte sekvenci kódů zvuků k přehrání (např. [siréna – text zprávy – siréna konec], pokud je definováno) a zapište do registru sampleCommand hodnotu 1–7 podle požadované priority. Poplach bude pravděpodobně nejvyšší priority (např. 1). Zařízení pak automaticky přehraje příslušné signály. Poznámka: Přehrání nastane až po uplynutí ochranné lhůty 3 s od příkazu a příp. opakovaný příkaz v té době se ignoruje. Po spuštění poplachu aplikace odešle panelu ACK a měla by umožnit další kroky – panel pravděpodobně automaticky přejde na Panel2 (viz dál).
+	•	ID 14 – Ostatní: Otevře nabídku dalších funkcí (mimo základní rozsah). Může jít např. o nastavení WiFi, servisní menu apod. Pro aplikaci to znamená přejít na Screen 2, Panel 3 či jiný definovaný panel „Ostatní funkce“. Ten může obsahovat volby, které nejsou pro nás teď podstatné (např. nastavení režimu, info o verzi firmware, ruční ovládání výstupů atd.). Implementujte základní podporu – při přijetí Button 14 pošlete ACK, případně poskytněte texty pokud jsou dotázány, ale detailní akce nejsou nutné (pokud není specifikováno).
+	•	ID 15 – Stop (menu1): Okamžité zastavení. Toto tlačítko funguje jako nouzové ukončení jakékoliv probíhající akce. JSVV předpisy požadují, že tlačítko STOP na zařízení EKPV (elektronické siréně) má nejvyšší prioritu a okamžitě zruší všechny probíhající příkazy ￼. Aplikace proto při přijetí Button 15 musí: okamžitě zastavit probíhající přehrávání (ať už to byl poplach, hlášení či test). Konkrétně, pokud siréna právě hraje nějaký signál (řízený přes modbus), je třeba vyslat příkaz pro reset fronty – např. zapsat hodnotu 0 do registru sampleCommand, což podle specifikace provede okamžité zastavení přehrávání a vyprázdnění fronty zvuků. Dále pokud byl aktivní režim mikrofonu/vysílání, vypnout jej (viz nastavení TxControl níže). Po zastavení všeho poslat panelu ACK. Tím se poplach či hlášení zruší. (Pozn.: STOP nemá vlastní ACK zprávu jako text, stačí standardní.)
+	•	Screen 2 – Panel2 (ovládání poplachu/mikrofonu): Tato obrazovka se patrně zobrazí po vyhlášení poplachu (ID 13). Obsahuje tlačítka:
+	•	ID 7 – Mikrofon: Aktivace mikrofonu. Po vyhlášení poplachu může obsluha stiskem tohoto tlačítka přejít do režimu mluvení. Aplikace na Button 7 obdrží ACK a poté: přepne vysílač do režimu živého audio (stejně jako u přímého hlášení). Technicky zapíše do registru TxControl hodnotu 2 (spuštění vysílání audio streamu). Tím se sirény přepnou do režimu příjmu živého zvuku. Aplikace pak buď přímo umožní panelu snímat zvuk (pokud panel má mikrofon), nebo pokud ne, může vyzvat obsluhu k použití webového mikrofonu. (Z kontextu předpokládáme, že panel může mít připojený svůj mikrofon, takže spíš přímo začne vysílat zvuk.) Po stisku Mikrofon by se také mohla objevit indikace (např. text „Mluvte…“ na panelu – ten by mohl být pevně daný).
+	•	ID 8 – Konec Poplachu: Ukončení poplachu. Po odeznění situace obsluha stiskne toto tlačítko a aplikace provede vyslání signálu Odvolání (konec) poplachu. To je opět standardizovaný tón (15 sekund nepřerušovaný tón v ČR). Implementačně: pokud v systému existuje audio vzorek pro „konec poplachu“, přehrajeme jej obdobně jako poplach (registr sampleCommand s daným kódem). Případně lze generovat z kódu poplachu = 1 (což by možná spustilo signál pro odvolání? Je-li definován). Každopádně je potřeba odlišit od STOP – Konec poplachu totiž neukončuje okamžitě vše, ale naopak aktivně vyšle zakončovací tón. Po jeho odvysílání aplikace přejde systém do klidového stavu (vypne mikrofonový režim, ukončí vysílání). Na panel by se mohl vrátit hlavní menu.
+	•	ID 16 – Lock (zamknout panel): Uzamkne ovládání panelu. Aplikace by měla po stisku tohoto tlačítka přepnout panel do uzamčeného stavu (pravděpodobně panel sám zamkne rozhraní – např. zobrazí obrazovku s nutností zadat heslo k odemčení). Externě není třeba nic moc dělat krom potvrzení; je vhodné však ignorovat případné další pokusy o akci, dokud panel neodblokuje (žádné další button eventy by ale asi neposlal).
+	•	Screen 3 – Informační a ovládací obrazovka: Tato obrazovka slouží k ovládání přehrávání a přímého hlášení s detaily:
+	•	Panel playInfo (Screen 3, Panel 1): Obsahuje informace o aktuálním/naplánovaném hlášení. Jsou zde tři textová pole:
+	1.	infopanelText (Field ID 1) – hlavní text informačního panelu. Aplikace sem posílá stavový text, např. „Systém aktivní“ (když nic neběží), nebo popis probíhající akce („Probíhá hlášení…“) apod.
+	2.	dobaHlaseniText (Field ID 2) – doba hlášení (čas). Aplikace může vyplnit aktuální čas (např. „10:35:20“ v příkladu), nebo čas zahájení/zbývající čas hlášení. V příkladu byl zobrazen aktuální čas jako informace. Navrhněte zobrazovat buď aktuální čas, nebo u právě probíhajícího hlášení čas začátku či plánované ukončení.
+	3.	delkaHlaseniText (Field ID 3) – délka hlášení (v sekundách). Zde aplikace uvádí délku aktuálního nebo naplánovaného hlášení. V příkladu „120 s“, což mohlo být např. plánovaná délka hlášení. Při nečinnosti lze uvést 0 s nebo nechat prázdné.
+Na tomto panelu jsou i tlačítka pro ovládání:
+	•	ID 9 – Spusť Vysílání: Pokud je připraveno hlášení (např. uživatel vybral zdroj a lokalitu), tímto tlačítkem jej spustí. Aplikace má reagovat stejně jako na příkaz k zahájení přímého hlášení z webu – tedy rozjet vysílání (nastavit TxControl=2, začít přehrávat audio atd.). Typicky toto tlačítko by použila obsluha, pokud nechtěla spouštět přes web, ale přímo přes panel: například vybrala si lokalitu a znělku na panelu (viz PrimeHlaseni) a pak stiskne toto.
+	•	ID 10 – Stop: Zastaví probíhající vysílání hlášení (ekvivalent tlačítka „Ukončit vysílání“ na webu). Aplikace na Button 10 ukončí právě běžící hlášení (způsobem popsaným výše: pokud šlo o živý vstup, zavře stream a nastaví TxControl=1; pokud o playlist, pošle příkaz resetu sampleCommand=0). Poté pošle ACK panelu.
+	•	Panel PrimeHlaseni (Screen 3, Panel 2): Slouží k nastavení parametrů pro přímé hlášení:
+	•	Textová pole:
+4. planovanaDelkaHlaseniText (ID 4) – plánovaná délka přímého hlášení. Může sloužit pro zobrazení, jak dlouho maximálně má hlášení trvat. Aplikace může toto pole využít, pokud obsluha může nastavit časový limit pro mluvení (např. 60 s).
+5. seznamLokalitText (ID 5) – seznam aktivních lokalit. Zde se zobrazí, které lokality (sirény) budou do hlášení zahrnuty. Jelikož na panelu nelze udělat komplexní multi-select jako na webu, bude to řešeno cyklickým výběrem (viz dále tlačítko Vybrat Lokalitu). Aplikace sem tedy dynamicky doplňuje text názvů vybraných lokalit, např. „Všechny“, nebo „Lokality: Obec A“ atd.
+6. vybranaZnelkaText (ID 6) – název vybrané znělky. Obdobně aplikace zobrazuje, jaká úvodní znělka (přednahraný signál) bude před hlášením přehrána.
+	•	Tlačítka:
+	•	ID 11 – Spusť Vysílání 1: Spuštění přímého hlášení s aktuálně nastavenými parametry. Funkčně je to obdobné jako tlačítko 9 na playInfo, jen dostupné z panelu PrimeHlaseni. Umožňuje tedy rovnou odsud spustit hlášení (což následně zobrazí info na playInfo panelu). Aplikace by měla zajistit totéž – zahájit vysílání s vybranou znělkou, pak otevřít mikrofon. Možná panel po stisku přejde na playInfo kvůli monitorování, ale to není popsáno; každopádně naše aplikace to spustí a pošle ACK.
+	•	ID 12 – Přímé Hlášení Zrušit: Zruší připravované přímé hlášení. Pokud uživatel rozmyslí, tímto tlačítkem se vrátí zpět. Aplikace na Button 12 může buď zastavit probíhající přípravy (pokud už něco běželo, ale spíš před spuštěním) a případně přepnout panel zpět do menu. Z hlediska implementace stačí zrušit interní nastavení (vybrané lokality/znělku) a poslat ACK.
+	•	ID 19 – Vybrat Znělku: Výběr úvodní znělky. Panel nemá možnost zobrazit seznam a nechat uživatele tapnout jednu položku, proto toto tlačítko funguje cyklicky. Aplikace udržuje seznam dostupných znělek (např. názvy nahraných úvodních tónů). Každým stiskem Button 19 aplikace zvolí další znělku v seznamu (při dosažení konce se vrátí na začátek). Okamžitě po změně pošle aktualizovaný text do pole vybranaZnelkaText (ID 6) přes TEXT zprávu, aby se nový název znělky zobrazil na panelu. Tím uživatel vidí, co je vybráno. Pokud není potřeba znělka, může jedna položka seznamu být „Žádná“.
+	•	ID 20 – Vybrat Lokalitu: Výběr lokality pro hlášení. Opět cyklicky – aplikace má seznam lokalit/sirén (například definovaný v nastavení, se jmény). Po stisku Button 20 vybere buď další lokalitu, nebo kombinaci:
+	•	Buď cyklujeme jen jednotlivé lokality a speciální položku „Vše“ (všechny lokality). Např. výchozí je „Všechny lokality“, stisk → „Lokalita 1“, další stisk → „Lokalita 2“, … atd., pak zpět „Všechny“.
+	•	Nebo cyklujeme možné předdefinované skupiny. Vzhledem k omezení UI zvolíme první variantu (jednodušší). Implementace: Aplikace si drží index vybrané možnosti. Po stisku zvýší index (s wrap-around) a z aktualizovaného výběru sestaví text: pokud je vybrána jedna lokalita, použije její název; pokud jsou všechny, může napsat „Všechny lokality“. (Případné kombinace více než jedné konkrétní lokality nejsou na panelu prakticky vybíratelné, takže pro panel zjednodušíme výběr na „buď všechno, nebo konkrétní jedno“ – což by mělo dostačovat pro základní použití panelu. Podrobnější výběr zvládnou přes web.) Po změně aplikace pošle nový text do pole seznamLokalitText (ID 5).
+	•	ID 18 – Zrušit: Toto tlačítko ruší akci na panelu 3. Pravděpodobně slouží k návratu z PrimeHlaseni zpět do menu, nebo obecně zavření dialogu „vybrat lokalitu/znělku“. Po stisku aplikace pošle ACK; pokud je potřeba přepnout panel zpět, možná panel sám to udělá. Každopádně aplikace by měla zahodit případné neuložené volby.
+	•	Zpracování textových polí: Jak bylo zmíněno, panel po otevření obrazovek playInfo a PrimeHlaseni vyžádá texty pro pole ID 1–3 resp. 4–6. Aplikace musí udržovat aktuální texty, které mají být zobrazeny, a při requestu je poslat:
+	•	Políčka 1–3 (playInfo): naplňte relevantními údaji o stavu systému. Při nečinnosti: infopanelText například „Systém připraven“, dobaHlaseniText aktuální čas, delkaHlaseniText „0 s“. Během vysílání: můžete do infopanelText dát název či popis právě vysílaného hlášení (např. „Hlášení X probíhá“), do dobaHlaseniText čas startu nebo aktuální čas a do delkaHlaseniText celkovou délku nebo již uplynulý čas. U plánovaného hlášení před začátkem by infopanelText mohlo hlásit „Naplánováno v 10:00“ atd.
+	•	Políčka 4–6 (PrimeHlaseni): planovanaDelkaHlaseniText – pokud umožňujeme nastavit délku, zobrazit nastavenou hodnotu (např. „60 s“ nebo „—“ pokud neomezujeme); seznamLokalitText – zobrazit text vybraných lokalit dle interní proměnné (viz výše, default „Všechny lokality“); vybranaZnelkaText – název aktuálně zvolené znělky (default třeba „Žádná“ nebo první v seznamu).
+	•	Aplikace by měla tyto texty aktualizovat i průběžně při změnách (např. po stisku Vybrat lokalitu/znělku změní obsah a znovu pošle TEXT odpověď panelu s novým textem). Panel starý text neskladuje, čeká vždy na novou odpověď, takže je nutné poslat po každé změně.
+	•	Spuštění a provoz UART komunikace: Backend Python modul otevře příslušný sériový port (např. /dev/ttyUSB0) s parametry 115200/8N1. Bude neustále naslouchat datům. Implementujte parser přijímající bajty a detekující začátek \n<<<: a konec <<<\n. Příchozí zprávy zpracujte v samostatném vlákně nebo asynchronně, aby UI zůstalo responzivní. Po zpracování (typicky hned) odešlete odpovídající ACK či TEXT. Dodržujte požadované prodlevy: mezi odesláním dvou zpráv min. 5 ms pauza (aby se nepřehltil UART buffer panelu).
+	•	Spolehlivost a opakování: Panel sám řeší opakování při neobdržení ACK. Úkolem aplikace je tedy hlavně vždy odpovědět. V případě, že aplikace potřebuje panelu něco sdělit (kromě odpovědí), protokol na to moc nemyslí – jediné možné extra zprávy jsou texty (ty ale panel vždy nejdřív vyžádá). Pokud by bylo nutné panel informovat o nějaké změně stavu asynchronně, patrně by to bylo možné jen změnou textů v momentě, kdy je panel otevře. Pro naše potřeby to není nutné – panel si data vyžádá sám.
+
+Příjem požadavků z KPPS (dálkový JSVV vstup) a jejich vyhodnocení
+
+Ústředna musí reagovat na příchozí povely z nadřazeného systému JSVV – typicky z vyrozumívacího centra (VyC) přes rádiový Koncový prvek přenosové soustavy (KPPS). KPPS je rádiové zařízení, které přenáší příkazy z centrály na koncová zařízení varování. V naší sestavě KPPS představuje buď integrovaný přijímač (součást digitálního modulu sirény), nebo externí rádiový modul připojený k ústředně. V každém případě komunikace s ním probíhá přes MODBUS registrace (viz další sekce). Aplikace musí pravidelně načítat informace o příchozích příkazech.
+
+Digitální přijímač používá pro nevyžádané zprávy (incoming) speciální vyrovnávací paměť 10 registrů (0x3000–0x3009). Při příjmu povelu z VyC zapíše KPPS data do registrů 0x3000–0x3004 (5 registrů představuje datový blok) a signalizuje to. Ústředna (naše aplikace) by měla periodicky číst těchto 5 registrů (funkcí Modbus 0x03) – například každých 500 ms – aby žádný povel neunikl. Speciální chování: Po každém čtení musí firmware přijímače vynulovat přečtený obsah bufferu. Pokud by během dvou čtení dorazily dva povely, přijímač zajistí, že novější zapíše opět do 0x3000–0x3004, zatímco starší přesune do 0x3005–0x3009 (LIFO zásobník dvou zpráv). Aplikace by proto měla v cyklu číst 0x3000–0x3004; pokud z nich získá platná data, ihned v dalším cyklu přečíst i 0x3005–0x3009 (pro případ druhé zprávy), než je buffer vyprázdněn. Při přetečení (více než 2 zprávy bez vyčtení) nejstarší zprávy se zahodí – dalším argumentem pro časté čtení.
+
+Formát a typy příkazů: Obsah přijaté zprávy v bufferech bude zřejmě kódován dle JSVV protokolu. Podrobný formát není v tomto zadání plně specifikován, ale aplikace by měla pokrýt tyto možné scénáře:
+	•	Aktivace poplachu z centra: Nadřízené centrum může vzdáleně spustit sirény. V takovém případě digitální přijímač obdrží příkaz k přehrání varovného signálu (obvykle s prioritou 1). Pravděpodobně se to projeví tak, že firmware přijímače sám spustí poplach (přehraje zvuk, protože siréna umí fungovat autonomně i bez PC) a do bufferu zapíše informaci o tom, co se stalo (např. kód poplachu či prioritu). Aplikace by měla tuto informaci detekovat a podle toho:
+	•	Zalogovat událost (např. „Příchozí povel: vyhlášení poplachu – typ X“).
+	•	Na webovém UI zobrazit upozornění (např. červeně indikovat, že probíhá poplach spuštěný vzdáleně).
+	•	Zablokovat místní ovládání, pokud by kolidovalo (např. neumožnit spustit jiné hlášení, dokud poplach neskončí).
+	•	Po dobu poplachu eventuálně umožnit přímý vstup mikrofonem (pokud je to procedurálně správné).
+	•	Jak zjistit typ poplachu? Pokud buffery poskytnou kód signálu nebo prioritu, aplikace může podle mapování určit, o jaký signál šlo. Je vhodné mít tabulku kódů: např. pokud přijde sekvence sampleCodes odpovídající všeobecné výstraze, určit to. Pozn.: V dokumentaci JSVV se uvádí, že KPPS (přijímač) musí mít jednoznačnou adresu a možnost více adres (vč. společných) – pravděpodobně přijatý povel obsahuje adresu, na niž byl určen. Přijímač ho vykonal jen pokud adresa souhlasí s adresami daného zařízení. Naše aplikace by mohla z buffru vyčíst i adresu příkazu (pokud je tam) a ověřit, že odpovídá lokální siréně či některé z jejích skupin. To je ale spíše interní pro modul – pokud přijímač příkaz nezahodil, asi byl adresován sem.
+	•	Aplikace nemusí sama spouštět zvuk (ten už běží v zařízení), ale měla by být schopna detekovat, kdy skončil (např. odhadnout délku podle typu, nebo dotazem na stav registru). Může se dotázat registru RxControl – pokud by to byl audio stream z centra, možná by tam byla hodnota 2, ale tady to není stream, nýbrž přehrání vzorků. Při přehrávání vzorků bohužel RxControl asi zůstane v hodnotě 1 (stop) – takže to nepoznáme přímo. Alternativně by mohlo jít číst SampleStatus (pokud existuje), nebo jednoduše nastavit timer na délku signálu (např. 2 minuty) a poté považovat poplach za skončený.
+	•	Odvolání poplachu z centra: Stejně tak může přijít povel ke zrušení poplachu (odvolání). Ten by siréna mohla sama odvysílat (tón Konec poplachu) a aplikace by to zaznamenala. Postup obdobný – log, UI notifikace „Poplach odvolán centrálou“.
+	•	Zkouška sirén z centra: Každou první středu v měsíci probíhají celostátní zkoušky sirén. Povel k testu přijde z VyC. Při tom sirény obvykle spustí 140 s nepřerušovaný tón (všeobecná výstraha) s hlasovou informací „zkouška sirén“. Je to tedy pro sirénu normální přehrání signálu (jen se to bere jako test). Aplikace by to měla opět jen zaznamenat – pravděpodobně jako poplach typu test. Může i odlišit v logu, že šlo o zkoušku, pokud to lze (může to poznat třeba podle toho, že čas odpovídá pravidelnému testu, nebo pokud v textovém hlášení je slovo „zkouška“ – viz dále).
+	•	Přímý hlasový vstup z centra: VyC může také vysílat živý hlas do sirén (např. krajské operační středisko se rozhodne mluvit přímo do éteru). V takovém případě digitální přijímač přejde do režimu audio streamu z RF. Toto lze detekovat přes registr RxControl: hodnota 2 indikuje „přehrává se audio z RF“. Aplikace by měla:
+	•	Při zjištění RxControl=2 pochopit, že probíhá dálkově řízené mluvené hlášení. Okamžitě zastavit jakoukoliv vlastní činnost (to už by měla zajistit priorita příkazu – tenhle by měl přijít s nejvyšší prioritou, takže zařízení stejně zastaví lokální vysílání automaticky). V logu zaznamenat „Přijat přímý hlasový vstup z centra – relace spuštěna“. Na web UI může indikovat „Poslech nadřazeného hlášení…“.
+	•	Po dobu, co RxControl=2, nepovolovat místní vysílání. Můžete rovněž do panelu (infopanelText) poslat text typu „Řízeno centrem“.
+	•	Konec takové relace se pozná, když RxControl se vrátí na 1 (zastaveno). Pak opět uvést systém do standby a UI oznámit konec.
+	•	Dotazy na stav a odezvy: VyC může periodicky dotazovat sirény na jejich stav (napájení, signál, baterie atd.). Tyto dotazy a odpovědi jdou zřejmě přímo přes KPPS a prochází možná taky buffery nebo speciální registry. Každopádně, pokud by do bufferu dorazil nějaký datový paket, který nerozpoznáme jako poplach či příkaz, může to být dotaz. Podle JSVV musí systém umět odpovídat na stavové dotazy a identifikovat se. V praxi to ale možná řeší přímo firmware přijímače – tj. pokud dostane dotaz, sám odpoví zpět rádiem, a PC do toho nezasahuje. Nicméně, může existovat i režim, kde PC má poskytnout data pro odpověď (např. textová hlášení). Pokud by buff obsahoval požadavek, aplikace by reagovala odesláním vlastního Modbus zápisu do bufferu (což by se přes radio vrátilo). Dokumentace uvádí nutnost jednoznačné identifikace a detekce ztrát/duplicit zpráv – to vše by měl zajistit protokol KPPS, ne naše aplikace; my jen správně čteme a píšeme registry.
+	•	Tísňové textové informace: V JSVV se po tónu sirény často doručuje verbální informace (tísňová zpráva) – buď jako živý vstup (řešeno výše), nebo jako automatické hlášení. To může fungovat tak, že centrála vyšle siréně příkaz k přehrání konkrétní předem uložené hlasové zprávy. Např. pro chemickou havárii by siréna měla mít v paměti nahranou větu s instrukcemi. Centrála by poslala kód, který tu zprávu identifikuje. Siréna by ji přehrála automaticky (stejně jako varovný tón). Úloha aplikace: pokud přijde takový příkaz, opět asi nepotřebuje zásah PC – zařízení to přehraje. Naše aplikace by jen mohla logovat „Přehrána automatická hlasová informace: “. Ovšem text by možná bylo vhodné zobrazit (aby místní obsluha věděla, co se vysílá). Pokud modul sirény neumí text převést na zvuk sám, mohla by centrála poslat text a chtít, aby ústředna (PC) ho přečetla syntézou. To by vyžadovalo, aby buffery nesly ten text (což je nepravděpodobné skrz 10 registrů). Spíše je to řešeno přednahranými zprávami. Proto stačí logovat.
+
+Shrnutí: Aplikace bude v pravidelné smyčce číst modbus buffery pro příchozí zprávy. Bude udržovat frontu příchozích požadavků a zpracovávat je podle priority. Priority definované JSVV:
+	•	1 = nejvyšší (např. přímý centrální hlas, ostrý poplach),
+	•	… až 7 = nejnižší (např. běžné plánované hlášení).
+Pokud přijde nový příkaz s vyšší prioritou, musí předběhnout nebo přerušit aktuálně běžící akci nižší priority. Realizujte to tak, že veškeré vysílací akce (plánované úlohy, místní hlášení) mají přiřazenu prioritu (např. místní manuální poplach bychom také dali prioritu 1, místní přímé hlášení 2, telefon 2, plánované úlohy 5 atd.). Vytvořte mechanizmus pro frontu/řízení těchto úloh:
+	•	Každá nová úloha zkontroluje probíhající – pokud běží něco s nižší prioritou, to se okamžitě ukončí (např. plánované hlášení se přeruší, pokud přijde ostrý poplach).
+	•	Pokud běží stejně prioritní akce, novou buď zařadit do fronty (počkat až skončí), nebo ji ignorovat podle typu (to by se ale nemělo stávat, centrál posílá sekvenčně).
+	•	Kromě STOP (který má absolutní prioritu zrušit vše).
+
+Po zpracování centrálních příkazů by aplikace mohla odesílat i potvrzení zpět do systému (JSVV vyžaduje potvrzování příkazů). Náš přijímač to může řešit sám (pravděpodobně po vykonání příkazu posílá potvrzení rádiem). Pokud by bylo třeba, aplikace by mohla po přijetí povelu zapsat specifickou odpověď do nějakého registru, ale to není v podkladech – necháme to na interním mechanismu KPPS.
+
+Edge případy: Ošetřete, když buffery vrátí samé nuly (žádná zpráva) – pak neprovádějte nic. Při chybě komunikace modbus (time-out) to zalogujte a zkuste později znovu.
+
+Ovládání přijímačů a vysílačů přes MODBUS (adresace, spouštění, čtení stavů)
+
+Ústředna komunikuje s hardware (digitální modul sirény, rádiový modul, zesilovač atd.) pomocí MODBUS RTU protokolu (přes převodník USB–UART/RS485). Aplikace musí implementovat nízkoúrovňové funkce pro čtení a zápis registrů definovaných výrobcem.
+
+Hlavní modbus zařízení v systému je digitální přijímač/vysílač (DTRX), který integruje:
+	•	Přijímač KPPS druhé vrstvy (pro příjem povelů z nadřazené sítě JSVV).
+	•	Vysílač BMIS (pro místní bezdrátový rozhlas – pokud jsou další koncové prvky varování ovládány rádiově).
+	•	Zvukový procesor/kodek pro přehrávání uložených zpráv a zpracování audio streamu.
+
+Komunikace probíhá na určité modbus adrese (např. slave ID 1, nastavitelná v registru). Implementujte modul využívající Python modbus knihovnu (např. pymodbus nebo podobnou) pro:
+	•	Čtení registrů: funkce pro čtení jednoho nebo více registrů (0x03 Holding Registers). Bude využito pro získávání stavů (diagnostika, buffery, atd.).
+	•	Zápis registrů: funkce pro zápis jedné hodnoty (0x06) i víc registrů (0x10 Write Multiple). Využije se pro posílání příkazů (spuštění přehrávání, nastavení konfigurace).
+
+Adresace zařízení: Každé koncové zařízení JSVV má unikátní adresu a může mít i skupinové adresy. Náš modul má sadu konfigurací v paměti Flash:
+	•	Registr RFAddr (0x4004) – hlavní adresa zařízení.
+	•	Zone0–Zone9 (0x4005–0x400E) – skupinové adresy (např. zóny, do nichž siréna patří).
+	•	RecZone0–RecZone13 (0x4013–0x4020) – zřejmě seznam adres, na které siréna reaguje při příjmu (nebo destinace pro vysílání?). Přesný význam není plně objasněn v poskytnuté dokumentaci, ale vypadá to, že RecZone registruje adresy pro příjem a Zone pro vysílání.
+	•	Každopádně aplikace by měla umožnit nastavit (přes web Nastavení) adresu sirény a příslušné zóny. Tyto hodnoty pak zapíše do uvedených Flash registrů. Např. nastavit individuální adresu obce a společnou adresu kraje, atd., dle potřeby.
+	•	Adresace při vysílání lokálního hlášení: Když ústředna chce vysílat do určitých lokalit, musí informovat modul, které přijímače (hlásiče) to mají přijmout. K tomu slouží registr RFDestZone0–RFDestZone4 (0x4030–0x4034). Aplikace před započetím vysílání vyplní tyto registry adresami cílových zařízení. Například: pokud „lokalita 1“ má adresu 0x1001, zapíše ji do RFDestZone0 a zbytek vynuluje; pokud má vysílat všem, lze buď využít společnou adresu (pokud definována) nebo vypsat více adres do RFDestZone0..n. Doporučený postup: když v UI zvolí „Všechny“, aplikace zapíše společnou adresu (např. kraj/okres) nebo jednoduše adresu 0xFFFF pokud to modul chápe jako broadcast (nutno ověřit v dokumentaci – není-li, raději poslat skupinovou adresu odpovídající všem sirénám). Když je vybrána konkrétní lokalita, zapíše jen její adresu.
+	•	Tyto destinace platí pro digitální audio stream i příkazy – modul je použije při příštím vysílání.
+
+Spouštění přehrávání a vysílání:
+	•	Přehrání uložených vzorků (siréní tóny, nahrané hlášení): K tomu slouží registr sampleCommand (0x0010) a navazující registrace SampleCode1RAM–SampleCode5RAM (0x0011–0x0015). Aplikace předá modulu, co má přehrát tak, že:
+	•	Naplní registr 0x0011 kódem prvního zvuku, 0x0012 druhého atd. (např. [varovný tón], [hlasová zpráva], [odvolání tón]). Pokud je zvuků méně, buď ponechá ostatní registry nulové nebo je neřeší.
+	•	Do sampleCommand (0x0010) zapíše hodnotu priority 1–7. Hodnota 0 má speciální význam: reset – okamžitě zastavit přehrávání a zrušit frontu. To se využívá pro STOP.
+	•	Po zapsání nenásleduje žádné ACK modbus (krom standardního potvrzení zápisu). Zařízení začne hrát po ~3 s.
+	•	Aplikace by měla být schopna před zápisem vybrat správné kódy. Ty kódy odpovídají indexům v paměti sirény (ta může mít flash paměť s nahranými zvuky). Např. kód 1 = tón všeobecná výstraha, 2 = tón požární poplach, 10 = hlas „Nebezpečí chemické havárie“ atd. Tyto hodnoty by měl dodat výrobce; prozatím definujte je v konfiguraci a přiřaďte tlačítkům i web volbám. (Např.: chemická havárie -> SampleCode1RAM=11, což je nahraná věta „Nebezpečí chemické havárie…“, SampleCode2RAM=0, SampleCode3RAM=0… sampleCommand=1).
+	•	Zpracování po přehrání: Zařízení po vykonání příkazu může do buffru zapsat informaci (to jsme řešili výše). Aplikace se případně dozví, že přehrál co měl.
+	•	Živé vysílání (audio stream) – mikrofon/telefon: K tomu slouží registr TxControl (0x4035) v kombinaci s nastavením adres (RFDestZone). Hodnoty pro vysílač:
+	•	1 = zastavení vysílání audio streamu (tj. ukončit přenos, uvést do klidu).
+	•	2 = spuštění vysílání audio streamu. Po zapsání 2 modul začne modulovat audio stream do éteru směrem k adresám v RFDestZone. Pozor: modul potřebuje zdroj audio – buď analogový vstup, nebo digitálně z PC. Zde je architektura: buď PC v reálném čase posílá audio data modemu (pokud modul má nějaký USB audio endpoint nebo to modul obstará?), anebo modul má analogový vstup propojený s výstupem PC zvukovky. V návrhu je třeba počítat, že když je TxControl=2, aplikace musí začít streamovat audio buď do sériové linky (pokud modul akceptuje stream přes UART – méně pravděpodobné), nebo do audio výstupu.
+	•	3 = (u vysílače to asi nemá smysl, u přijímače to bylo „přehrání posledního záznamu“).
+	•	8 = transparentní režim – modul v tomto režimu možná propojí vstup a výstup přímo bez protokolu? Tento bod není plně objasněn, ale zmiňuje se, že transparentní režim by mohl být určen pro předávání dat nebo servis.
+	•	Pro naše účely hlavní jsou kódy 1 a 2. Takže:
+	•	Zahájení živého hlášení: aplikace zapíše TxControl=2. Měla by to dělat těsně před tím, než začne posílat zvuk. Např. pokud uživatel stiskne Spustit hlášení, nastaví destinace, připraví audio (otevře mikrofon) a pak TxControl=2, čímž dojde k přenosu. Po ukončení (uživatel dá Stop) zapíše TxControl=1.
+	•	Zahájení přímého vstupu po poplachu (Mikrofon tlačítko): Stejné – TxControl=2.
+	•	Ukončení: TxControl=1.
+	•	Příjem audio streamu: Pro zajímavost, modul by při příjmu ze sítě JSVV nastavil registr RxControl. Hodnoty:
+	•	1 = zastaveno (nepřehrává se nic),
+	•	2 = přehrává audio z RF (tedy vnitřně přijímá a pouští do reproduktorů),
+	•	3 = (přijímač: požadavek na přehrání posledního záznamu – nepotřebujeme),
+	•	8 = (transparent atd.).
+	•	Aplikace nemusí RxControl nastavovat, jen ho číst pro indikaci (viz výše).
+	•	Ostatní ovládání: Pokud modul slouží i jako ovladač lokálních zařízení (např. drátových amplionů), může být potřeba spínat výstupy. V dokumentu to není, ale mohla by existovat registr pro ovládání relé atd. Zatím neřešíme – předpokládáme, že modul sám řídí zesilovače při vysílání.
+
+Čtení stavů a alarmů:
+	•	Diagnostické registry:
+	•	Error (0x4037) – obsahuje bitová pole chyb. Bity význam:
+	•	bit 0: Chyba nahrání FW do RF modemu.
+	•	bit 1: Chyba nahrání FW do audio kodeku nebo kodek nepřítomen.
+	•	bit 2: Chyba CRC konfiguračních parametrů.
+	•	(další bity mohou být definovány v dokumentu mimo výpis).
+Aplikace by měla periodicky číst registr Error (např. každou minutu nebo při událostech) a pokud je nenulový, vyvolat alarm: zaznamenat do protokolu chybu a zobrazit upozornění (např. „Chyba zařízení: audio kodek nefunguje“ pro bit1). Tyto chyby indikují, že zařízení vyžaduje servisní zásah.
+	•	Status (0x4036) – zatím vždy 0 (reservováno).
+	•	OggBitrate (0x403F) – uvádí audio bitrate zjištěný kodekem při přehrávání (informativní). Můžeme logovat nebo zobrazit pro debugging, ale není zásadní.
+	•	Napětí, baterie, signál: V tabulce registrů nejsou přímo vidět, ale v dokumentu JSVV se požaduje sledování stavu napájení, akumulátorů atd. Možná jsou v jiné části registrů (případně v koncových prvcích). Pokud modul poskytuje např. analog vstupy pro napětí, mohly by být v registru. Zatím nemáme, takže vynecháme.
+	•	Buffer událostí: Kromě buffru 0x3000 (už popsaného) může modul evidovat interně frontu příkazů pro sirénu. Při složitějších scénářích by mohla aplikace tuto frontu číst, ale opět to asi nepotřebujeme – buff stačí.
+	•	Integrita spojení: Aplikace by měla monitorovat, zda modbus komunikace funguje. Implementujte watchdog: pokud se po nějakou dobu nedaří číst žádné registry (např. 5 pokusů za sebou selže), označte zařízení jako odpojené (v UI třeba červený indikátor u sirény). V logu uveďte „Ztráta komunikace s ústřednou“. Zkuste se pak periodicky znovu připojit (např. každých 10 s).
+	•	Reset zařízení: Pokud je potřeba restart modulu (např. po změně konfigurace adres nebo zaseknutí), modul má registr SWRESET (0x0666) a RESET (0x0667). SWRESET provede softwarový reset, RESET možná hardwarový. Můžete umožnit v UI tlačítko „Restart zařízení“, které po potvrzení zapíše 0xFFFF do 0x0666 (typicky hodnota pro vyvolání SW resetu, pokud specifikace uvádí). Po resetu počítejte s krátkou nedostupností komunikace.
+	•	Čtení paměti konfigurace: Aplikace může při startu načíst z Flash registrů údaje jako sériové číslo (SNUMBER na 0x4000–0x4002) a verzi FW, pokud je v nějakém registru, a zobrazit je v About/Settings.
+
+Práce s playlisty a záznamy
+
+Aplikace bude spravovat audio záznamy (hlasové zprávy, znělky) a sestavovat z nich playlisty pro hlášení.
+	•	Nahrávání zvuku: Modul Záznamy ve web UI umožní uživateli pořídit nový záznam. Uživatel zvolí zdroj audio pro nahrávání (např. mikrofon počítače přes WebRTC, nebo externí analog vstup), případně pojmenuje nahrávku. Po stisku tlačítka Spustit nahrávání začne aplikace snímat zvuk a ukládat do souboru (např. WAV nebo MP3). Během nahrávání může UI zobrazovat délku. Uživatel ukončí nahrávání tlačítkem Ukončit nahrávání – poté aplikace soubor uloží na disk a přidá do databáze záznamů. Měl by se objevit v seznamu nahrávek.
+	•	Před nahráváním zajistěte u zdroje mikrofonu svolení (web prohlížeč vyžaduje povolení, aplikace to ohlásí uživateli).
+	•	Umožněte nastavit hlasitost kanálu při nahrávání (např. posuvníkem zesílit vstup) – tuto hodnotu použijte jako digitální gain při ukládání.
+	•	Ke každé nahrávce uživatel může zadat poznámku (metadatový popis), která se uloží spolu se souborem (např. do databáze).
+	•	Správa nahrávek: V modulu Záznamy zobrazte tabulku všech uložených záznamů s informacemi: název, typ, délka, datum vytvoření a velikost souboru. Přidejte možnosti vyhledávání a řazení (dle názvu, data, atd.) a stránkování (možnost zobrazit 5, 10, 25, 50 záznamů). U každého záznamu bude akce Přehrát (náhled) – po kliknutí přehrajete zvuk v prohlížeči (bez odesílání do sirény – pouze lokálně pro kontrolu). Dále akce Přejmenovat a Smazat – s potvrzovacím dialogem před provedením. Po smazání/dozměně aktualizujte seznam.
+	•	Při ukládání nahrávky můžete do metadata „typ“ uložit zdroj (např. „Mikrofon“, „Line-in“, „Import“). To jen pro informaci uživateli.
+	•	Upozornění: Doporučte uživatelům, aby si nahrávky před použitím vyzkoušeli a zkontrolovali hlasitost – viz dokumentace. Pokud je slabá, buď nahrát znovu s vyšším gainem nebo upravit externě.
+	•	Import externích souborů: Umožněte také nahrát existující zvukový soubor (např. MP3/WAV) přes UI do systému. Ten se uloží stejně jako záznam s příslušnými parametry (délku získáte analýzou souboru).
+	•	Playlisty: Při plánování vysílání (Plán vysílání modul) už uživatel vybírá konkrétní nahrávky pro úvod/hlavní/závěr. Tyto lze chápat jako malý playlist. Aplikace by měla být navržena tak, aby zvládala i obecnější playlist – např. uživatel by mohl chtít přehrát více záznamů i mimo plán. Můžete implementovat možnost vytvořit playlist jako samostatný objekt (pojmenovaný seznam skladeb). Ale není to výslovně požadováno; stačí funkcionalita v rámci plánování.
+	•	Přehrávání záznamů do vysílání: Když je potřeba odvysílat konkrétní záznam:
+	•	Pokud se jedná o přímé (okamžité) hlášení a uživatel zvolil jako zdroj „soubor v ústředně“, tak backend při spuštění vysílání přehraje ten soubor přes vysílač. Realizace: modul Python otevře audio soubor a začne ho streamovat do audio výstupu/vysílače (pokud modul má digitální rozhraní, tak ho použije; pravděpodobněji se zvuk pošle do zvukovky, která je propojena s vysílačem). Nezapomeňte předtím nastavit TxControl=2 a destinace. Po skončení souboru buď automaticky vypnout vysílání (pokud to bylo jednorázové hlášení) nebo nechat zapnuté pokud by navazoval mikrofon (záleží na volbě).
+	•	V případě plánované úlohy se přehraje sekvence záznamů: úvod -> hlavní -> závěr. Může být mezi nimi definována krátká pauza (např. 1 s) pro oddělení – volitelně.
+	•	Po přehrání všech částí plánovaného hlášení se vysílání ukončí (TxControl=1).
+	•	Synchronizace s panelem: Když se záznamy přehrávají nebo jsou připravené, panel by měl zobrazovat odpovídající texty (v playInfo). Je potřeba tedy udržet infopanelText up-to-date – např. „Přehrává se: <Název>“.
+	•	Znělky: Znělky jsou v podstatě taky záznamy, jen krátké (např. gong, hudební znělka). Uživatel je může nahrát do systému jako běžné záznamy a označit je třeba štítkem „Znělka“. Při výběru znělky na panelu (Button 19) bude aplikace cyklovat jen záznamy s tímto štítkem. Zajištěte, aby takové označení bylo možné (třeba v poznámce nebo zvláštním pole „typ“). Alternativně definujte fixně několik znělek do kódu. Flexibilnější je číst ze seznamu záznamů typ=Znělka.
+	•	Formát audio a kompatibilita: Mějte na paměti, že modul sirény může vyžadovat určitý formát audio (možná 16 kHz mono PCM nebo OGG). Dokumentace zmiňuje OggBitrate a audio kodek – je možné, že modul sám kóduje/dekóduje audio do datových bloků pro přenos. Pokud vysíláme audio stream, modul asi kóduje on-the-fly, stačí mu dodat analogový signál. Při přehrávání záznamu modul buď dostane příkaz (pokud je zvuk nahrán v jeho paměti), nebo musíme my poslat obsah – to asi ne, datově náročné. Čili předpokládáme, že všechny důležité zvuky (sirény a případné standardní hlášení) jsou uloženy v siréně, a naše nahrávky (např. informace obecního rozhlasu) budeme vysílat jako analog/digitální audio stream.
+	•	Testy hlasitosti: Při náhledu nahrávky (přehrání v prohlížeči) se nic nevysílá ven. Je to jen pro kontrolu. Při samotném vysílání by mohla být hlasitost odlišná (jiné zařízení). Proto v praxi doporučujeme uživateli doladit.
+	•	Metadatabáze: Uložte informace o záznamech (název, délka, datum, poznámka, typ) do SQLite nebo jiného úložiště, aby se snadno mohly zobrazit v tabulce a řadit. Zvukové soubory ukládejte např. do adresáře /var/lib/ustredna/records a v DB držte cesty.
+
+Tím jsou pokryty všechny hlavní funkce systému: webové ovládání vysílání, integrace fyzického ovládacího panelu, příjem dálkových povelů JSVV, hardware komunikace a správa audio obsahu. Při implementaci dbejte na robustnost (ošetření chyb komunikace, vícevláknový přístup – například současný příchod povelu z KPPS do buffru a stisk tlačítka na panelu; obojí se musí obsloužit, ideálně pomocí front a priorit). Dokumenty JSVV a protokolu použijte dle potřeby – klíčové pasáže byly citovány výše, takže programátor (Codex) má dostatek informací, aniž by musel pročítat originální texty.
+
+Checklist
+
+Následuje seznam všech požadovaných funkcionalit k implementaci. Lze jej použít k průběžné kontrole a odškrtávání splněných částí:
+
+Webové rozhraní – ovládání hlášení:
+	•	Přihlášení uživatele (ověření hesla) a zabezpečení UI podle rolí.
+	•	Přímé hlášení: formulář pro výběr zdroje (mikrofon/soubor/telefon), výběr jedné nebo více lokalit, nastavení hlasitosti.
+	•	Tlačítko Spustit vysílání zahájí přenos vybraného vstupu do určených lokalit (změní se na Ukončit vysílání během přenosu).
+	•	Během vysílání lze měnit vstup (přepnout mezi mikrofonem a souborem) a upravovat hlasitost; změny se projeví ihned.
+	•	Tlačítko Ukončit/Zastavit okamžitě zastaví aktuální hlášení.
+	•	UI zobrazuje stav vysílání: např. indikace probíhajícího hlášení, čas běhu, typ vstupu.
+	•	Podpora hlášení vyvolaného telefonním hovorem (GSM) – automatické zvednutí, ověření PIN, přednostní přenos audio z hovoru.
+	•	Plán vysílání: modul pro naplánování úloh s definicí času, výběrem záznamů (úvod, zpráva, závěr) a nastavením opakování.
+	•	Ukládání plánovaných úloh, výpis v přehledné tabulce (seřiditelná, stránkovaná).
+	•	Detekce kolizí naplánovaných úloh (časové překryvy) a upozornění uživatele.
+	•	Plánovač na pozadí spouští úlohy v nastavených časech.
+	•	Běh naplánované úlohy spustí vysílání (sestaví playlist z vybraných záznamů) a po skončení ho ukončí.
+	•	Možnost ručně předčasně ukončit probíhající naplánované hlášení.
+	•	Modul Poplach JSVV: umožňuje ručně vybrat a spustit poplachový signál (chemický, všeobecný, požární, záplavový, radiační).
+	•	Tlačítko Spustit Poplach (JSVV) aktivuje příslušné sirény s daným signálem.
+	•	Implementováno tlačítko Konec poplachu – odvysílá signál odvolání poplachu.
+	•	Při aktivním poplachu je možnost přejít na mikrofon (hlas po tónu).
+	•	Zprávy (SMS/E-mail): rozhraní pro odeslání alertů, integrace s poplachem (např. automaticky rozeslat definovaný text).
+	•	Mapa: zobrazení všech lokalit na mapě s indikací stavu (online/offline, aktivní při hlášení, chyba).
+	•	Log událostí: záznam všech důležitých akcí (uživatel, čas, akce) do databáze a zobrazení v UI (s filtrováním).
+	•	Uživatelé: správa uživatelů (alespoň změna hesla admina, možnost přidat další účty).
+	•	Nastavení: formulář pro konfiguraci systémových parametrů (porty, modbus adresa, adresy zón, hlasitost default, apod.).
+
+Control Tab – UART protokol a panel:
+	•	Otevření sériové linky (115200/8N1) a kontinuální čtení dat.
+	•	Dekódování přijatých zpráv podle formátu (rozpoznání delimitérů, extrakce X, Y, Z, dat, verifikace CRC).
+	•	Odesílání ACK zpráv pro panel_loaded a button_pressed události (se správným X,Y,Z a status=1 nebo 0).
+	•	Zpracování panel_loaded události: po ACK případně připravit kontext (např. resetovat počitadla, apod.).
+	•	Reakce na text_field_request: pro každý dotaz (s ?F?) vygenerovat odpovídající TEXT zprávu s vyplněnou hodnotou pole.
+	•	Implementováno generování CRC (1 byte XOR) pro všechny odesílané zprávy a kontrola CRC u přijatých.
+	•	Tabulka mapování Button ID → akce v aplikaci je kompletní dle specifikace (1–20, 100):
+	•	ID 1 spustí přímé hlášení (přechod na režim vysílání připraven, resp. otevře se screen 3).
+	•	ID 2 spustí zkoušku sirén (provést tichý test nebo krátký tón, vyhodnotit chyby).
+	•	ID 3,4,5,6,17 nastaví volbu typu poplachu (uložit volbu).
+	•	ID 13 vyhlásí poplach podle zvoleného typu (zápis do sampleCommand atd.).
+	•	ID 7 aktivuje režim mikrofonu (nastavit TxControl=2, začít přenášet audio z panelu).
+	•	ID 8 odvysílá signál Konec poplachu (přehrát příslušný tón).
+	•	ID 15 provede STOP – okamžitě zruší všechny probíhající zvuky/vysílání.
+	•	ID 9/11 spustí vysílání (9 z playInfo, 11 z PrimeHlaseni – v obou případech zahájit přenos vybraného zdroje).
+	•	ID 10 ukončí vysílání (stop hlášení).
+	•	ID 12 zruší režim přímého hlášení (nic nevysílá, jen návrat).
+	•	ID 19 změní vybranou znělku (cyklicky) a pošle nový text.
+	•	ID 20 změní vybranou lokalitu (cyklicky) a pošle nový text.
+	•	ID 14,16,18 a 100 – obsluhovány dle potřeby: 14 otevírá další menu (bez akce), 16 zamkne panel (jen potvrdit), 18 zruší akci (návrat z menu), 100 indikace WiFi (můžeme ignorovat nebo použít pro nastavení sítě).
+	•	Odesílání TEXT odpovědí pro textová pole (ID 1–6) při požadavku panelu, s dosažením správného CRC a následným zpracováním TEXT ACK.
+	•	Zajištění odesílání ACK do 100 ms od přijetí zprávy (vláknování nebo async, aby hlavní logika neblokovala).
+	•	Dodržení mezery ≥5 ms mezi vyslanými zprávami (při sekvenčním odeslání více TEXT zpráv apod.).
+	•	Při uzamknutí panelu (Lock) aplikace ignoruje/nepovolí neautorizované příkazy (pokud by panel poslal něco).
+	•	(Volitelně) Logging komunikace pro debug (může se hodit při testování – např. vypisovat do konzole přijaté zprávy a odeslané odpovědi).
+
+Příjem povelů JSVV (KPPS) a priority:
+	•	Pravidelné čtení MODBUS registrů 0x3000–0x3004 (buff0–buff4) v krátkých intervalech.
+	•	Implementováno nulování bufferu po přečtení (FW to dělá automaticky, jen počítáme s tím).
+	•	Ošetřeno čtení druhé sady 0x3005–0x3009 v případě dvou rychlých zpráv (LIFO zásobník).
+	•	Parsování obsahu přijaté zprávy – rozpoznání typu příkazu:
+	•	Povel k aktivaci poplachu (siréna) – aplikace zaznamená typ a informuje UI.
+	•	Povel k odvolání poplachu – zpracuje (uvede do klidu, log).
+	•	Povel k testu sirén – vyhodnotí, případně zobrazí výsledek (nebo jen log „Test ze sítě“).
+	•	Povel k přímému hlasovému vstupu – detekce přes RxControl=2, obsluha viz níže.
+	•	Stavový dotaz – nepravděpodobné, ale pokud by přišel, možno logovat.
+	•	Neznámý/nesrozumitelný obsah – log „Neznámý příkaz X“.
+	•	Při přijetí poplachu centrem: modul sirény jej hned spustí => aplikace nastaví v UI stav „Poplach aktivován centrálou“, zablokuje lokální ovládání (kromě STOP), počká na konec.
+	•	Při přímém hlasovém vstupu centrem: detekce RxControl=2 – aplikace zablokuje lokální akce, nechá audio téct. Po skončení (RxControl zpět na 1) odblokuje a loguje.
+	•	Implementována prioritizace: fronta úloh s prioritami 1–7. Například:
+	•	Příchozí povel priority 1 okamžitě přeruší probíhající hlášení priority >1.
+	•	Příchozí priority stejná – pokud by nastalo (např. 5 a 5), nový může být zařazen až po dokončení prvního, nebo také přerušit (volba – raději sekvenčně odbavovat).
+	•	Místní manuální poplach = priorita 1 (stejně jako centrální – nemělo by kolidovat).
+	•	Místní živé hlášení = priorita 2 (aby poplach měl přednost).
+	•	Plánované rutinní hlášení = priorita 5 (nižší).
+	•	Telefon = priorita 2 (proto přeruší priority 5 apod.).
+	•	STOP = speciální případ, ruší vše bez ohledu na prioritu.
+	•	Při kolizi dvou centrálních povelů (např. test vs. ostrý poplach) – to by mělo být ošetřeno již na úrovni VyC, ale kdyby, aplikace upřednostní ten s vyšší prioritou a druhý ignoruje (nebo provede po).
+	•	Zajištění možnosti poslat zpětné potvrzení – pokud protokol vyžaduje (není detailně určeno, zřejmě modul sám posílá ACK do sítě). Můžeme uvést, že modul to řeší, takže to v kódu nebude.
+
+MODBUS – ovládání hardware (siréna, rádio):
+	•	Navázání komunikace MODBUS RTU (např. přes PyModbus AsyncSerialClient) na definovaném portu a adrese slave.
+	•	Funkce pro čtení registru/ů a zápis registru/ů, s ošetřením chyb (výjimky time-out).
+	•	Při startu aplikace načtení důležitých registrů: sériové číslo zařízení (0x4000-2), aktuální adresy (0x4004+), verze FW (pokud je někde uvedena), a vypsání do logu.
+	•	Adresace: UI umožňuje nastavit adresy sirény (RFAddr) a skupin (Zone0-?). Po potvrzení aplikace zapíše nové hodnoty do Flash registrů.
+	•	Výběr lokalit pro vysílání: Když má jít hlášení do konkrétních zón, aplikace zapíše příslušné adresy do registrů RFDestZone0–4 před vysláním. Např. pro „všechny“ zapíše buď univerzální adresu (dle nastavení, třeba krajská) do RFDestZone0 a zbytek 0.
+	•	Spuštění přehrávání signálu: Implementován pomocný modul pro sirénu:
+	•	Funkce play_samples(codes[], priority) – naplní SampleCode1-5 RAM kódy ze seznamu a zapíše sampleCommand = priority.
+	•	Zajistí se čekání 3 s (neblokující, spíše jen poznamenat).
+	•	Příklad: při volání play_samples([kod_sirena], 1) se spustí příslušný tón nejvyšší prioritou.
+	•	Stop/reset: Funkce stop_playback() – zapíše sampleCommand = 0 (okamžité zastavení přehrávání).
+	•	TxControl ovládání:
+	•	Funkce start_stream() – zapíše TxControl = 2 (příprava vysílače) a případně provede další kroky (např. flush audio buffer).
+	•	Funkce stop_stream() – zapíše TxControl = 1 (konec vysílání).
+	•	Tyto funkce použity při start/stop přímých hlášení i poplachu mikrofonu.
+	•	Audio výstup: Napojení audio zdroje na vysílač – dle architektury:
+	•	Zajistit otevření audio zařízení (soundcard) pro přehrávání (např. ALSA/PyAudio).
+	•	Při start_stream, pokud zdroj = mikrofon: otevřít input (mic) a začít číst bloky PCM dat, posílat do output (soundcard spojené s vysílačem).
+	•	Pokud zdroj = soubor: otevřít soubor (WAV/MP3), dekódovat (pokud MP3 -> PCM) a streamovat do output.
+	•	Pokud zdroj = telefon: zpracovat audio z GSM modemu (to by mohlo být přes ALSA pokud modem vystupuje jako zvukové zařízení).
+	•	Při stop_stream zavřít audio streamy.
+	•	Test sirén tichý: Pokud modul podporuje, implementovat – může to být nastavením bitu v nějakém registru. Není explicitně popsáno, lze využít kombinaci: modul by mohl při testu poslat speciální kód do buffru. Pokud to nastane, modul sám zkontroluje funkce (relé, ampliony) a do Error registrů by případně nastavil poruchy. Takže alternativa: test sirén udělat tak, že přečteme Error před a po a porovnáme (popř. modul by měl něco signalizovat). Toto není zcela jasné, takže pro jistotu budeme dělat slyšitelný test při ručním vyvolání (krátký tón). V centrálním (pravidelném) testu to přijde jako příkaz a modul to udělá slyšitelně dle standardu – to pokryjeme výše.
+	•	Čtení Error a Status: Naplánovat periodické čtení registru Error (např. každou minutu) a pokud hodnota změněna (nebo nenulová), zalogovat/ukázat. Taktéž kontrolovat, jestli nebyl otevřen kryt, výpadek napájení – to by modul mohl dávat také do nějakého bitu (bod 5.6.13 požadavků JSVV zmiňuje sledovat otevření skříně atd. – mohlo by to být v bitu chyb, nepotvrzeno) ￼.
+	•	Reset modulu: Volitelně, implementace SW resetu voláním příslušného registru, ověřeno v testech.
+	•	Ošetření výpadků: pokud modbus komunikace hodí výjimku, pokusit se opakovat dotaz jednou; pokud opakovaně neúspěch, označit modul jako offline (viz výše).
+	•	Při opětovném navázání spojení (např. zařízení restartováno) obnovit běh (např. znovu nastavit režimy, pokud něco běželo).
+
+Audio záznamy a playlisty:
+	•	Nahrávání audia: využití WebRTC getUserMedia pro mikrofon, posílání dat na server (např. přes WebSocket chunky PCM dat) nebo implementace v Pythonu pokud je web UI jen ovládací a nahrávání dělá server (může být jednodušší nechat to na webu a pak data uložit přes POST). Výsledek uložit do souboru .wav (PCM 16bit 48kHz stereo -> modul nepotřebuje stereo, ale nevadí; nebo 16kHz mono).
+	•	Možnost nastavit zisk (gain) vstupu při nahrávání (digitálně v softwaru).
+	•	Ukládání metadat: název (zadaný uživatelem), délka (vypočíst z počtu vzorků / freq), datum (now), typ („nahrávka“), poznámka.
+	•	Přehrávání náhledu: u každé nahrávky tlačítko, které využije HTML  tag k přehrání (nebo stream přes backend).
+	•	Mazání nahrávky: smaže soubor z disku a záznam z DB.
+	•	Přejmenování/úprava poznámky: upraví záznam v DB.
+	•	Import souboru: formulář pro upload .mp3/.wav, server uloží, získá parametry (např. pomocí ffprobe knihovny).
+	•	Seznam nahrávek: tabulka s možností řazení dle sloupců, vyhledávání podle názvu či poznámky, stránkování (standardní datatables nebo vlastní implementace stránkování dotazem LIMIT/OFFSET).
+	•	Playlist/plán využití:
+	•	Při vytváření plánované úlohy nabídnout výběr záznamů pro úvod, hlášení, závěr (mohou být i prázdné).
+	•	Uložit vazbu úlohy na ID nahrávek (popř. null pokud prázdné).
+	•	Scheduler v čase úlohy načte příslušné soubory a spustí je v daném pořadí. Mezi nimi může dát pauzu 1 s.
+	•	Po skončení u opakujících se spočítá další čas, naplánuje znovu nebo sníží čítač opakování.
+	•	Znělky v panelu: definovat, jaké záznamy jsou znělkou. Možnost: zavést kategorii/typ záznamu = „Znělka“. U uploadu/nahrávání přidat checkbox „Znělka“. Podle toho pak filtrovat při cyklu tlačítka Vybrat Znělku:
+	•	Při inicializaci panelu PrimeHlaseni (při dotazu na vybranaZnelkaText) nastavit defaultně první znělku v seznamu nebo „Žádná“.
+	•	Při stisku Vybrat Znělku cyklicky procházet seznam záznamů s typ=Znělka.
+	•	Integrace s modbus přehráváním: Pokud se rozhodneme některé hlasové zprávy nahrát i do sirény (do flash modulu), museli bychom mít způsob, jak je tam dostat (např. zvuk sirény „Nebezpečí požárů…“). To je spíše práce při výrobě (flash paměť se naplní předem). Naše aplikace neumožní nahrát do sirény vlastní zvuky (to by nebylo homologované). Takže budeme všechny obecní hlášení pouštět jako stream.
+	•	Ověřit latenci a kvalitu streamu: modul uvádí OggBitrate, což naznačuje, že audio přenos je komprimovaný. Možná modul očekává analog audio a sám ho digitalizuje a vysílá v určité kvalitě (proto poskytuje bitrate jako info). Takže stačí analog.
+	•	Testy s reálným zařízením: Až to Codex naprogramuje, bude potřeba otestovat s reálným hardware (podmínky pro schvalování v laboratoři jsou v souboru KPV Bartek – tam se mj. uvádí nutnost DB9 pro lab KPPS, různé antény, atd. – to pro programování neovlivňuje funkce).
+
+Tím je zajištěno, že Codex (AI programátor) má přesné instrukce k implementaci všech částí – od UI až po low-level komunikaci – a nemusí studovat původní dokumentaci.
+
+Návrh automatizovaných testů
+
+Pro ověření funkcionality navrhujeme sadu jednotkových a integračních testů. Každý test popisuje scénář, cíle, vstupy (včetně simulovaných zpráv na UART/MODBUS) a očekávané výstupy:
+	1.	Start a stop přímého hlášení (UI test)
+Cíl: Ověřit, že spuštění živého hlášení z webového rozhraní správně aktivuje vysílání a poté je možné je ukončit.
+Postup a vstupy:
+	•	Simulovat akci uživatele: volá HTTP API (nebo interní funkci) startBroadcast s parametry: source = “test.wav” (předpřipravený 5s audio soubor), targets = [“Loc1”,“Loc2”].
+	•	Předpoklady: Připojený modbus modul (simulátor) reaguje na zápisy registrů. Připraven virtuální audio výstup (simulace zvukovky).
+Očekávaný výstup:
+	•	Aplikace zapíše do registrů RFDestZone0/1 adresy Loc1 a Loc2 (ověřeno voláním mock modbus klienta, který loguje zápisy).
+	•	Aplikace zapíše TxControl=2 (zahájení vysílání) – ověřit z logu modbus.
+	•	Audio soubor “test.wav” se začne přehrávat (můžeme ověřit volání audio rozhraní, např. že funkce play() byla zavolána).
+	•	UI stav přejde na “vysílání aktivní” (můžeme mít flag v aplikační logice).
+	•	Po 5s (délka souboru) by aplikace měla automaticky volat stopBroadcast (pokud jednorázové) – to buď uděláme ručně v testu: po 2s simulujeme uživatele stisk Ukončit.
+	•	Při stop: očekáváme zápis TxControl=1 na modbus (zastavení přenosu) a uzavření audio streamu.
+	•	Kontrola, že modul dostal TxControl=1 přes mock a že stav v aplikaci je “neaktivní”.
+	•	Navíc ověřit, že event byl zalogován (např. v log listu přibyla položka “Hlášení spuštěno/ukončeno”).
+	2.	Komunikace Control Tab – stisk tlačítka spuštění vysílání
+Cíl: Otestovat kompletní cyklus při ovládání přes Control Tab, včetně ACK a textů.
+Postup:
+	•	Simulovat, že na sériový port přijde zpráva panelu: \n<<<:3:1:2=9>>04<<<\n (tj. Screen 3, Panel 1, Event 2 – tlačítko ID 9 “Spusť Vysílání”, CRC 0x04).
+	•	UART simulátor předá tuto string aplikaci.
+Očekáváme:
+	•	Aplikace rozpozná validní zprávu (CRC 0x04 sedí) a identifikuje Button 9.
+	•	Ihned odešle na UART odpovídající ACK: >>>:3:1:2=1>>...<<< (status=1, se správným CRC).
+	•	Následně aplikace vykoná akci pro ID 9: pokud je zvolena znělka a lokalita v PrimeHlaseni (předpokládejme např. lokalita=Všechny, znělka=“Z1.wav”), začne vysílání. To znamená:
+	•	Zápis RFDestZone (adresy všech).
+	•	Zápis TxControl=2 (start stream).
+	•	Přehrávání buď znělky (pokud definujeme, že tlačítku 9 by mohla předcházet volba znělky – pro test jednodušší: žádná znělka, rovnou mikrofon).
+	•	Stav systému se změní na “vysílá”.
+	•	Testovací simulátor modbus by zachytil příslušné zápisy (ověřit).
+	•	Navíc, pokud hned po button_pressed panel pošle text_field_request (což by neměl, spíš už to udělal při otevření panelu), tak aplikace by obsloužila – v tomto testu stačí kontrola ACK.
+	•	Test verifikuje, že ACK přišlo včas (můžeme měřit čas mezi injection a output v test env – měl by být <100ms, ale to je v unit test těžko přesné; důležité že je jedno ACK a ne víc).
+	•	Ověřit, že interní log zaznamenal “Button 9 pressed – broadcasting started”.
+	3.	Control Tab – textová pole handshake
+Cíl: Zajistit, že aplikace správně odpovídá na požadavky panelu o texty a panel potvrzuje.
+Postup:
+	•	Simulovat sekvenci: Panel otevře PrimeHlaseni – pošle <<<:3:2:1=>>...<<< (panel_loaded Screen3 Panel2), pak dotazy:
+	•	<<<:3:2:3=?4?>>...<<< (request Field 4),
+	•	<<<:3:2:3=?5?>>...<<< (Field 5),
+	•	<<<:3:2:3=?6?>>...<<< (Field 6).
+	•	Aplikace obdrží panel_loaded, pošle ACK. Pak přijme tři text_field_request.
+Očekáváme:
+	•	Aplikace vygeneruje pro každý Field F text: např. 4=“90 s”, 5=“Všechny lokality”, 6=“Žádná”. (Tyto hodnoty by měly vycházet z nastavení, můžeme je předem připravit v kontextu testu.)
+	•	Odeslány budou tři TEXT zprávy:
+	•	>>>TEXT:4:"90 s">>CRC1<<<,
+	•	>>>TEXT:5:"Všechny lokality">>CRC2<<<,
+	•	>>>TEXT:6:"Žádná">>CRC3<<<.
+	•	Simulátor panelu přijme tyto zprávy a ověří CRC. My v testu můžeme spočítat očekávané CRC a porovnat s tím, co aplikace poslala.
+	•	Poté simulátor odešle tři TEXT ACK:
+	•	<<<TEXT:4:1>>...<<< (status 1 OK),
+	•	<<<TEXT:5:1>>...<<<,
+	•	<<<TEXT:6:1>>...<<<.
+	•	Aplikace přijme tyto ACK a odstraní požadavky z bufferu. Můžeme ověřit interně, že nečeká na resend (např. počet pending text requests = 0).
+	•	Celý handshake by měl proběhnout hladce, bez opakování. Test je úspěšný, pokud všechny odeslané texty jsou správné (kontrola obsahu a CRC) a aplikace očekává/přijme ACK (můžeme logovat, že “TEXT field 4 ack ok” atd.).
+	4.	Příjem centrálního poplachového příkazu (MODBUS test)
+Cíl: Ověřit, že při simulovaném příchodu poplachu z nadřazeného systému aplikace správně reaguje (priorita, logika).
+Postup:
+	•	Simulovat obsah, který by se objevil v bufferech 0x3000–0x3004 při přijetí ostrého poplachu. To může být např. 5 registrů: {0x0001, 0x1000, 0x0000, 0x0000, P} – kde 0x0001 by mohla být adresa sirény (nebo typ příkazu), 0x1000 kód signálu, P = priorita. Pro test stanovme: P=1 (nejvyšší).
+	•	Nasimulujeme, že modbus client (mock) při dotazu na 0x3000 returns uvedená data. Aplikace provede readBuffers().
+Očekáváme:
+	•	Aplikace detekuje, že data nejsou prázdná. Vytvoří objekt zprávy s prioritou 1.
+	•	Protože v našem testu nic jiného neběží, zpráva se zpracuje ihned: vyhodnotí kód signálu 0x1000 (řekněme, že to jsme si definovali jako „Všeobecná výstraha“).
+	•	Aplikace zavolá rutinu pro centrální poplach: ta zaloguje událost “Přijat poplach z centra (priorita 1, typ: Všeobecná výstraha)”.
+	•	V interním stavu nastaví, že probíhá poplach remote = true.
+	•	UI (pokud by běželo) by přeplo do stavu poplachu – v testu můžeme ověřit, že např. infopanelText v paměti = “Poplach z centrály: Všeobecná výstraha”.
+	•	Aplikace by neměla vysílat nic modbusem (protože modul už to přehrává). Ale pro jistotu ověříme, že NEzaznamenáme žádný zápis sampleCommand (to by znamenalo, že se aplikace snažila sama spustit – to nemá dělat).
+	•	Simulujeme uplynutí 140 s (můžeme volitelně triggernout funkci, která by jinak reagovala na konec). Po čase aplikace resetuje stav.
+	•	Test je úspěšný, pokud log obsahuje správný záznam a stavové proměnné odpovídají (poplach byl indikován, poté ukončen).
+	5.	Prioritní přerušení probíhajícího hlášení
+Cíl: Ověřit, že systém upřednostňuje vyšší prioritu a ruší nižší.
+Postup:
+	•	Spustíme v aplikaci plánované hlášení (priority např. 5) – to bude třeba simulovat: nastavíme interně, že běží úloha (nebo zavoláme startBroadcast s param priority 5). Necháme to hrát (můžeme simulovat delší audio soubor).
+	•	Během toho nasimulujeme příjem povelu z buffru s prioritou 2 (např. telefonní vstup, nebo centrální test). Vložíme do modbus mock dat s priority=2, přečteme.
+Očekáváme:
+	•	Aplikace porovná: běží akce prio 5, nová prio 2 → vyšší priorita, takže musí interrupt.
+	•	To provede: po přijetí zprávy prio 2 zavolá stop na stávající akci: tudíž by měl být vyslán modbus příkaz stop (sampleCommand=0) k ukončení hlášení. Ověříme, že mock modbus write_single(0x0010,0) byl volán.
+	•	Dále aplikace zpracuje tu novou akci prio 2: pokud to byl třeba telefonát, mohla by spustit telefon interface. Pro test postačí ověřit, že interně nastavila “runningPriority=2” a do logu napsala, že nižší priorita přerušena.
+	•	UI by eventuálně přepnulo info (to neověřujeme zde).
+	•	Tento test můžeme rozšířit: nechat původní akci pokračovat a ověřit, že se opravdu zastavila. Například pokud původní akce přehrávala zvuk, zkontrolovat, že audio thread byl ukončen.
+	•	Test je úspěšný, pokud modbus stop proběhl a nová akce byla zahájena (v logu vidíme “Akce X byla přerušena pro akci Y”).
+	6.	Simulace Control Tab – chybné CRC a opakování
+Cíl: Otestovat robustnost komunikace s panelem při chybě dat.
+Postup:
+	•	Pošleme na UART zprávu s úmyslně chybným CRC, např. \n<<<:2:1:2=15>>AB<<<\n (tvrdí: Button 15 Stop, ale CRC “AB” je nesprávně).
+	•	Panel by to poslal a očekával ACK, ale aplikace při výpočtu zjistí nesoulad CRC.
+Očekáváme:
+	•	Aplikace ignoruje zprávu (nebo případně pošle ACK=0, ale to protokol nevyžaduje – v definici ACK se status 0 používá spíš na text ack). Zde raději nic nepošle, protože neví, co to bylo za zprávu.
+	•	Následně panel po 100 ms vyšle znovu tu samou zprávu (to bychom museli taky simulovat – např. počkáme 100ms a znovu injektneme stejnou zprávu). Tentokrát může test zkusit dát správné CRC.
+	•	Aplikace pak přijme druhý pokus s korektním CRC a zpracuje normálně – pošle ACK=1.
+	•	Ověříme, že první chybná zpráva nevyvolala akci STOP (stav systému se nezměnil, nic se nelogovalo). A že druhá (správná) ano (vyvolala stop, pokud něco běželo, a poslala ack).
+	•	Úspěch: aplikace odolala chybné zprávě a neodpověděla jí, druhý pokus zpracovala.
+	7.	Test modbus buffer LIFO dvou zpráv
+Cíl: Prověřit, že aplikace správně načte dvě rychle po sobě došlé zprávy v bufferu 0x3000.
+Postup:
+	•	Připravíme modbus mock tak, že při prvním dotazu read(0x3000,5) vrátí data A (např. [cmd1, param,…]) a zároveň interně si poznamená, že buffer nebyl prázdný. Při druhém čtení read(0x3000,5) chceme, aby modul vrátil data B (druhá zpráva). Podle specifikace modul přesunul starší do 0x3005, ale naše aplikace i tak čte opět od 0x3000 (protože modul v mezičase to swapnul).
+	•	Implementace mocku: první read_holding_registers(0x3000,5) -> vrátí arrA, zároveň nastaví flag hasSecondary=true. Druhé volání pokud flag true -> vrátí arrB, pak flag=false.
+	•	V testu spustíme cyklus načítání: aplikace přečte 0x3000–0x3004 (dostane A). Uvidí platná data -> zpracuje (např. log “Message A processed”).
+	•	Aplikace poté (buď v tomtéž cyklu nebo při dalším ticku hned) čte znovu (protože ví, že mohla být druhá zpráva). My ji donutíme tak, že např. pokud read A dalo něco, ihned zavoláme funkci checkSecondary co to udělá – záleží jak to implementujeme. Řekněme, že rovnou to volá znovu read(0x3005,5) podle specifikace. Ale standard říká číst znovu 0x3000 5 reg – to by v našem mocku stále vrátilo B (protože jsme tak nastavili).
+Očekávání:
+	•	Aplikace obdrží A a B postupně, obě zpracuje v jednom cyklu. Ověříme, že pořadí zpracování je LIFO (novější má buff0 tedy A? V textu LIFO mysleli, že poslední přišla do 0x3000 (A), předposlední odsunutá do 0x3005 (B) – takže první přečtená bude A=poslední, pak B). My dodrželi, že A je novější.
+	•	Aplikace by tedy měla nejprve logovat “Přijat příkaz A”, pak “Přijat příkaz B”. Pokud to bylo FIFO (špatně), log by opačně.
+	•	Kontrola: správné pořadí dle definice – nejdřív se zpracuje poslední (A).
+	•	Dále ověříme, že po druhém čtení aplikace již při třetím dotazu nic nenajde (náš mock by vrátil samé nuly). A aplikace pak čeká až do další zprávy.
+	•	Úspěch: A i B byly zachyceny a předány logice bez ztráty.
+	8.	Test ERROR registru a hlášení poruch
+Cíl: Zajistit, že aplikace reaguje na nastavení chybových bitů.
+Postup:
+	•	Simulovat, že v nějakém momentu modul nastaví Error = 0x0005 (bity 0 a 2 aktivní např.). Můžeme to provést tak, že modbus mock při čtení 0x4037 vrátí 5.
+	•	Aplikace má možná vlastní timer nebo loop pro čtení error – spustíme tu funkci ručně v testu.
+Očekáváme:
+	•	Aplikace vyhodnotí 0x0005: bit0=1, bit2=1 → vytvoří seznam aktivních chyb: [“Chyba RF modemu”,“Chyba CRC konfigurace”].
+	•	Zaloguje událost s těmito detaily.
+	•	Nastaví ve svém stavu indikaci chyby (např. systemStatus.hasError = true).
+	•	UI by třeba rozsvítilo varovnou kontrolku – v testu můžeme ověřit, že interní proměnná pro stav LED=červená.
+	•	Poté simulujeme, že uživatel chybu resetuje (např. po servisu modul nahlásí 0). Upravíme mock aby příště dal 0. Aplikace znovu přečte – zjistí nulový error → zapíše do logu “Chyby odstraněny” a hasError=false.
+	•	Test ověří, že správné zprávy se objevily v logu a že text odpovídá požadavkům (tj. identifikovali jsme bit0 a bit2 správně).
+	•	(Volitelně) můžeme testovat i Lock/Unlock – ale to spíš panel, modul nemá lock.
+	9.	Jednotkové testy interních funkcí (CRC výpočet, parser):
+	•	CRC výpočet: vstup string "3:1:2=9" by měl vrátit byte 0x04. Otestovat volání na implementaci calculate_crc("3:1:2=9") == 0x04. Zkusit i jiné známe příklady z dokumentace.
+	•	Parser zprávy: například vstup bajty odpovídající \n<<<:2:1:2=15>>ZZ<<<\n (kde ZZ je správné CRC spočtené pro “2:1:2=15”) by měl vrátit objekt {screen:2,panel:1,event:2,data:“15”,crcOk:true}. Otestovat, že parser ignoruje počáteční newline a správně najde delimitery.
+	•	Formatování TEXT zprávy: unit test funkce, co tvoří TEXT odpověď – např. input (fieldId=1,text=“Test”) -> output string obsahuje >>>TEXT:1:"Test">>CRC<<< a ověřit CRC ručně.
+	10.	Integrace celku – simulace kompletního scénáře:
+Cíl: Ověřit, že více komponent spolu interaguje.
+Scénář:
+	•	Uživatel na webu naplánoval hlášení v 12:00 (nyní 11:59).
+	•	Mezitím v 11:59:30 centrála pošle test (prio 7).
+	•	V 12:00:00 se spustí plánované hlášení (prio 5).
+	•	Očekává se, že test (7) nezačne, nebo pokud začal, bude přerušen plánem (5) nebo naopak – záleží, jak definujeme priority. My jsme výše dali centrální test prio možná 5 také, ale řekněme centrální test = 5 vs. plán = 5, tedy stejně. V takovém případě by ten, kdo přišel první, měl přednost. Zde test přišel těsně před plánem.
+	•	Aplikace by mohla vyhodnotit, že v 12:00 má startovat plán, ale vidí, že od 11:59:30 do ~12:00:30 hraje test (z centrály se spustil tón). Co udělá? Ideálně počkat, až test skončí (protože test sirén není tak kritický jako ostrý poplach, a navíc plánované hlášení může počkat minutu).
+	•	Pro jednoduchost priority: centrální test = 5, plán = 5 -> řešit FIFO.
+Test Realizace:
+	•	Simulujeme: v 11:59:30 modul buff nasadí message “Test sirén prio5”. Aplikace ji zpracuje: spustí autopřehrání testu (siréna modul to dělá, my logujeme).
+	•	V 12:00 spustíme funkci scheduler – ta vidí, že by měla začít úloha, ale zjistí remoteActive=true (protože test probíhá do 12:00:30).
+	•	Očekáváme, že aplikace v takové situaci počká: buď by mohla zařadit tu úlohu do fronty a spustit ji po skončení testu.
+	•	Po uplynutí 12:00:30 modul buff dá vědět konec testu (nebo spíš my to víme automaticky po čase). Aplikace nastaví remoteActive=false.
+	•	Pak by měla spustit tu frontě čekající úlohu.
+	•	Výsledek: test sirén proběhl, potom se se zpožděním ~30s spustilo plánované hlášení.
+	•	Ověříme v logu: “Plánované hlášení X odloženo o 30 s z důvodu probíhajícího testu”. A potom “Hlášení X spuštěno”.
+	•	Ověříme, že modul dostal příkazy pro plan (TxControl=2, atd.).
+	•	Tento komplexní test ověřuje souhru modulů prioritní logiky, scheduleru a modbus.
+
+Každý z výše popsaných testovacích scénářů lze automatizovat pomocí jednotkových testů (např. PyTest pro interní logiku: CRC, parser, scheduler) a integračních testů s využitím simulovaných rozhraní (mock serial port, mock modbus). Simulátor panelu by mohl být řešen pomocí virtuální sériové linky (např. pyserial loopback) nebo speciální třídy napodobující přijímání a ukládání odeslaných zpráv pro kontrolu. Simulátor modbus může být jednoduchý stub vracející připravená data sekvenčně.
