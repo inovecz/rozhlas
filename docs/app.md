@@ -175,6 +175,23 @@ Skripty v `scripts/tests-final/` (kopie aktuální sady):
 
 Běh: `cd scripts/tests-final && ./jsvv_roundtrip.sh` atd. Vyžaduje `socat`. Pro CI se očekává meta skript `scripts/ci/run_full_validation.sh` (nutno doplnit).
 
+#### 7.1.1 Scénáře s dvoustupňovými testy
+Pro klíčové komunikační kanály udržujeme dvě úrovně testů:
+
+- **End-to-end (E2E) simulace portu** – skript vytváří PTY pár (`_pty.sh`), spouští příslušný daemon/listener a zároveň simuluje protistranu, která posílá či přijímá rámce. Tím se ověřuje vlastní sériová komunikace, správně nastavené argumenty a locking.  
+- **Inbound-only test** – navazuje až ve chvíli, kdy jsou data doručená do aplikace (např. čtením připraveného JSONu nebo voláním artisan příkazu). Tento test pokrývá pouze interní zpracování (parsování, priority, business logika) bez potřeby sériové vrstvy.
+
+Aktuální a plánované páry:
+
+| Oblast | E2E test (port) | Inbound-only test | Poznámky |
+| --- | --- | --- | --- |
+| Control Tab | `control_tab_crc_and_events.sh` (PTY + listener) | připravit skript volající `php artisan control-tab:handle` s mock payloadem | Zaměřit se také na tlačítka 19/20 a retransmise. |
+| Modbus/Alarmy | `modbus_alarm_e2e.sh` / `rf_read_buffers_lifo.sh` | `php artisan alarm:poll --payload-stdin` s fixture JSON | Inbound test může využít záznam JSON z E2E běhu. |
+| JSVV | `jsvv_roundtrip.sh` / `jsvv_e2e.sh` | `php artisan jsvv:handle --stdin` s uloženými rámci | Pokrýt duplicate detection, priority, sekvenční plánování. |
+| GSM | připravujeme (PTY simulátor + `gsm_listener.py`) | `php artisan gsm:test-send` s JSON | Inbound test validuje whitelist/PIN logiku; E2E přidá AT skripty. |
+
+Nové skripty/fixtures pro inbound-only scénáře je vhodné uložit do `scripts/tests-final/` nebo `tests/fixtures/` a udržovat je synchronizovaně s E2E verzemi.
+
 ### 7.2 Ruční / integrační testy
 - **ALSA** – ověřit přepínání vstupů (MixerService log).
 - **Control Tab** – připojit reálný panel, vyzkoušet mapování, TEST animaci.
