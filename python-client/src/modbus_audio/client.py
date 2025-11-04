@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import inspect
 import os
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -98,7 +99,7 @@ class ModbusAudioClient:
         self._connected = True
         driver_configured = self._setup_rs485_driver()
         if not driver_configured:
-            self._setup_rs485_gpio()
+            self._setup_rs485_direction_control()
 
     def close(self) -> None:
         if self._connected:
@@ -479,26 +480,46 @@ class ModbusAudioClient:
             )
         return True
 
-    def _setup_rs485_gpio(self) -> None:
-        if not constants.ENABLE_RS485_GPIO:
+    def _setup_rs485_direction_control(self) -> None:
+        if self._rs485_controller is not None:
             return
 
-        if self._rs485_controller is not None:
+        if not (constants.ENABLE_RS485_GPIO or constants.ENABLE_RS485_PINCTRL):
             return
 
         serial_handle = self._resolve_serial_handle()
         if serial_handle is None:
             raise ModbusAudioError("Unable to locate the underlying serial handle for RS485 control")
 
-        try:
-            controller = _RS485Controller(
-                chip=constants.RS485_GPIO_CHIP,
-                line_offset=constants.RS485_GPIO_LINE_OFFSET,
-                active_high=constants.RS485_GPIO_ACTIVE_HIGH,
-                consumer=constants.RS485_GPIO_CONSUMER,
-            )
-        except Exception as exc:
-            raise ModbusAudioError(f"Unable to configure RS485 GPIO control: {exc}") from exc
+        controller: _RS485Controller
+        if constants.ENABLE_RS485_GPIO:
+            try:
+                controller = _RS485Controller(
+                    chip=constants.RS485_GPIO_CHIP,
+                    line_offset=constants.RS485_GPIO_LINE_OFFSET,
+                    active_high=constants.RS485_GPIO_ACTIVE_HIGH,
+                    consumer=constants.RS485_GPIO_CONSUMER,
+                )
+            except Exception as exc:
+                raise ModbusAudioError(f"Unable to configure RS485 GPIO control: {exc}") from exc
+        elif constants.ENABLE_RS485_PINCTRL:
+            try:
+                line_handle = _PinCtrlLineHandle(
+                    binary=constants.RS485_PINCTRL_BINARY,
+                    pin=constants.RS485_PINCTRL_PIN,
+                    timeout=constants.RS485_PINCTRL_TIMEOUT,
+                )
+                controller = _RS485Controller(
+                    chip=None,
+                    line_offset=None,
+                    active_high=True,
+                    consumer="pinctrl",
+                    line_driver=line_handle,
+                )
+            except Exception as exc:
+                raise ModbusAudioError(f"Unable to configure RS485 pinctrl control: {exc}") from exc
+        else:
+            return
 
         try:
             controller.attach(serial_handle)
@@ -557,7 +578,20 @@ def _import_gpiod():
     return gpiod  # type: ignore[name-defined]
 
 
-class _GPIOLineHandle:
+class _BaseLineDriver:
+    """Common interface for RS485 direction helpers."""
+
+    def drive(self, level: bool, *, force: bool = False) -> None:
+        raise NotImplementedError
+
+    def read(self) -> int:
+        raise NotImplementedError
+
+    def close(self) -> None:
+        pass
+
+
+class _GPIOLineHandle(_BaseLineDriver):
     """Wrap a GPIO line so we can drive and read it consistently across libgpiod versions."""
 
     def __init__(self, *, chip: str, line_offset: int, consumer: str, initial_level: bool) -> None:
@@ -632,10 +666,61 @@ class _GPIOLineHandle:
             self._released = True
 
 
+class _PinCtrlLineHandle(_BaseLineDriver):
+    """Drive RS485 direction via external pinctrl utility."""
+
+    def __init__(self, *, binary: str, pin: int, timeout: float) -> None:
+        if not binary:
+            raise ModbusAudioError("RS485 pinctrl binary is not configured")
+        if pin < 0:
+            raise ModbusAudioError("RS485 pinctrl pin must be non-negative")
+        self._binary = binary
+        self._pin = pin
+        self._timeout = timeout if timeout > 0 else 2.0
+        self._state: bool | None = None
+        self.drive(False, force=True)
+
+    def drive(self, level: bool, *, force: bool = False) -> None:
+        if not force and self._state is level:
+            return
+        mode = "dh" if level else "dl"
+        command = [self._binary, str(self._pin), "op", mode]
+        try:
+            subprocess.run(
+                command,
+                check=True,
+                timeout=self._timeout,
+                capture_output=not constants.RS485_GPIO_DEBUG,
+            )
+        except FileNotFoundError as exc:  # pragma: no cover - depends on system
+            raise ModbusAudioError(f"pinctrl binary '{self._binary}' not found") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise ModbusAudioError(f"pinctrl command timed out after {self._timeout}s") from exc
+        except subprocess.CalledProcessError as exc:
+            stderr = exc.stderr.decode("utf-8", errors="ignore") if isinstance(exc.stderr, bytes) else exc.stderr
+            raise ModbusAudioError(f"pinctrl command failed with exit code {exc.returncode}: {stderr}") from exc
+        self._state = level
+
+    def read(self) -> int:
+        return int(bool(self._state))
+
+    def close(self) -> None:
+        # Nothing to clean up for external pinctrl utility
+        return
+
+
 class _RS485Controller:
     """Manage RS485 direction control via a dedicated GPIO line."""
 
-    def __init__(self, *, chip: str, line_offset: int, active_high: bool, consumer: str) -> None:
+    def __init__(
+        self,
+        *,
+        chip: str | None,
+        line_offset: int | None,
+        active_high: bool,
+        consumer: str,
+        line_driver: _BaseLineDriver | None = None,
+    ) -> None:
         self._debug_enabled = constants.RS485_GPIO_DEBUG
         self._serial_handle = None
         self._original_write: Callable[..., object] | None = None
@@ -645,26 +730,35 @@ class _RS485Controller:
         self._tx_level = True if active_high else False
         self._rx_level = not self._tx_level
 
-        self._line: _GPIOLineHandle
-        try:
-            self._line = _GPIOLineHandle(
-                chip=chip,
-                line_offset=line_offset,
-                consumer=consumer,
-                initial_level=self._rx_level,
+        if line_driver is not None:
+            self._line: _BaseLineDriver = line_driver
+            self._log_debug(
+                "Configured pinctrl direction control",
+                pin=getattr(line_driver, "_pin", "unknown"),
+                binary=getattr(line_driver, "_binary", "pinctrl"),
+                initial_level=self._format_level(self._rx_level),
             )
-        except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
-            raise ModbusAudioError(
-                "gpiod is not installed; install it in the active interpreter or adjust MODBUS_RS485_GPIO_PYTHONPATH"
-            ) from exc
-
-        self._log_debug(
-            "Configured GPIO line",
-            chip=chip,
-            line=line_offset,
-            active_high=active_high,
-            initial_level=self._format_level(self._rx_level),
-        )
+        else:
+            if chip is None or line_offset is None:
+                raise ModbusAudioError("RS485 GPIO control requires chip and line configuration")
+            try:
+                self._line = _GPIOLineHandle(
+                    chip=chip,
+                    line_offset=line_offset,
+                    consumer=consumer,
+                    initial_level=self._rx_level,
+                )
+            except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+                raise ModbusAudioError(
+                    "gpiod is not installed; install it in the active interpreter or adjust MODBUS_RS485_GPIO_PYTHONPATH"
+                ) from exc
+            self._log_debug(
+                "Configured GPIO line",
+                chip=chip,
+                line=line_offset,
+                active_high=active_high,
+                initial_level=self._format_level(self._rx_level),
+            )
 
     def attach(self, serial_handle) -> None:
         if self._serial_handle is not None:
