@@ -67,6 +67,7 @@ class StreamOrchestrator extends Service
     private int $autoTimeoutSeconds;
     /** @var array<int, string> */
     private array $autoTimeoutSources;
+    private bool $audioControlsEnabled;
 
     public function __construct(
         private readonly PythonClient $client = new PythonClient(),
@@ -85,6 +86,7 @@ class StreamOrchestrator extends Service
         $seconds = (int) ($autoConfig['seconds'] ?? self::AUTO_TIMEOUT_DEFAULT_SECONDS);
         $this->autoTimeoutSeconds = max(60, $seconds);
         $this->autoTimeoutSources = $this->normalizeAutoTimeoutSources($autoConfig['sources'] ?? []);
+        $this->audioControlsEnabled = (bool) config('broadcast.audio_controls.enabled', false);
     }
 
     public function start(array $payload): array
@@ -151,15 +153,17 @@ class StreamOrchestrator extends Service
             if ($active !== null) {
                 $logAction = 'update';
 
-                $this->mixer->activatePreset($source, [
-                    'options' => $augmentedOptions,
-                    'route' => $route,
-                    'zones' => $zones,
-                    'session_id' => $active->id,
-                ]);
+                if ($this->shouldHandleAudioControls()) {
+                    $this->mixer->activatePreset($source, [
+                        'options' => $augmentedOptions,
+                        'route' => $route,
+                        'zones' => $zones,
+                        'session_id' => $active->id,
+                    ]);
 
-                $this->applyAudioRouting($augmentedOptions, $source, $active->id);
-                $this->applySourceVolume($source);
+                    $this->applyAudioRouting($augmentedOptions, $source, $active->id);
+                    $this->applySourceVolume($source);
+                }
 
                 $response = $this->withModbusLock(fn (): array => $this->client->startStream(
                     $route !== [] ? $route : null,
@@ -169,11 +173,6 @@ class StreamOrchestrator extends Service
                     $modbusUnitId !== null ? (int) $modbusUnitId : null
                 ));
                 $streamStarted = true;
-
-                $this->verifyTransmitterState(true, 'start_update', [
-                    'session_id' => $active->id,
-                    'source' => $source,
-                ]);
 
                 $active->update([
                     'source' => $source,
@@ -205,14 +204,16 @@ class StreamOrchestrator extends Service
                 $logSessionId = $active?->id;
                 $sessionResult = $active?->toArray() ?? [];
             } else {
-                $this->mixer->activatePreset($source, [
-                    'options' => $augmentedOptions,
-                    'route' => $route,
-                    'zones' => $zones,
-                ]);
+                if ($this->shouldHandleAudioControls()) {
+                    $this->mixer->activatePreset($source, [
+                        'options' => $augmentedOptions,
+                        'route' => $route,
+                        'zones' => $zones,
+                    ]);
 
-                $this->applyAudioRouting($augmentedOptions, $source, null);
-                $this->applySourceVolume($source);
+                    $this->applyAudioRouting($augmentedOptions, $source, null);
+                    $this->applySourceVolume($source);
+                }
 
                 $response = $this->withModbusLock(fn (): array => $this->client->startStream(
                     $route !== [] ? $route : null,
@@ -222,10 +223,6 @@ class StreamOrchestrator extends Service
                     $modbusUnitId !== null ? (int) $modbusUnitId : null
                 ));
                 $streamStarted = true;
-
-                $this->verifyTransmitterState(true, 'start_new', [
-                    'source' => $source,
-                ]);
 
                 $session = BroadcastSession::create([
                     'source' => $source,
@@ -354,11 +351,6 @@ class StreamOrchestrator extends Service
                 $modbusUnitId !== null ? (int) $modbusUnitId : null
             ));
 
-            $this->verifyTransmitterState(false, 'stop', [
-                'session_id' => $session->id,
-                'source' => $session->source,
-            ]);
-
             $session->update([
                 'status' => 'stopped',
                 'stopped_at' => now(),
@@ -368,12 +360,14 @@ class StreamOrchestrator extends Service
             $session = $session->fresh() ?? $session;
             $this->cancelEmbeddedPlaylist($session);
 
-            $this->mixer->reset([
-                'session_id' => $session->id,
-                'reason' => $reason,
-            ]);
+            if ($this->shouldHandleAudioControls()) {
+                $this->mixer->reset([
+                    'session_id' => $session->id,
+                    'reason' => $reason,
+                ]);
 
-            $this->loopbackManager->clear();
+                $this->loopbackManager->clear();
+            }
 
             $this->recordTelemetry([
                 'type' => 'stream_stopped',
@@ -395,7 +389,9 @@ class StreamOrchestrator extends Service
 
             return $result;
         } catch (\Throwable $exception) {
-            $this->loopbackManager->clear();
+            if ($this->shouldHandleAudioControls()) {
+                $this->loopbackManager->clear();
+            }
 
             try {
                 $pauseCommand = $this->sendControlChannelCommand('pause', sprintf('Live broadcast stop rollback (source=%s)', $session->source));
@@ -1244,6 +1240,10 @@ class StreamOrchestrator extends Service
      */
     private function applyAudioRouting(array $options, string $source, int|string|null $sessionId = null): void
     {
+        if (!$this->shouldHandleAudioControls()) {
+            return;
+        }
+
         $inputId = Arr::get($options, 'audioInputId');
         if ($inputId === null) {
             $inputId = Arr::get($options, 'audio_input_id');
@@ -1715,6 +1715,10 @@ class StreamOrchestrator extends Service
 
     private function applySourceVolume(string $source): void
     {
+        if (!$this->shouldHandleAudioControls()) {
+            return;
+        }
+
         $channelMap = config('volume.source_channels', []);
         $channel = $channelMap[$source] ?? null;
         if ($channel === null) {
@@ -1877,5 +1881,10 @@ class StreamOrchestrator extends Service
 
         EnforceBroadcastTimeout::dispatch($sessionId, $source, $this->autoTimeoutSeconds)
             ->delay(now()->addSeconds($this->autoTimeoutSeconds));
+    }
+
+    private function shouldHandleAudioControls(): bool
+    {
+        return $this->audioControlsEnabled;
     }
 }
