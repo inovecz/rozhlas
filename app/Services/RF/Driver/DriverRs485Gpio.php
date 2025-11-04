@@ -29,7 +29,14 @@ class DriverRs485Gpio implements Rs485DriverInterface
         $this->activeHigh = $this->toBool(Arr::get($config, 'active_high', true));
         $this->leadSeconds = (float) ($config['lead'] ?? 0.0);
         $this->tailSeconds = (float) ($config['tail'] ?? 0.0);
-        if ($this->binary === '' || $this->chip === '' || $this->line < 0) {
+
+        if ($this->binary === 'pinctrl' && $this->line < 0) {
+            $this->line = 16; // default podle zadání (GPIO16)
+        }
+
+        $requiresChip = $this->binary !== 'pinctrl';
+
+        if ($this->binary === '' || ($requiresChip && $this->chip === '') || $this->line < 0) {
             $this->available = false;
             Log::warning('RS-485 GPIO driver disabled due to missing configuration.', [
                 'binary' => $this->binary,
@@ -76,12 +83,21 @@ class DriverRs485Gpio implements Rs485DriverInterface
 
     private function writeState(bool $transmit): void
     {
-        $value = $this->activeHigh ? ($transmit ? 1 : 0) : ($transmit ? 0 : 1);
-        $command = [
-            $this->binary,
-            $this->chip,
-        ];
-        $command[] = sprintf('%d=%d', $this->line, $value);
+        if ($this->binary === 'pinctrl') {
+            $command = [
+                $this->binary,
+                (string) $this->line,
+                'op',
+                $transmit ? 'dh' : 'dl',
+            ];
+        } else {
+            $value = $this->activeHigh ? ($transmit ? 1 : 0) : ($transmit ? 0 : 1);
+            $command = [
+                $this->binary,
+                $this->chip,
+                sprintf('%d=%d', $this->line, $value),
+            ];
+        }
 
         $process = new Process($command);
         $process->setTimeout(2);
