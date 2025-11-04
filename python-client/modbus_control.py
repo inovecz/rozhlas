@@ -12,8 +12,9 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Optional
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -78,6 +79,25 @@ DTRX_SEQUENCE_SYMBOLS = {
     "X": 21,
     "Y": 22,
 }
+
+BIDIRECTIONAL_DEVICE_UNITS = {
+    "radio": 1,
+    "vysilac": 1,
+    "tx": 1,
+    "amp": 2,
+    "amplifier": 2,
+    "zesilovac": 2,
+    "charger": 3,
+    "nabijec": 3,
+}
+
+DEFAULT_JSVV_TARGET = 0xFEFE
+DEFAULT_JSVV_REMOTE = 1
+DEFAULT_JSVV_REPEAT = 2
+DEFAULT_JSVV_REPEAT_DELAY = 0.5
+
+JSVV_COMMAND_REGISTER = 0x0010
+JSVV_MAX_COMMAND_WORDS = 5
 
 
 def int_from_string(value: str) -> int:
@@ -199,6 +219,102 @@ def build_parser() -> argparse.ArgumentParser:
         type=int_from_string,
         nargs="*",
         help="Optional hop addresses to prepend before nest address (e.g. hub or repeaters)",
+    )
+
+    bidir_cmd = sub.add_parser(
+        "read-bidir",
+        help="Read holding registers from a remote device in the specified nest via bidirectional routing",
+    )
+    bidir_cmd.add_argument("--nest", type=int_from_string, required=True, help="Destination nest Modbus address")
+    bidir_target = bidir_cmd.add_mutually_exclusive_group(required=True)
+    bidir_target.add_argument(
+        "--remote-unit",
+        type=int_from_string,
+        help="Numeric Modbus unit of the target device (e.g. 1=radio, 2=zesilovac, 3=nabijec)",
+    )
+    bidir_target.add_argument(
+        "--device",
+        type=parse_bidirectional_device,
+        help="Device shortcut (radio, amp/zesilovac, charger/nabijec)",
+    )
+    bidir_cmd.add_argument(
+        "--register",
+        type=int_from_string,
+        required=True,
+        help="Starting register address to read from the remote device",
+    )
+    bidir_cmd.add_argument(
+        "--count",
+        type=int,
+        default=1,
+        help="Number of registers to read (default: 1)",
+    )
+
+    jsvv_cmd = sub.add_parser(
+        "jsvv-send",
+        help="Send a JSVV command sequence via bidirectional Modbus bridge",
+    )
+    jsvv_cmd.add_argument(
+        "--sequence",
+        required=True,
+        help="Sequence symbols (e.g. '28A9' or '2,8,A,9') defining the audio samples",
+    )
+    jsvv_cmd.add_argument(
+        "--priority",
+        type=int_from_string,
+        default=1,
+        help="Priority/command register value (0 stops playback).",
+    )
+    jsvv_cmd.add_argument(
+        "--remote",
+        type=int_from_string,
+        help="Remote device address (lower 7 bits); defaults to MODBUS_JSVV_REMOTE or 1.",
+    )
+    jsvv_cmd.add_argument(
+        "--targets",
+        nargs="*",
+        help="Destination nest addresses (decimal or 0x...); defaults to MODBUS_JSVV_TARGETS or 0xFEFE.",
+    )
+    jsvv_cmd.add_argument(
+        "--repeat",
+        type=int,
+        help="Number of times to repeat the command; defaults to MODBUS_JSVV_REPEAT or 2.",
+    )
+    jsvv_cmd.add_argument(
+        "--repeat-delay",
+        type=float,
+        help="Delay in seconds between repetitions; defaults to MODBUS_JSVV_REPEAT_DELAY or 0.5.",
+    )
+
+    jsvv_stop_cmd = sub.add_parser(
+        "jsvv-stop",
+        help="Send a stop command for JSVV playback (priority 0).",
+    )
+    jsvv_stop_cmd.add_argument(
+        "--remote",
+        type=int_from_string,
+        help="Remote device address (lower 7 bits); defaults to MODBUS_JSVV_REMOTE or 1.",
+    )
+    jsvv_stop_cmd.add_argument(
+        "--targets",
+        nargs="*",
+        help="Destination nest addresses (decimal or 0x...); defaults to MODBUS_JSVV_TARGETS or 0xFEFE.",
+    )
+    jsvv_stop_cmd.add_argument(
+        "--repeat",
+        type=int,
+        help="Number of times to repeat the stop command; defaults to MODBUS_JSVV_REPEAT or 2.",
+    )
+    jsvv_stop_cmd.add_argument(
+        "--repeat-delay",
+        type=float,
+        help="Delay in seconds between repetitions; defaults to MODBUS_JSVV_REPEAT_DELAY or 0.5.",
+    )
+    jsvv_stop_cmd.add_argument(
+        "--priority",
+        type=int_from_string,
+        default=0,
+        help="Priority value to write while stopping (default: 0).",
     )
 
     route_cmd = sub.add_parser("set-route", help="Populate hop route registers without starting stream")
@@ -445,6 +561,80 @@ def _parse_default_nests() -> list[int]:
     return nests
 
 
+def _parse_jsvv_targets(raw_targets: Iterable[str] | None) -> list[int]:
+    explicit: list[int] = []
+    if raw_targets:
+        for part in raw_targets:
+            explicit.append(int_from_string(part))
+    if explicit:
+        return explicit
+
+    env_value = os.environ.get("MODBUS_JSVV_TARGETS")
+    if env_value:
+        parsed: list[int] = []
+        for candidate in env_value.split(","):
+            entry = candidate.strip()
+            if not entry:
+                continue
+            try:
+                parsed.append(int(entry, 0))
+            except ValueError as exc:
+                raise ValueError(f"Invalid value '{entry}' in MODBUS_JSVV_TARGETS") from exc
+        if parsed:
+            return parsed
+
+    return [DEFAULT_JSVV_TARGET]
+
+
+def _build_jsvv_route_payload(targets: list[int]) -> tuple[list[int], list[int]]:
+    if not targets:
+        raise ValueError("At least one target address must be provided for JSVV routing.")
+
+    entries = [1] + targets[: constants.MAX_ADDR_ENTRIES - 1]
+    payload: list[int] = [len(entries)]
+    payload.extend(entries)
+    while len(payload) < constants.MAX_ADDR_ENTRIES + 1:
+        payload.append(0)
+    return entries, payload[: constants.MAX_ADDR_ENTRIES + 1]
+
+
+def _resolve_jsvv_remote(value: Optional[int]) -> tuple[int, int]:
+    base = value if value is not None else env_int("MODBUS_JSVV_REMOTE", DEFAULT_JSVV_REMOTE)
+    remote_base = int(base)
+    if remote_base < 0 or remote_base > 0x7F:
+        raise ValueError("Remote address must be within 0-127 before MSB is added.")
+    remote_unit = 0x80 | remote_base
+    return remote_unit, remote_base
+
+
+def parse_bidirectional_device(value: str) -> str:
+    key = value.strip().lower()
+    if key in BIDIRECTIONAL_DEVICE_UNITS:
+        return key
+    valid = ", ".join(sorted(BIDIRECTIONAL_DEVICE_UNITS.keys()))
+    raise argparse.ArgumentTypeError(f"Unknown device '{value}'. Valid options: {valid}")
+
+
+def _resolve_bidirectional_unit(args: argparse.Namespace) -> tuple[int, str | None]:
+    if getattr(args, "remote_unit", None) is not None:
+        unit_value = int(args.remote_unit)
+        if unit_value <= 0 or unit_value >= 248:
+            raise ValueError("Remote unit must be in range 1-247.")
+        return unit_value, None
+
+    device_key = getattr(args, "device", None)
+    if not device_key:
+        raise ValueError("Either --remote-unit or --device must be provided.")
+
+    key = device_key.strip().lower()
+    unit_value = BIDIRECTIONAL_DEVICE_UNITS.get(key)
+    if unit_value is None:
+        valid = ", ".join(sorted(BIDIRECTIONAL_DEVICE_UNITS.keys()))
+        raise ValueError(f"Unknown device '{device_key}'. Valid options: {valid}")
+
+    return unit_value, key
+
+
 def _pad_sequence(values: Iterable[int], size: int, fill: int = 0) -> list[int]:
     result = list(values)[:size]
     while len(result) < size:
@@ -528,6 +718,100 @@ def command_read_nest_status(args: argparse.Namespace) -> dict[str, Any]:
     response["route"] = status_payload.get("route", default_route)
     response["status"] = status_payload.get("status")
     response["error"] = status_payload.get("error")
+    return response
+
+
+def command_read_bidirectional(args: argparse.Namespace) -> dict[str, Any]:
+    settings, unit_id = resolve_serial_settings(args)
+    nest_address = int(args.nest)
+    if nest_address <= 0:
+        raise ValueError("Nest address must be a positive integer.")
+
+    remote_unit, device_key = _resolve_bidirectional_unit(args)
+    register_address = int(args.register)
+    register_count = int(args.count)
+    if register_count <= 0:
+        raise ValueError("Count must be greater than zero.")
+
+    route = [1, nest_address]
+    response = remember_response_data(
+        args,
+        {
+            "port": settings.port,
+            "unitId": unit_id,
+            "nest": nest_address,
+            "route": route,
+            "remoteUnit": remote_unit,
+            "remoteDevice": device_key,
+            "register": register_address,
+            "registerHex": f"0x{register_address:04X}",
+            "count": register_count,
+            "values": None,
+        },
+    )
+
+    with ModbusAudioClient(settings=settings, unit_id=unit_id) as client:
+        route_values = [len(route)] + route + [0] * (constants.MAX_ADDR_ENTRIES - len(route))
+        client.write_registers(constants.NUM_ADDR_RAM, route_values)
+        values = client.read_registers(register_address, register_count, unit=remote_unit)
+
+    response["values"] = values
+    return response
+
+
+JSVV_COMMAND_REGISTER = 0x0010
+JSVV_MAX_COMMAND_WORDS = 5
+
+
+def command_jsvv_send(args: argparse.Namespace) -> dict[str, Any]:
+    settings, unit_id = resolve_serial_settings(args)
+    targets = _parse_jsvv_targets(args.targets)
+    route_entries, route_payload = _build_jsvv_route_payload(targets)
+    remote_unit, remote_base = _resolve_jsvv_remote(getattr(args, "remote", None))
+
+    priority_value = int(args.priority)
+    sample_codes = _parse_sequence_string(args.sequence)
+    command_words = _pad_sequence([priority_value] + sample_codes, JSVV_MAX_COMMAND_WORDS, fill=0)
+
+    repeat_input = args.repeat if getattr(args, "repeat", None) is not None else env_int(
+        "MODBUS_JSVV_REPEAT",
+        DEFAULT_JSVV_REPEAT,
+    )
+    repeat = max(1, int(repeat_input))
+    delay_input = (
+        args.repeat_delay
+        if getattr(args, "repeat_delay", None) is not None
+        else env_float("MODBUS_JSVV_REPEAT_DELAY", DEFAULT_JSVV_REPEAT_DELAY)
+    )
+    delay = float(delay_input)
+    if delay < 0:
+        raise ValueError("Repeat delay must be non-negative.")
+
+    response = remember_response_data(
+        args,
+        {
+            "port": settings.port,
+            "unitId": unit_id,
+            "route": route_entries,
+            "routePayload": route_payload,
+            "remoteUnit": remote_unit,
+            "remoteBase": remote_base,
+            "priority": priority_value,
+            "sequence": sample_codes,
+            "commandWords": command_words,
+            "repeat": repeat,
+            "repeatDelay": delay,
+            "register": JSVV_COMMAND_REGISTER,
+        },
+    )
+
+    with ModbusAudioClient(settings=settings, unit_id=unit_id) as client:
+        client.write_registers(constants.NUM_ADDR_RAM, route_payload)
+        for attempt in range(repeat):
+            client.write_registers(JSVV_COMMAND_REGISTER, command_words, unit=remote_unit)
+            if attempt + 1 < repeat and delay > 0:
+                time.sleep(delay)
+
     return response
 
 
@@ -857,6 +1141,56 @@ def command_read_block(args: argparse.Namespace) -> dict[str, Any]:
     return response
 
 
+def command_jsvv_stop(args: argparse.Namespace) -> dict[str, Any]:
+    settings, unit_id = resolve_serial_settings(args)
+    targets = _parse_jsvv_targets(args.targets)
+    route_entries, route_payload = _build_jsvv_route_payload(targets)
+    remote_unit, remote_base = _resolve_jsvv_remote(getattr(args, "remote", None))
+
+    priority_value = int(args.priority)
+    command_words = _pad_sequence([priority_value], JSVV_MAX_COMMAND_WORDS, fill=0)
+
+    repeat_input = args.repeat if getattr(args, "repeat", None) is not None else env_int(
+        "MODBUS_JSVV_REPEAT",
+        DEFAULT_JSVV_REPEAT,
+    )
+    repeat = max(1, int(repeat_input))
+    delay_input = (
+        args.repeat_delay
+        if getattr(args, "repeat_delay", None) is not None
+        else env_float("MODBUS_JSVV_REPEAT_DELAY", DEFAULT_JSVV_REPEAT_DELAY)
+    )
+    delay = float(delay_input)
+    if delay < 0:
+        raise ValueError("Repeat delay must be non-negative.")
+
+    response = remember_response_data(
+        args,
+        {
+            "port": settings.port,
+            "unitId": unit_id,
+            "route": route_entries,
+            "routePayload": route_payload,
+            "remoteUnit": remote_unit,
+            "remoteBase": remote_base,
+            "priority": priority_value,
+            "commandWords": command_words,
+            "repeat": repeat,
+            "repeatDelay": delay,
+            "register": JSVV_COMMAND_REGISTER,
+        },
+    )
+
+    with ModbusAudioClient(settings=settings, unit_id=unit_id) as client:
+        client.write_registers(constants.NUM_ADDR_RAM, route_payload)
+        for attempt in range(repeat):
+            client.write_registers(JSVV_COMMAND_REGISTER, command_words, unit=remote_unit)
+            if attempt + 1 < repeat and delay > 0:
+                time.sleep(delay)
+
+    return response
+
+
 def command_write_block(args: argparse.Namespace) -> dict[str, Any]:
     descriptor = _resolve_descriptor(args.name)
     values = list(args.values)
@@ -912,6 +1246,12 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any]:
         return command_play_sequence(args)
     if args.command == "read-nest-status":
         return command_read_nest_status(args)
+    if args.command == "read-bidir":
+        return command_read_bidirectional(args)
+    if args.command == "jsvv-send":
+        return command_jsvv_send(args)
+    if args.command == "jsvv-stop":
+        return command_jsvv_stop(args)
     if args.command == "set-route":
         return command_set_route(args)
     if args.command == "set-zones":
