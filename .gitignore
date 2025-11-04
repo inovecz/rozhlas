@@ -17,5 +17,4 @@ yarn-error.log
 /.idea
 /.vscode
 .DS_Store
-
-bezdratovy-rozhlas-test-modbus
+/.venv/
