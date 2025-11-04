@@ -526,19 +526,53 @@ const buildSequenceFromSymbols = (sequenceString) => {
       .map((symbol) => buildRequestItem(symbol));
 };
 
-function notifySequenceTrigger(result) {
-  const status = result?.status ?? null;
-  const position = Number(result?.queue_position ?? result?.queuePosition ?? 0);
+function buildSequenceStringFromItems(sequenceItems) {
+  if (!Array.isArray(sequenceItems) || sequenceItems.length === 0) {
+    return '';
+  }
+
+  const symbols = [];
+  for (const entry of sequenceItems) {
+    if (!entry) {
+      continue;
+    }
+    const symbol = normaliseSymbol(entry.symbol ?? entry.slot ?? '');
+    if (!symbol) {
+      throw new Error('Sekvence obsahuje prázdný symbol.');
+    }
+    const repeat = normaliseRepeat(entry.repeat ?? 1);
+    for (let i = 0; i < repeat; i += 1) {
+      symbols.push(symbol);
+    }
+  }
+
+  return symbols.join('');
+}
+
+function notifySequenceTrigger(rawResult) {
+  const sequence = rawResult?.sequence ?? rawResult ?? {};
+  const statusValue = sequence?.status ?? rawResult?.status ?? null;
+  const status = typeof statusValue === 'string' ? statusValue.toLowerCase() : '';
+  const position = Number(
+      sequence?.queue_position
+      ?? sequence?.queuePosition
+      ?? rawResult?.queue_position
+      ?? rawResult?.queuePosition
+      ?? 0,
+  );
+
   if (status === 'not_found') {
     toast.error('Sekvenci se nepodařilo najít.');
     return;
   }
-  if (status === 'failed') {
-    const message = result?.error_message ?? 'Poplach se nepodařilo spustit.';
+  if (status === 'failed' || status === 'error') {
+    const message = sequence?.error_message
+        ?? rawResult?.error_message
+        ?? 'Poplach se nepodařilo spustit.';
     toast.error(message);
     return;
   }
-  if (status === 'running') {
+  if (status === 'running' || status === 'ok' || status === 'dispatched') {
     toast.success('Poplach byl spuštěn.');
     return;
   }
@@ -639,8 +673,8 @@ async function triggerQuickAlarm(definition) {
     return;
   }
   const alarm = definition.alarm;
-  const sequenceString = alarm?.sequence || definition.sequence || definition.defaultSequence;
-  if (!sequenceString) {
+  const sequenceSource = alarm?.sequence || definition.sequence || definition.defaultSequence;
+  if (!sequenceSource) {
     toast.error('Pro tento poplach není definována sekvence.');
     return;
   }
@@ -652,17 +686,22 @@ async function triggerQuickAlarm(definition) {
   onConfirm(async () => {
       loadingQuick.value = true;
       try {
-        const items = alarm ? buildSequenceItems(alarm) : buildSequenceFromSymbols(sequenceString);
-        const sequence = await JsvvSequenceService.planSequence(items, buildSequenceOptions({
-          priority: alarm?.priority ?? 'P2',
-          zones: alarm?.zones ?? [],
-        }));
-        const sequenceId = sequence?.id ?? sequence?.sequence?.id;
-        if (!sequenceId) {
-          throw new Error('Sequence ID missing');
+        const items = alarm ? buildSequenceItems(alarm) : buildSequenceFromSymbols(sequenceSource);
+        if (!items || items.length === 0) {
+          throw new Error('Sekvence neobsahuje žádné platné položky.');
         }
-        const triggerResult = await JsvvSequenceService.triggerSequence(sequenceId);
-      notifySequenceTrigger(triggerResult);
+        const sequenceString = buildSequenceStringFromItems(items);
+        const commandResult = await JsvvSequenceService.sendCommand({
+          type: 'SEQUENCE',
+          payload: {
+            ...buildSequenceOptions({
+              priority: alarm?.priority ?? 'P2',
+              zones: alarm?.zones ?? [],
+            }),
+            sequence: sequenceString,
+          },
+        });
+        notifySequenceTrigger(commandResult);
     } catch (error) {
       console.error(error);
       toast.error(error?.message ?? 'Nepodařilo se odeslat alarm');
@@ -714,24 +753,29 @@ async function sendCustomSequence() {
   let items;
   try {
     items = customSequence.value.map((entry) =>
-        buildRequestItem({slot: entry.symbol, category: entry.group, repeat: 1})
+        buildRequestItem({slot: entry.symbol, category: entry.group, repeat: entry.repeat ?? 1})
     );
   } catch (error) {
     console.error(error);
     toast.error(error?.message ?? 'Sekvenci se nepodařilo připravit.');
     return;
   }
+  if (!items || items.length === 0) {
+    toast.warning('Sekvence je prázdná.');
+    return;
+  }
   sendingCustom.value = true;
   try {
     const options = buildSequenceOptions({});
+    const sequenceString = buildSequenceStringFromItems(items);
     const commandResult = await JsvvSequenceService.sendCommand({
       type: 'SEQUENCE',
       payload: {
         ...options,
-        steps: items,
+        sequence: sequenceString,
       }
     });
-    notifySequenceTrigger(commandResult?.sequence ?? commandResult);
+    notifySequenceTrigger(commandResult);
     customSequence.value = [];
   } catch (error) {
     console.error(error);
@@ -960,6 +1004,13 @@ function openProtocol() {
                   :disabled="!hasCustomSequence || sendingCustom"
                   @click="sendCustomSequence">
                 Odeslat vlastní poplach
+              </Button>
+              <Button
+                  icon="mdi-stop-circle"
+                  variant="danger"
+                  :disabled="stopInProgress || sendingCustom"
+                  @click="stopJsvvPlayback">
+                Ukončit poplach
               </Button>
               <Button
                   icon="mdi-playlist-plus"

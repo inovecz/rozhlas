@@ -373,6 +373,98 @@ class JsvvSequenceService extends Service
         ]);
     }
 
+    public function dispatchImmediateSequence(array $steps, array $options = []): array
+    {
+        $sequenceString = $this->buildSequenceString($steps);
+        return $this->dispatchImmediateSequenceString($sequenceString, $options);
+    }
+
+    public function dispatchImmediateSequenceString(string $sequence, array $options = []): array
+    {
+        $normalized = $this->normalizeSequenceInput($sequence);
+        if ($normalized === '') {
+            throw new InvalidArgumentException('Sekvence musí obsahovat alespoň jeden symbol.');
+        }
+
+        return $this->sendImmediateSequenceCommand($normalized, $options);
+    }
+
+    public function sendImmediateStop(array $options = []): array
+    {
+        $priority = $this->normalizePriorityValue(Arr::get($options, 'priority'));
+        if ($priority < 0) {
+            $priority = 0;
+        }
+
+        $remote = $this->normalizeOptionalInt(Arr::get($options, 'remote'));
+        $targets = $this->normalizeTargetsOption(Arr::get($options, 'targets'));
+        $repeat = $this->normalizeOptionalInt(Arr::get($options, 'repeat'));
+        $repeatDelay = $this->normalizeOptionalFloat(
+            Arr::get($options, 'repeatDelay', Arr::get($options, 'repeat_delay'))
+        );
+
+        $response = $this->client->stopJsvvSequenceCommand(
+            $priority,
+            $remote,
+            $targets,
+            $repeat,
+            $repeatDelay,
+        );
+
+        if (($response['success'] ?? false) === false) {
+            throw new RuntimeException($response['json']['message'] ?? 'Příkaz k ukončení JSVV se nepodařil.');
+        }
+
+        return [
+            'status' => 'stopped',
+            'priority' => $priority,
+            'targets' => $targets,
+            'remote' => $remote,
+            'repeat' => $repeat,
+            'repeat_delay' => $repeatDelay,
+            'response' => $response['json'] ?? null,
+        ];
+    }
+
+    private function sendImmediateSequenceCommand(string $sequenceString, array $options = []): array
+    {
+        $priority = $this->normalizePriorityValue(Arr::get($options, 'priority'));
+        if ($priority <= 0) {
+            $priority = null;
+        }
+
+        $remote = $this->normalizeOptionalInt(Arr::get($options, 'remote'));
+        $targets = $this->normalizeTargetsOption(Arr::get($options, 'targets'));
+        $repeat = $this->normalizeOptionalInt(Arr::get($options, 'repeat'));
+        $repeatDelay = $this->normalizeOptionalFloat(
+            Arr::get($options, 'repeatDelay', Arr::get($options, 'repeat_delay'))
+        );
+
+        $response = $this->client->sendJsvvSequenceCommand(
+            $sequenceString,
+            $priority,
+            $remote,
+            $targets,
+            $repeat,
+            $repeatDelay,
+        );
+
+        if (($response['success'] ?? false) === false) {
+            throw new RuntimeException($response['json']['message'] ?? 'JSVV sekvenci se nepodařilo odeslat.');
+        }
+
+        return [
+            'status' => 'running',
+            'sequence' => $sequenceString,
+            'priority' => $priority,
+            'targets' => $targets,
+            'remote' => $remote,
+            'repeat' => $repeat,
+            'repeat_delay' => $repeatDelay,
+            'response' => $response['json'] ?? null,
+        ];
+    }
+
     public function processQueuedSequences(): void
     {
         $lock = Cache::lock(self::RUNNER_LOCK_KEY, self::LOCK_TTL_SECONDS);
@@ -1139,6 +1231,144 @@ class JsvvSequenceService extends Service
             'P3' => 3,
             default => 0,
         };
+    }
+
+    private function buildSequenceString(array $steps): string
+    {
+        if ($steps === []) {
+            throw new InvalidArgumentException('Sekvence musí obsahovat alespoň jeden krok.');
+        }
+
+        $symbols = [];
+        foreach ($steps as $step) {
+            if (!is_array($step)) {
+                continue;
+            }
+
+            $rawSymbol = $step['symbol'] ?? $step['slot'] ?? null;
+            if ($rawSymbol === null) {
+                throw new InvalidArgumentException('Sekvence obsahuje krok bez symbolu.');
+            }
+
+            $normalized = $this->normalizeSequenceSymbol($rawSymbol);
+            if ($normalized === '') {
+                throw new InvalidArgumentException('Sekvence obsahuje prázdný symbol.');
+            }
+
+            $repeat = (int) max(1, $step['repeat'] ?? 1);
+            for ($i = 0; $i < $repeat; $i++) {
+                $symbols[] = $normalized;
+            }
+        }
+
+        if ($symbols === []) {
+            throw new InvalidArgumentException('Sekvence musí obsahovat alespoň jeden platný symbol.');
+        }
+
+        return implode(',', $symbols);
+    }
+
+    private function normalizeSequenceSymbol(mixed $symbol): string
+    {
+        if ($symbol === null) {
+            return '';
+        }
+
+        if (is_numeric($symbol)) {
+            return strtoupper(dechex((int) $symbol));
+        }
+
+        if (is_string($symbol)) {
+            $trimmed = strtoupper(trim($symbol));
+            if ($trimmed !== '') {
+                return $trimmed;
+            }
+        }
+
+        return '';
+    }
+
+    private function normalizeSequenceInput(string $sequence): string
+    {
+        $trimmed = strtoupper(trim($sequence));
+        if ($trimmed === '') {
+            return '';
+        }
+
+        $normalized = preg_replace('/\s+/', '', $trimmed);
+        return is_string($normalized) ? $normalized : $trimmed;
+    }
+
+    private function normalizeOptionalInt(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_string($value)) {
+            $trimmed = trim($value);
+            if ($trimmed === '') {
+                return null;
+            }
+            if (str_starts_with($trimmed, '0x') || str_starts_with($trimmed, '0X')) {
+                return (int) hexdec(substr($trimmed, 2));
+            }
+            if (!is_numeric($trimmed)) {
+                return null;
+            }
+            return (int) $trimmed;
+        }
+
+        if (is_numeric($value)) {
+            return (int) $value;
+        }
+
+        return null;
+    }
+
+    private function normalizeOptionalFloat(mixed $value): ?float
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+
+        if (is_string($value)) {
+            $trimmed = trim($value);
+            if ($trimmed === '') {
+                return null;
+            }
+            if (!is_numeric($trimmed)) {
+                return null;
+            }
+            return (float) $trimmed;
+        }
+
+        return null;
+    }
+
+    private function normalizeTargetsOption(mixed $targets): ?array
+    {
+        if ($targets === null) {
+            return null;
+        }
+
+        if (!is_array($targets)) {
+            $targets = [$targets];
+        }
+
+        $normalized = [];
+        foreach ($targets as $target) {
+            $value = $this->normalizeOptionalInt($target);
+            if ($value !== null) {
+                $normalized[] = $value;
+            }
+        }
+
+        return $normalized === [] ? null : array_values(array_unique($normalized));
     }
 
     private function normalizeSequenceOptions(array $options): array

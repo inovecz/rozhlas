@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Exceptions\BroadcastLockedException;
 use App\Http\Controllers\Controller;
+use App\Services\Audio\AlsamixerService;
 use App\Services\Audio\MixerService;
 use App\Services\StreamOrchestrator;
 use Illuminate\Http\JsonResponse;
@@ -18,11 +19,91 @@ use RuntimeException;
 
 class LiveAudioController extends Controller
 {
+    public function applySource(Request $request, AlsamixerService $alsamixer): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'identifier' => ['nullable', 'string'],
+            'source' => ['nullable', 'string'],
+            'volume' => ['nullable', 'numeric', 'between:0,100'],
+        ])->after(function ($validator) {
+            /** @var \Illuminate\Validation\Validator $validator */
+            $data = $validator->getData();
+            $identifier = Arr::get($data, 'identifier');
+            $source = Arr::get($data, 'source');
+
+            if (!is_string($identifier) || trim($identifier) === '') {
+                if (!is_string($source) || trim($source) === '') {
+                    $validator->errors()->add('source', 'Musíte zadat vstup.');
+                }
+            }
+        });
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        if (!$alsamixer->isEnabled()) {
+            return response()->json([
+                'status' => 'unavailable',
+                'message' => 'ALSA mixer helper není dostupný.',
+            ], 503);
+        }
+
+        $identifier = $request->input('identifier');
+        $source = $request->input('source');
+        $resolved = is_string($identifier) && trim($identifier) !== ''
+            ? $identifier
+            : (is_string($source) ? $source : '');
+        $resolved = strtolower(trim($resolved));
+        if ($resolved === '') {
+            return response()->json([
+                'status' => 'invalid_identifier',
+                'message' => 'Neplatný vstup.',
+            ], 422);
+        }
+
+        $volume = $request->input('volume');
+        $normalizedVolume = null;
+        if ($volume !== null && $volume !== '') {
+            $normalizedVolume = max(0.0, min(100.0, (float) $volume));
+        }
+
+        try {
+            $applied = $alsamixer->selectInput($resolved, $normalizedVolume);
+        } catch (InvalidArgumentException $exception) {
+            return response()->json([
+                'status' => 'invalid_identifier',
+                'message' => $exception->getMessage(),
+            ], 422);
+        } catch (RuntimeException $exception) {
+            return response()->json([
+                'status' => 'mixer_error',
+                'message' => $exception->getMessage(),
+            ], 503);
+        }
+
+        if (!$applied) {
+            return response()->json([
+                'status' => 'mixer_error',
+                'message' => 'Nepodařilo se použít zadaný vstup.',
+            ], 500);
+        }
+
+        return response()->json([
+            'status' => 'ok',
+            'applied' => [
+                'source' => $resolved,
+                'volume' => $normalizedVolume,
+            ],
+        ]);
+    }
+
     public function selectSource(Request $request, MixerService $mixer): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'identifier' => ['nullable', 'string'],
             'source' => ['nullable', 'string'],
+            'volume' => ['nullable', 'numeric', 'between:0,100'],
         ])->after(function ($validator) {
             /** @var \Illuminate\Validation\Validator $validator */
             $data = $validator->getData();
@@ -41,9 +122,14 @@ class LiveAudioController extends Controller
         }
 
         $identifier = strtolower((string) ($request->input('identifier') ?? $request->input('source')));
+        $volume = $request->input('volume');
+        $normalizedVolume = null;
+        if ($volume !== null && $volume !== '') {
+            $normalizedVolume = max(0.0, min(100.0, (float) $volume));
+        }
 
         try {
-            $status = $mixer->selectInput($identifier);
+            $status = $mixer->selectInput($identifier, $normalizedVolume);
         } catch (InvalidArgumentException $exception) {
             return response()->json([
                 'status' => 'invalid_identifier',

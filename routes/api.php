@@ -80,6 +80,7 @@ Route::group(['middleware' => ['api']], static function () {
         Route::get('/audio-devices', [LiveBroadcastApiController::class, 'audioDevices']);
     });
 
+    Route::post('/source', [LiveAudioController::class, 'applySource']);
     Route::post('/live/source', [LiveAudioController::class, 'selectSource']);
     Route::post('/live/control', [LiveAudioController::class, 'control']);
 

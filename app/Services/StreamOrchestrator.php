@@ -510,7 +510,7 @@ class StreamOrchestrator extends Service
         $hasCapturePath = $hasPhysicalCapture || $hasPulseMicrophone;
         $hasSystemPlaybackTap = $hasPulseMonitor;
 
-        $sources = [
+        return [
             $this->makeSourceDefinition(
                 'microphone',
                 'Mikrofon',
@@ -519,10 +519,10 @@ class StreamOrchestrator extends Service
             ),
             ['id' => 'central_file', 'label' => 'Soubor v ústředně', 'available' => true],
             $this->makeSourceDefinition(
-                'pc_webrtc',
-                'Vstup z PC (WebRTC)',
-                $hasSystemPlaybackTap,
-                $hasSystemPlaybackTap ? null : 'Není dostupný systémový zvukový výstup (monitor).'
+                'fm_radio',
+                'FM vstup',
+                $hasCapturePath,
+                $hasCapturePath ? null : 'Nebyl nalezen žádný audio vstup z FM přijímače.'
             ),
             $this->makeSourceDefinition(
                 'system_audio',
@@ -530,49 +530,25 @@ class StreamOrchestrator extends Service
                 $hasSystemPlaybackTap,
                 $hasSystemPlaybackTap ? null : 'Není dostupný systémový zvukový výstup (monitor).'
             ),
-            ['id' => 'fm_radio', 'label' => 'FM Rádio', 'available' => true],
             $this->makeSourceDefinition(
-                'jsvv_remote_voice',
-                'JSVV – Vzdálený hlas',
+                'gsm',
+                'GSM modul',
                 $hasSystemPlaybackTap,
                 $hasSystemPlaybackTap ? null : 'Není dostupný systémový zvukový výstup (monitor).'
             ),
             $this->makeSourceDefinition(
-                'jsvv_local_voice',
-                'JSVV – Místní mikrofon',
-                $hasCapturePath,
-                $hasCapturePath ? null : 'Nebyl nalezen žádný mikrofon nebo jiný vstup.'
-            ),
-            $this->makeSourceDefinition(
-                'jsvv_external_primary',
-                'JSVV – Externí audio (primární)',
-                $hasSystemPlaybackTap,
-                $hasSystemPlaybackTap ? null : 'Není dostupný systémový zvukový výstup (monitor).'
-            ),
-            $this->makeSourceDefinition(
-                'jsvv_external_secondary',
-                'JSVV – Externí audio (sekundární)',
-                $hasSystemPlaybackTap,
-                $hasSystemPlaybackTap ? null : 'Není dostupný systémový zvukový výstup (monitor).'
-            ),
-            $this->makeSourceDefinition(
-                'control_box',
-                'Control box',
-                $hasCapturePath,
-                $hasCapturePath ? null : 'Nebyl nalezen žádný audio vstup pro Control box.'
-            ),
-        ];
-
-        for ($index = 2; $index <= 9; $index++) {
-            $sources[] = $this->makeSourceDefinition(
-                'input_' . $index,
-                'Vstup ' . $index,
+                'input_1',
+                'Vstup 1',
                 $hasCapturePath,
                 $hasCapturePath ? null : 'Nebyl nalezen žádný audio vstup.'
-            );
-        }
-
-        return $sources;
+            ),
+            $this->makeSourceDefinition(
+                'input_2',
+                'Vstup 2',
+                $hasCapturePath,
+                $hasCapturePath ? null : 'Nebyl nalezen žádný audio vstup.'
+            ),
+        ];
     }
 
     /**

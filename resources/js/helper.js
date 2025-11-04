@@ -170,7 +170,12 @@ export const moveItemDown = (arr, index) => {
     return arr;
 }
 
-export const formatDate = (date, format) => {
+export const formatDate = (dateInput, format) => {
+    const date = dateInput instanceof Date ? dateInput : new Date(dateInput);
+    if (Number.isNaN(date.getTime())) {
+        return String(dateInput ?? '');
+    }
+
     //if (format === 'Y-m-d H:i:s') {
     //    return date.toISOString().slice(0, 19).replace('T', ' ');
     //} else if (format === 'Y-m-d H:i') {

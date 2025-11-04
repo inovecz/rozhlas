@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Services\Audio\AlsamixerService;
 use App\Services\Mixer\MixerController;
 use App\Settings\VolumeSettings;
 use Illuminate\Support\Arr;
@@ -14,6 +15,7 @@ class VolumeManager
     public function __construct(
         private readonly VolumeSettings $settings,
         private readonly MixerController $mixer,
+        private readonly AlsamixerService $alsamixer,
     ) {
     }
 
@@ -26,7 +28,7 @@ class VolumeManager
     {
         $definition = $this->definitionsFor($groupId, $itemId);
         $value = $this->normalizeLevel($value);
-        $this->applyToMixer($definition, $value);
+        $this->applyToMixer($groupId, $itemId, $definition, $value);
 
         return [
             'id' => $itemId,
@@ -76,7 +78,7 @@ class VolumeManager
         $this->setGroupValues($groupId, $values);
         $this->settings->save();
 
-        $this->applyToMixer($definition, $value);
+        $this->applyToMixer($groupId, $itemId, $definition, $value);
 
         return $this->formatItem($groupId, $itemId, $definition);
     }
@@ -121,7 +123,7 @@ class VolumeManager
 
                 $definition = $this->definitionsFor($groupId, $itemId);
                 $value = $this->normalizeLevel((float) Arr::get($item, 'value', $definition['default'] ?? 0.0));
-                $updates[] = [$definition, $value];
+                $updates[] = [$groupId, $itemId, $definition, $value];
 
                 $values = $this->getGroupValues($groupId);
                 $values[$itemId] = $value;
@@ -131,8 +133,8 @@ class VolumeManager
 
         $this->settings->save();
 
-        foreach ($updates as [$definition, $value]) {
-            $this->applyToMixer($definition, $value);
+        foreach ($updates as [$groupId, $itemId, $definition, $value]) {
+            $this->applyToMixer($groupId, $itemId, $definition, $value);
         }
 
         return $this->listGroups();
@@ -230,8 +232,15 @@ class VolumeManager
     /**
      * @param array<string, mixed> $definition
      */
-    private function applyToMixer(array $definition, float $value): void
+    private function applyToMixer(string $groupId, string $itemId, array $definition, float $value): void
     {
+        if ($groupId === 'inputs') {
+            $channel = isset($definition['channel']) ? (string) $definition['channel'] : '';
+            if ($channel !== '' && $this->alsamixer->applyInputVolume($channel, $value)) {
+                return;
+            }
+        }
+
         $template = $definition['command'] ?? config('volume.command_template');
         if ($template === null) {
             return;

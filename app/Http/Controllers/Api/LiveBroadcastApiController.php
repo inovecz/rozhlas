@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api;
 use App\Exceptions\BroadcastLockedException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\VolumeLevelRequest;
+use App\Services\Audio\AlsamixerService;
 use App\Services\StreamOrchestrator;
 use App\Services\VolumeManager;
 use App\Services\Mixer\AudioDeviceService;
@@ -23,7 +24,7 @@ class LiveBroadcastApiController extends Controller
     {
     }
 
-    public function start(Request $request): JsonResponse
+    public function start(Request $request, AlsamixerService $alsamixer): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'source' => ['required', 'string'],
@@ -36,6 +37,10 @@ class LiveBroadcastApiController extends Controller
             'nests' => ['sometimes', 'array'],
             'nests.*' => ['integer'],
             'options' => ['sometimes', 'array'],
+            'mixer' => ['nullable', 'array'],
+            'mixer.identifier' => ['nullable', 'string'],
+            'mixer.source' => ['nullable', 'string'],
+            'mixer.volume' => ['nullable', 'numeric', 'between:0,100'],
         ]);
 
         if ($validator->fails()) {
@@ -43,6 +48,17 @@ class LiveBroadcastApiController extends Controller
         }
 
         $payload = $validator->validated();
+        $mixerPayload = Arr::get($payload, 'mixer');
+        if (is_array($mixerPayload) && $mixerPayload !== []) {
+            if (!Arr::has($mixerPayload, 'source') && Arr::has($payload, 'source')) {
+                $mixerPayload['source'] = $payload['source'];
+            }
+            $mixerResult = $this->applyMixerSelection($alsamixer, $mixerPayload);
+            if ($mixerResult instanceof JsonResponse) {
+                return $mixerResult;
+            }
+        }
+        unset($payload['mixer']);
         $locations = Arr::get($payload, 'locations', Arr::get($payload, 'zones', []));
         $nests = Arr::get($payload, 'nests', []);
         $payload['locations'] = $locations;
@@ -68,6 +84,65 @@ class LiveBroadcastApiController extends Controller
         }
 
         return response()->json(['session' => $session]);
+    }
+
+    private function applyMixerSelection(AlsamixerService $alsamixer, array $payload): ?JsonResponse
+    {
+        if (!$alsamixer->isEnabled()) {
+            return response()->json([
+                'status' => 'unavailable',
+                'message' => 'ALSA mixer helper není dostupný.',
+            ], 503);
+        }
+
+        $identifier = Arr::get($payload, 'identifier');
+        $source = Arr::get($payload, 'source');
+        if (!is_string($identifier) || trim($identifier) === '') {
+            if (!is_string($source) || trim($source) === '') {
+                return response()->json([
+                    'status' => 'invalid_identifier',
+                    'message' => 'Musíte zadat identifikátor vstupu.',
+                ], 422);
+            }
+            $identifier = $source;
+        }
+
+        $resolved = strtolower(trim((string) $identifier));
+        if ($resolved === '') {
+            return response()->json([
+                'status' => 'invalid_identifier',
+                'message' => 'Neplatný vstup.',
+            ], 422);
+        }
+
+        $volume = Arr::get($payload, 'volume');
+        $normalizedVolume = null;
+        if ($volume !== null && $volume !== '') {
+            $normalizedVolume = max(0.0, min(100.0, (float) $volume));
+        }
+
+        try {
+            $applied = $alsamixer->selectInput($resolved, $normalizedVolume);
+        } catch (InvalidArgumentException $exception) {
+            return response()->json([
+                'status' => 'invalid_identifier',
+                'message' => $exception->getMessage(),
+            ], 422);
+        } catch (RuntimeException $exception) {
+            return response()->json([
+                'status' => 'mixer_error',
+                'message' => $exception->getMessage(),
+            ], 503);
+        }
+
+        if (!$applied) {
+            return response()->json([
+                'status' => 'mixer_error',
+                'message' => 'Nepodařilo se použít zadaný vstup.',
+            ], 500);
+        }
+
+        return null;
     }
 
     public function stop(Request $request): JsonResponse

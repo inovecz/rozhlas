@@ -13,6 +13,8 @@ use Illuminate\Support\Str;
 use InvalidArgumentException;
 use RuntimeException;
 use App\Models\Recording;
+use App\Services\Audio\AlsamixerService;
+use App\Services\VolumeManager;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
 
@@ -28,9 +30,11 @@ class MixerService
     private string $captureFormat;
     private string $recordingDirectory;
     private string $captureStateFile;
+    private ?AlsamixerService $alsamixerService;
 
     public function __construct(
         private readonly AudioIoService $audio = new AudioIoService(),
+        ?AlsamixerService $alsamixer = null,
         ?array $config = null,
     ) {
         $config = $config ?? config('audio', []);
@@ -53,6 +57,15 @@ class MixerService
         $this->captureFormat = (string) Arr::get($captureConfig, 'format', 'cd');
         $this->recordingDirectory = (string) Arr::get($captureConfig, 'directory', storage_path('app/public/recordings'));
         $this->captureStateFile = storage_path('app/audio-capture-state.json');
+        if ($alsamixer !== null) {
+            $this->alsamixerService = $alsamixer;
+        } else {
+            try {
+                $this->alsamixerService = app(AlsamixerService::class);
+            } catch (\Throwable) {
+                $this->alsamixerService = null;
+            }
+        }
     }
 
     /**
@@ -60,9 +73,10 @@ class MixerService
      *
      * @return array<string, mixed>
      */
-    public function selectInput(string $identifier): array
+    public function selectInput(string $identifier, ?float $volume = null): array
     {
         $identifier = strtolower($identifier);
+        $requestedVolume = $this->normalizeVolumePercent($volume);
 
         if (!$this->enabled) {
             Log::debug('Mixer input change skipped because mixer is disabled.', [
@@ -84,8 +98,37 @@ class MixerService
             'identifier' => $identifier,
             'card' => $this->card,
         ];
+        if ($requestedVolume !== null) {
+            $logContext['volume_requested'] = $requestedVolume;
+        }
 
         $this->logAction('select_input.requested', $logContext);
+
+        if ($this->alsamixerService !== null && $this->alsamixerService->isEnabled()) {
+            if (!$this->alsamixerService->supportsInput($identifier)) {
+                $this->logAction('select_input.alsamixer_unsupported', $logContext, 'debug');
+                return $this->audio->status();
+            }
+
+            try {
+                $volumeHint = $requestedVolume ?? $this->resolvePreferredVolumeForInput($identifier);
+                $this->alsamixerService->selectInput($identifier, $volumeHint);
+                $status = $this->audio->status();
+                $context = $logContext;
+                if ($volumeHint !== null) {
+                    $context['volume_hint'] = $volumeHint;
+                }
+                $this->logAction('select_input.alsamixer_applied', $context);
+                return $status;
+            } catch (\Throwable $exception) {
+                $this->logAction(
+                    'select_input.alsamixer_failed',
+                    $logContext + ['error' => $exception->getMessage()],
+                    'error'
+                );
+                throw new RuntimeException(sprintf('ALSA mixer helper failed: %s', $exception->getMessage()), 0, $exception);
+            }
+        }
 
         $profilePath = $this->resolveProfilePath($identifier);
 
@@ -111,6 +154,9 @@ class MixerService
         try {
             $status = $this->audio->setInput($identifier);
             $this->logAction('select_input.amixer_applied', $logContext);
+            if ($requestedVolume !== null) {
+                $this->applyVolumeFallback($identifier, $requestedVolume);
+            }
             return $status;
         } catch (InvalidArgumentException $exception) {
             $this->logAction('select_input.invalid', $logContext + ['error' => $exception->getMessage()], 'error');
@@ -333,6 +379,75 @@ class MixerService
         }
 
         return null;
+    }
+
+    private function normalizeVolumePercent(?float $volume): ?float
+    {
+        if ($volume === null || !is_finite($volume)) {
+            return null;
+        }
+
+        return (float) max(0, min(100, round($volume)));
+    }
+
+    private function applyVolumeFallback(string $identifier, float $volume): void
+    {
+        $mapping = $this->alsamixerService?->volumeChannelForInput($identifier);
+        if ($mapping === null) {
+            return;
+        }
+
+        $group = $mapping['group'] ?? null;
+        $channel = $mapping['channel'] ?? null;
+        if (!is_string($group) || $group === '' || !is_string($channel) || $channel === '') {
+            return;
+        }
+
+        try {
+            /** @var VolumeManager $volumeManager */
+            $volumeManager = app(VolumeManager::class);
+            $volumeManager->applyRuntimeLevel($group, $channel, $volume);
+        } catch (\Throwable $exception) {
+            Log::warning('Unable to apply fallback volume level.', [
+                'identifier' => $identifier,
+                'group' => $group,
+                'channel' => $channel,
+                'volume' => $volume,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+    }
+
+    private function resolvePreferredVolumeForInput(string $identifier): ?float
+    {
+        if ($this->alsamixerService === null) {
+            return null;
+        }
+
+        $mapping = $this->alsamixerService->volumeChannelForInput($identifier);
+        if ($mapping === null) {
+            return null;
+        }
+
+        $group = $mapping['group'] ?? null;
+        $channel = $mapping['channel'] ?? null;
+        if (!is_string($group) || $group === '' || !is_string($channel) || $channel === '') {
+            return null;
+        }
+
+        try {
+            /** @var VolumeManager $volumeManager */
+            $volumeManager = app(VolumeManager::class);
+            return $volumeManager->getCurrentLevel($group, $channel);
+        } catch (\Throwable $exception) {
+            Log::warning('Unable to resolve preferred volume for ALSA mixer helper.', [
+                'identifier' => $identifier,
+                'group' => $group,
+                'channel' => $channel,
+                'error' => $exception->getMessage(),
+            ]);
+            return null;
+        }
     }
 
     private function resolveAliasFromConfig(string $identifier): ?string

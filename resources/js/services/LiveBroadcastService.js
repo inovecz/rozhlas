@@ -1,10 +1,16 @@
-const normaliseStreamPayload = (payload = {}) => ({
-    source: payload.source ?? 'microphone',
-    route: payload.route ?? [],
-    locations: payload.locations ?? payload.zones ?? [],
-    nests: payload.nests ?? [],
-    options: payload.options ?? {},
-});
+const normaliseStreamPayload = (payload = {}) => {
+    const result = {
+        source: payload.source ?? 'microphone',
+        route: payload.route ?? [],
+        locations: payload.locations ?? payload.zones ?? [],
+        nests: payload.nests ?? [],
+        options: payload.options ?? {},
+    };
+    if (payload.mixer !== undefined) {
+        result.mixer = payload.mixer;
+    }
+    return result;
+};
 
 const normalisePlaylistPayload = (payload = {}) => ({
     recordings: payload.recordings ?? [],
@@ -43,9 +49,23 @@ export default {
         return http.post(`live-broadcast/playlist/${id}/cancel`).then(response => response.data);
     },
 
-    selectLiveSource(identifier) {
-        const payload = typeof identifier === 'object' && identifier !== null ? identifier : {identifier};
-        return http.post('live/source', payload).then(response => response.data);
+    selectLiveSource(identifier, volume = null) {
+        const payload = typeof identifier === 'object' && identifier !== null ? {...identifier} : {};
+
+        if (typeof identifier === 'string' && identifier.trim() !== '') {
+            if (payload.identifier === undefined) {
+                payload.identifier = identifier;
+            }
+            if (payload.source === undefined) {
+                payload.source = identifier;
+            }
+        }
+
+        if (volume !== null && volume !== undefined && payload.volume === undefined) {
+            payload.volume = volume;
+        }
+
+        return http.post('source', payload).then(response => response.data);
     },
 
     controlLive(action, payload = {}) {

@@ -603,6 +603,65 @@ class PythonClient
         return $this->runJsvv('plan-sequence', $options, $timeout);
     }
 
+    public function sendJsvvSequenceCommand(
+        string $sequence,
+        ?int $priority = null,
+        ?int $remote = null,
+        ?array $targets = null,
+        ?int $repeat = null,
+        ?float $repeatDelay = null,
+    ): array {
+        $options = [
+            'sequence' => $sequence,
+        ];
+
+        if ($priority !== null) {
+            $options['priority'] = $priority;
+        }
+        if ($remote !== null) {
+            $options['remote'] = $remote;
+        }
+        if ($targets !== null) {
+            $options['targets'] = array_values($targets);
+        }
+        if ($repeat !== null) {
+            $options['repeat'] = $repeat;
+        }
+        if ($repeatDelay !== null) {
+            $options['repeat-delay'] = $repeatDelay;
+        }
+
+        return $this->runModbus('jsvv-send', $options);
+    }
+
+    public function stopJsvvSequenceCommand(
+        ?int $priority = null,
+        ?int $remote = null,
+        ?array $targets = null,
+        ?int $repeat = null,
+        ?float $repeatDelay = null,
+    ): array {
+        $options = [];
+
+        if ($priority !== null) {
+            $options['priority'] = $priority;
+        }
+        if ($remote !== null) {
+            $options['remote'] = $remote;
+        }
+        if ($targets !== null) {
+            $options['targets'] = array_values($targets);
+        }
+        if ($repeat !== null) {
+            $options['repeat'] = $repeat;
+        }
+        if ($repeatDelay !== null) {
+            $options['repeat-delay'] = $repeatDelay;
+        }
+
+        return $this->runModbus('jsvv-stop', $options);
+    }
+
     /**
      * -----------------------------------------------------------------
      * Generic runners
@@ -638,7 +697,6 @@ class PythonClient
         $command = array_merge([$this->pythonBinary, $scriptPath], $arguments);
 
         $environment = $this->buildProcessEnvironment();
-
         $process = new Process($command, $this->scriptsRoot, $environment, null, $timeout);
         $process->run();
 

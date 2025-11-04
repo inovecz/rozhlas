@@ -85,6 +85,8 @@ return [
         'jsvv_local_voice' => 'mic_capture',
         'jsvv_external_primary' => 'system_capture',
         'jsvv_external_secondary' => 'system_capture',
+        'input_1' => 'mic_capture',
+        'input_2' => 'fm_capture',
     ],
 
     'source_output_channels' => [
@@ -99,6 +101,8 @@ return [
         'jsvv_local_voice' => 'playback_level',
         'jsvv_external_primary' => 'playback_level',
         'jsvv_external_secondary' => 'playback_level',
+        'input_1' => 'playback_level',
+        'input_2' => 'playback_level',
     ],
     'source_playback_channels' => [
         'central_file' => 'file_playback',

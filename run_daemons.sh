@@ -165,51 +165,7 @@ case "${1:-}" in
     gpio_button_enabled="${GPIO_BUTTON_ENABLED:-}"
     gpio_button_enabled="${gpio_button_enabled,,}"
     if [[ "$gpio_button_enabled" == "true" || "$gpio_button_enabled" == "1" ]]; then
-      args=("$ROOT_DIR/python-client/daemons/gpio_button_listener.py")
-      args+=(--chip "${GPIO_BUTTON_CHIP:-gpiochip2}")
-      args+=(--line "${GPIO_BUTTON_LINE:-0}")
-      args+=(--active-level "${GPIO_BUTTON_ACTIVE_LEVEL:-1}")
-      args+=(--debounce-ms "${GPIO_BUTTON_DEBOUNCE_MS:-50}")
-      if [[ -n "${GPIO_BUTTON_RELEASE_DEBOUNCE_MS:-}" ]]; then
-        args+=(--release-debounce-ms "${GPIO_BUTTON_RELEASE_DEBOUNCE_MS}")
-      fi
-      args+=(--poll-interval "${GPIO_BUTTON_POLL_INTERVAL:-0.05}")
-      if [[ -n "${GPIO_BUTTON_COOLDOWN_MS:-}" ]]; then
-        args+=(--cooldown-ms "${GPIO_BUTTON_COOLDOWN_MS}")
-      fi
-      args+=(--button-id "${GPIO_BUTTON_ID:-1}")
-      args+=(--screen "${GPIO_BUTTON_SCREEN:-0}")
-      args+=(--panel "${GPIO_BUTTON_PANEL:-0}")
-      args+=(--webhook "${GPIO_BUTTON_WEBHOOK:-${CONTROL_TAB_WEBHOOK:-http://127.0.0.1:8001/api/control-tab/events}}")
-      if [[ -n "${GPIO_BUTTON_TOKEN:-}" ]]; then
-        args+=(--token "${GPIO_BUTTON_TOKEN}")
-      fi
-      if [[ -n "${GPIO_BUTTON_TIMEOUT:-}" ]]; then
-        args+=(--timeout "${GPIO_BUTTON_TIMEOUT}")
-      fi
-      if [[ -n "${GPIO_BUTTON_SESSION_PREFIX:-}" ]]; then
-        args+=(--session-prefix "${GPIO_BUTTON_SESSION_PREFIX}")
-      fi
-      if [[ -n "${GPIO_BUTTON_BACKEND:-}" ]]; then
-        args+=(--backend "${GPIO_BUTTON_BACKEND}")
-      fi
-      if [[ -n "${GPIO_BUTTON_CONSUMER:-}" ]]; then
-        args+=(--consumer "${GPIO_BUTTON_CONSUMER}")
-      fi
-      if [[ -n "${GPIO_BUTTON_REQUIRE_RELEASE:-}" ]]; then
-        case "${GPIO_BUTTON_REQUIRE_RELEASE,,}" in
-          "0"|"false"|"no"|"off")
-            args+=(--no-require-release)
-            ;;
-          "1"|"true"|"yes"|"on")
-            args+=(--require-release)
-            ;;
-        esac
-      fi
-      if [[ -n "${GPIO_BUTTON_LOG_LEVEL:-}" ]]; then
-        args+=(--log-level "${GPIO_BUTTON_LOG_LEVEL}")
-      fi
-      start_daemon "gpio_button_listener" "${args[@]}"
+      start_daemon "gpio_button_listener" "$ROOT_DIR/python-client/daemons/gpio_button_listener.py"
     else
       echo "Skipping gpio_button_listener (set GPIO_BUTTON_ENABLED=true to enable)." | tee -a "$LOG_DIR/gpio_button_listener.log"
       rm -f "$LOG_DIR/gpio_button_listener.pid"

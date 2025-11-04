@@ -48,6 +48,15 @@ class JsvvCommandController extends Controller
     {
         $reason = (string) Arr::get($payload, 'reason', 'jsvv_manual_stop');
 
+        $stopCommand = null;
+        try {
+            $stopCommand = $this->sequenceService->sendImmediateStop($payload);
+        } catch (\Throwable $exception) {
+            Log::warning('JSVV stop command failed.', [
+                'error' => $exception->getMessage(),
+            ]);
+        }
+
         $sequenceResult = $this->sequenceService->stopAll($reason);
 
         $controlResult = null;
@@ -61,42 +70,47 @@ class JsvvCommandController extends Controller
         }
 
         return response()->json([
-            'status' => $sequenceResult['status'] ?? 'stopped',
+            'status' => $stopCommand['status'] ?? ($sequenceResult['status'] ?? 'stopped'),
             'sequence' => $sequenceResult,
+            'command' => $stopCommand,
             'control_channel' => $controlResult,
         ]);
     }
 
     private function handleSequenceCommand(array $payload): JsonResponse
     {
+        $sequenceString = Arr::get($payload, 'sequence');
         $steps = Arr::get($payload, 'steps', []);
-        if (!is_array($steps) || $steps === []) {
-            return response()->json(['errors' => ['payload.steps' => ['Sekvence musí obsahovat alespoň jeden krok.']]], 422);
-        }
 
-        $options = Arr::except($payload, ['steps']);
+        $options = Arr::except($payload, ['steps', 'sequence']);
 
         try {
-            $plan = $this->sequenceService->plan($steps, $options);
+            if (is_string($sequenceString) && trim($sequenceString) !== '') {
+                $commandResult = $this->sequenceService->dispatchImmediateSequenceString($sequenceString, $options);
+            } else {
+                if (!is_array($steps) || $steps === []) {
+                    return response()->json(['errors' => ['payload.steps' => ['Sekvence musí obsahovat alespoň jeden krok.']]], 422);
+                }
+
+                $commandResult = $this->sequenceService->dispatchImmediateSequence($steps, $options);
+            }
         } catch (\InvalidArgumentException $exception) {
             return response()->json([
                 'errors' => ['payload.steps' => [$exception->getMessage()]],
             ], 422);
-        }
-
-        $sequenceId = (string) (Arr::get($plan, 'id') ?? Arr::get($plan, 'sequence.id') ?? '');
-        if ($sequenceId === '') {
+        } catch (\RuntimeException $exception) {
             return response()->json([
                 'status' => 'failed',
-                'message' => 'Nepodařilo se připravit sekvenci JSVV.',
+                'message' => $exception->getMessage(),
             ], 500);
         }
 
-        $trigger = $this->sequenceService->trigger($sequenceId);
-
         return response()->json([
-            'status' => $trigger['status'] ?? 'queued',
-            'sequence' => $trigger,
+            'status' => $commandResult['status'] ?? 'running',
+            'sequence' => [
+                'status' => $commandResult['status'] ?? 'running',
+            ],
+            'command' => $commandResult,
         ]);
     }
 }

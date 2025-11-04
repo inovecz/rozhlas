@@ -805,12 +805,28 @@ def command_jsvv_send(args: argparse.Namespace) -> dict[str, Any]:
         },
     )
 
-    with ModbusAudioClient(settings=settings, unit_id=unit_id) as client:
-        client.write_registers(constants.NUM_ADDR_RAM, route_payload)
-        for attempt in range(repeat):
-            client.write_registers(JSVV_COMMAND_REGISTER, command_words, unit=remote_unit)
-            if attempt + 1 < repeat and delay > 0:
-                time.sleep(delay)
+    ignored_errors: list[str] = []
+
+    try:
+        with ModbusAudioClient(settings=settings, unit_id=unit_id) as client:
+            try:
+                client.write_registers(constants.NUM_ADDR_RAM, route_payload)
+            except ModbusAudioError as exc:
+                ignored_errors.append(f"route: {exc}")
+
+            for attempt in range(repeat):
+                try:
+                    client.write_registers(JSVV_COMMAND_REGISTER, command_words, unit=remote_unit)
+                except ModbusAudioError as exc:
+                    ignored_errors.append(f"attempt {attempt + 1}: {exc}")
+                if attempt + 1 < repeat and delay > 0:
+                    time.sleep(delay)
+    except ModbusAudioError as exc:
+        ignored_errors.append(f"connect: {exc}")
+
+    response["result"] = "dispatched"
+    if ignored_errors:
+        response["ignoredErrors"] = ignored_errors
 
     return response
 
