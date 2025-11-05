@@ -400,11 +400,29 @@ class ControlTabService extends Service
             ];
         }
 
-        $this->orchestrator->stop('control_tab_stop');
+        try {
+            Log::info('Control Tab: stopping live broadcast', [
+                'session_id' => $session->id,
+                'source' => $session->source,
+            ]);
+            $stoppedSession = $this->orchestrator->stop('control_tab_stop');
+        } catch (\Throwable $exception) {
+            Log::error('Control Tab: stop broadcast failed', [
+                'session_id' => $session->id,
+                'source' => $session->source,
+                'error' => $exception->getMessage(),
+            ]);
+
+            return [
+                'status' => 'error',
+                'message' => 'Nepodařilo se ukončit vysílání.',
+            ];
+        }
 
         return [
             'status' => 'ok',
             'message' => Arr::get($config, 'success_message', 'Vysílání bylo zastaveno.'),
+            'session' => $stoppedSession,
         ];
     }
 
