@@ -531,6 +531,22 @@ auto_configure_gsm_serial() {
   else
     echo "Detected GSM serial port ${detected_port}; existing configuration already matches."
   fi
+
+  if [[ -n "${GSM_SIM_PIN:-}" ]]; then
+    echo "Submitting SIM PIN to GSM modem..."
+    local unlock_output=""
+    local unlock_status=0
+    unlock_output=$("$ROOT_DIR/python-client/tools/gsm_unlock.py" --port "$detected_port" --pin "$GSM_SIM_PIN" 2>&1) || unlock_status=$?
+    if [[ $unlock_status -eq 0 ]]; then
+      [[ -n "$unlock_output" ]] && echo "$unlock_output"
+    elif [[ $unlock_status -eq 2 ]]; then
+      [[ -n "$unlock_output" ]] && echo "$unlock_output"
+      echo "Note: Skipping SIM unlock because the port is currently in use."
+    else
+      [[ -n "$unlock_output" ]] && echo "$unlock_output" >&2
+      echo "Warning: Failed to unlock SIM card on ${detected_port}. GSM listener may fail until unlocked." >&2
+    fi
+  fi
 }
 
 if [[ -f "$ENV_FILE" ]]; then
