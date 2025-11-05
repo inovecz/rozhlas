@@ -8,10 +8,12 @@ use App\Exceptions\BroadcastLockedException;
 use App\Jobs\EnforceBroadcastTimeout;
 use App\Jobs\ProcessRecordingPlaylist;
 use App\Libraries\PythonClient;
+use App\Services\Audio\AlsamixerService;
 use App\Models\ControlChannelCommand;
 use App\Models\BroadcastPlaylist;
 use App\Models\BroadcastPlaylistItem;
 use App\Models\BroadcastSession;
+use App\Models\JsvvSequence;
 use App\Models\Log as ActivityLog;
 use App\Models\Location;
 use App\Models\LocationGroup;
@@ -110,8 +112,13 @@ class StreamOrchestrator extends Service
         $nestIds = $includeOrphanNests ? $this->mergeUnassignedNestIds($originalNestIds) : $originalNestIds;
         $options = Arr::get($payload, 'options', []);
 
+        $forcedZone = (int) ($options['_control_tab_force_zone'] ?? 0);
         $targets = $this->resolveTargets($locationGroupIds, $nestIds);
+        if ($forcedZone > 0 && empty($targets['zones'])) {
+            $targets['zones'] = [$forcedZone];
+        }
         $route = $this->resolveRoute($manualRoute, $targets);
+        $shouldUpdateRoute = $route !== [];
         $zones = $targets['zones'];
         $augmentedOptions = $this->augmentOptions($options, $manualRoute, $originalLocationGroupIds, $originalNestIds, $targets);
         $augmentedOptions = $this->applyFrequencyOption($augmentedOptions);
@@ -169,7 +176,7 @@ class StreamOrchestrator extends Service
                     $route !== [] ? $route : null,
                     $zones,
                     null,
-                    false,
+                    $shouldUpdateRoute,
                     $modbusUnitId !== null ? (int) $modbusUnitId : null
                 ));
                 $streamStarted = true;
@@ -219,7 +226,7 @@ class StreamOrchestrator extends Service
                     $route !== [] ? $route : null,
                     $zones,
                     null,
-                    false,
+                    $shouldUpdateRoute,
                     $modbusUnitId !== null ? (int) $modbusUnitId : null
                 ));
                 $streamStarted = true;
@@ -368,6 +375,7 @@ class StreamOrchestrator extends Service
 
                 $this->loopbackManager->clear();
             }
+            $this->resetAlsamixerInput($reason);
 
             $this->recordTelemetry([
                 'type' => 'stream_stopped',
@@ -392,6 +400,7 @@ class StreamOrchestrator extends Service
             if ($this->shouldHandleAudioControls()) {
                 $this->loopbackManager->clear();
             }
+            $this->resetAlsamixerInput($reason);
 
             try {
                 $pauseCommand = $this->sendControlChannelCommand('pause', sprintf('Live broadcast stop rollback (source=%s)', $session->source));
@@ -474,6 +483,7 @@ class StreamOrchestrator extends Service
         ] : null;
 
         $details['control_channel'] = $this->controlChannelSummary();
+        $details['jsvv_active_sequence'] = $this->resolveActiveJsvvSequence();
 
         return $details;
     }
@@ -949,6 +959,33 @@ class StreamOrchestrator extends Service
             'details' => $response['details'] ?? Arr::get($payload, 'details', $payload),
             'latencyMs' => $response['latencyMs'] ?? Arr::get($payload, 'latency_ms'),
             'issuedAt' => $command->issued_at?->toIso8601String(),
+        ];
+    }
+
+    private function resolveActiveJsvvSequence(): ?array
+    {
+        /** @var \App\Models\JsvvSequence|null $sequence */
+        $sequence = JsvvSequence::query()
+            ->where('status', 'running')
+            ->latest('triggered_at')
+            ->latest('created_at')
+            ->first();
+
+        if ($sequence === null) {
+            return null;
+        }
+
+        $startedAt = $sequence->triggered_at ?? $sequence->queued_at ?? $sequence->created_at;
+
+        return [
+            'id' => $sequence->getKey(),
+            'status' => $sequence->status,
+            'priority' => $sequence->priority,
+            'started_at' => $startedAt?->toIso8601String(),
+            'triggered_at' => $sequence->triggered_at?->toIso8601String(),
+            'queued_at' => $sequence->queued_at?->toIso8601String(),
+            'estimated_duration_seconds' => $sequence->estimated_duration_seconds,
+            'options' => $sequence->options ?? [],
         ];
     }
 
@@ -1862,5 +1899,44 @@ class StreamOrchestrator extends Service
     private function shouldHandleAudioControls(): bool
     {
         return $this->audioControlsEnabled;
+    }
+
+    private function resetAlsamixerInput(?string $reason = null): void
+    {
+        $targetInput = (string) config('audio.default_reset_input', 'system');
+        if ($targetInput === '') {
+            $targetInput = 'system';
+        }
+
+        try {
+            /** @var AlsamixerService $alsamixer */
+            $alsamixer = app(AlsamixerService::class);
+        } catch (Throwable $exception) {
+            Log::debug('Unable to resolve ALSA mixer service for reset.', [
+                'error' => $exception->getMessage(),
+            ]);
+            return;
+        }
+
+        if (!$alsamixer->isEnabled()) {
+            return;
+        }
+
+        if (!$alsamixer->supportsInput($targetInput)) {
+            Log::notice('ALSA mixer reset skipped because input is unsupported.', [
+                'input' => $targetInput,
+            ]);
+            return;
+        }
+
+        try {
+            $alsamixer->selectInput($targetInput);
+        } catch (Throwable $exception) {
+            Log::warning('Failed to reset ALSA mixer input after broadcast stop.', [
+                'input' => $targetInput,
+                'reason' => $reason,
+                'error' => $exception->getMessage(),
+            ]);
+        }
     }
 }

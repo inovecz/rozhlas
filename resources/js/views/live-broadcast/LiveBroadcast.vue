@@ -69,8 +69,6 @@ const selectedPlaylistItem = computed(() => form.playlistItems[0] ?? null);
 const locationOptions = computed(() => Array.isArray(locationGroups.value) ? locationGroups.value : []);
 const nestOptions = computed(() => Array.isArray(nests.value) ? nests.value : []);
 
-const requestedRoute = computed(() => ensureNumericArray(status.value?.session?.requestedRoute));
-const appliedRoute = computed(() => ensureNumericArray(status.value?.session?.route));
 const appliedZones = computed(() => ensureNumericArray(status.value?.session?.zones));
 
 const locationNameMap = computed(() => new Map(locationOptions.value.map(group => [Number(group.id), group.name])));
@@ -111,6 +109,31 @@ const sessionStartedAt = computed(() => {
 const sessionNote = computed(() => status.value?.session?.options?.note ?? null);
 
 const volumeLabel = computed(() => `${Math.round(clampVolume(form.volume))} %`);
+const nowTimestamp = ref(Date.now());
+let nowTimerHandle = null;
+
+const playbackDuration = computed(() => {
+  if (!isStreaming.value) {
+    return null;
+  }
+  const startedAt = status.value?.session?.started_at ?? null;
+  if (!startedAt) {
+    return null;
+  }
+  const startMs = Date.parse(startedAt);
+  if (!Number.isFinite(startMs)) {
+    return null;
+  }
+  const diffMs = nowTimestamp.value - startMs;
+  if (diffMs <= 0) {
+    return "00:00:00";
+  }
+  const totalSeconds = Math.floor(diffMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds].map(part => String(part).padStart(2, "0")).join(":");
+});
 
 watch(() => form.input, async (newValue, oldValue) => {
   if (syncingForm.value) {
@@ -323,14 +346,11 @@ const applySourceUpdate = async ({silent = false, revertInput = null, revertVolu
     return;
   }
 
-  const payload = {
-    identifier: alias,
-    source: form.input,
-    volume: clampVolume(form.volume),
-  };
-
   try {
-    await LiveBroadcastService.selectLiveSource(payload);
+    await LiveBroadcastService.updateRuntimeInput({
+      source: form.input,
+      volume: clampVolume(form.volume),
+    });
   } catch (error) {
     if (revertInput && INPUT_DEFINITIONS[revertInput]) {
       syncingForm.value = true;
@@ -539,6 +559,10 @@ const resolveRecordingLabel = (item) => {
 };
 
 onMounted(async () => {
+  nowTimerHandle = setInterval(() => {
+    nowTimestamp.value = Date.now();
+  }, 1000);
+
   await Promise.all([
     loadLocationGroups(),
     loadNests(),
@@ -553,6 +577,10 @@ onBeforeUnmount(() => {
   stopPreview();
   if (volumeUpdateHandle) {
     clearTimeout(volumeUpdateHandle);
+  }
+  if (nowTimerHandle) {
+    clearInterval(nowTimerHandle);
+    nowTimerHandle = null;
   }
   playlistAudioCache.forEach((value) => {
     if (value?.url) {
@@ -592,9 +620,8 @@ onBeforeUnmount(() => {
           <div v-if="isStreaming && status.session" class="grid gap-2 text-sm text-gray-700 md:grid-cols-2">
             <div><strong>Zdroj:</strong> {{ sessionSourceLabel }}</div>
             <div><strong>Start:</strong> {{ sessionStartedAt }}</div>
+            <div><strong>Délka vysílání:</strong> {{ playbackDuration ?? '-' }}</div>
             <div><strong>Zóny:</strong> {{ appliedZones.length ? appliedZones.join(', ') : '-' }}</div>
-            <div><strong>Route (požadováno):</strong> {{ requestedRoute.length ? requestedRoute.join(', ') : '-' }}</div>
-            <div><strong>Route (aplikováno):</strong> {{ appliedRoute.length ? appliedRoute.join(', ') : '-' }}</div>
             <div><strong>Lokality:</strong> {{ locationDisplayNames.length ? locationDisplayNames.join(', ') : '-' }}</div>
             <div><strong>Hnízda:</strong> {{ nestDisplayNames.length ? nestDisplayNames.join(', ') : '-' }}</div>
             <div v-if="sessionNote"><strong>Poznámka:</strong> {{ sessionNote }}</div>

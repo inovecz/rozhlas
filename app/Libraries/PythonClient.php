@@ -697,6 +697,13 @@ class PythonClient
         $command = array_merge([$this->pythonBinary, $scriptPath], $arguments);
 
         $environment = $this->buildProcessEnvironment();
+        Log::info('Executing python client command', [
+            'script' => $script,
+            'arguments' => $arguments,
+            'command' => $command,
+            'timeout' => $timeout,
+        ]);
+
         $process = new Process($command, $this->scriptsRoot, $environment, null, $timeout);
         $process->run();
 
@@ -799,14 +806,52 @@ class PythonClient
 
     private function buildCommandArguments(string $command, array $options): array
     {
-        $arguments = [$command];
+        $globalKeys = [
+            'port',
+            'method',
+            'baudrate',
+            'parity',
+            'stopbits',
+            'bytesize',
+            'timeout',
+            'unit-id',
+            'dry-run',
+        ];
+
+        $globalOptions = [];
+        $commandOptions = [];
+
+        foreach ($options as $key => $value) {
+            $normalizedKey = str_replace('_', '-', (string) $key);
+            if (in_array($normalizedKey, $globalKeys, true)) {
+                $globalOptions[$normalizedKey] = $value;
+                continue;
+            }
+
+            $commandOptions[$normalizedKey] = $value;
+        }
+
+        return array_merge(
+            $this->buildOptionArgumentList($globalOptions),
+            [$command],
+            $this->buildOptionArgumentList($commandOptions)
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<int, string>
+     */
+    private function buildOptionArgumentList(array $options): array
+    {
+        $arguments = [];
 
         foreach ($options as $key => $value) {
             if ($value === null) {
                 continue;
             }
 
-            $flag = '--' . str_replace('_', '-', (string) $key);
+            $flag = '--' . $key;
 
             if (is_bool($value)) {
                 if ($value) {

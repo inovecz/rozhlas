@@ -13,7 +13,7 @@ import JsvvAlarmService from "../../services/JsvvAlarmService.js";
 import JsvvSequenceService from "../../services/JsvvSequenceService.js";
 import SettingsService from "../../services/SettingsService.js";
 import LiveBroadcastService from "../../services/LiveBroadcastService.js";
-import {durationToTime, moveItemDown, moveItemUp} from "../../helper.js";
+import {durationToTime, formatDate, moveItemDown, moveItemUp} from "../../helper.js";
 import {JSVV_BUTTON_DEFAULTS} from "../../constants/jsvvDefaults.js";
 
 const toast = useToast();
@@ -71,6 +71,12 @@ const builderFilters = reactive({
   search: '',
 });
 
+const broadcastStatus = ref(null);
+const broadcastStatusLoading = ref(false);
+const statusNow = ref(Date.now());
+let statusNowTimerHandle = null;
+let statusPollTimerHandle = null;
+
 function goBack() {
   if (typeof window !== 'undefined' && window.history && window.history.length > 1) {
     router.back();
@@ -82,12 +88,21 @@ function goBack() {
 onMounted(async () => {
   await Promise.all([fetchJsvvAlarms(), fetchJsvvAudios()]);
   await loadFmSettings();
+  await loadBroadcastStatus();
+  statusNowTimerHandle = setInterval(() => {
+    statusNow.value = Date.now();
+  }, 1000);
 });
 
 onBeforeUnmount(() => {
   if (fmPreviewActive.value) {
     stopFmPreview();
   }
+  if (statusNowTimerHandle) {
+    clearInterval(statusNowTimerHandle);
+    statusNowTimerHandle = null;
+  }
+  stopStatusPolling();
 });
 
 async function loadFmSettings() {
@@ -454,6 +469,189 @@ const quickAlarms = computed(() => quickAlarmsDefinition.map((definition) => {
 
 const hasCustomSequence = computed(() => customSequence.value.length > 0);
 
+const activeBroadcastSession = computed(() => {
+  const payload = broadcastStatus.value;
+  const session = payload?.session ?? null;
+  if (!session || typeof session !== 'object') {
+    return null;
+  }
+  const source = (session.source ?? '').toString().toLowerCase();
+  const status = (session.status ?? '').toString().toLowerCase();
+  if (source !== 'jsvv' || status !== 'running') {
+    return null;
+  }
+  return session;
+});
+
+const activeJsvvSequence = computed(() => {
+  const payload = broadcastStatus.value;
+  const sequence = payload?.jsvv_active_sequence ?? payload?.jsvv ?? null;
+  if (!sequence || typeof sequence !== 'object') {
+    return null;
+  }
+  const status = (sequence.status ?? '').toString().toLowerCase();
+  if (status !== 'running') {
+    return null;
+  }
+  return sequence;
+});
+
+const isJsvvActive = computed(() => activeBroadcastSession.value !== null || activeJsvvSequence.value !== null);
+
+const jswvStartedAtLabel = computed(() => {
+  const session = activeBroadcastSession.value;
+  if (session) {
+    const startedAt = session.started_at ?? session.startedAt ?? null;
+    if (!startedAt) {
+      return '–';
+    }
+    return formatDate(startedAt, "d.m.Y H:i:s");
+  }
+
+  const sequence = activeJsvvSequence.value;
+  if (!sequence) {
+    return '–';
+  }
+  const startedAt = sequence.started_at
+    ?? sequence.startedAt
+    ?? sequence.triggered_at
+    ?? sequence.triggeredAt
+    ?? null;
+  if (!startedAt) {
+    return '–';
+  }
+  return formatDate(startedAt, "d.m.Y H:i:s");
+});
+
+const jswvElapsedSeconds = computed(() => {
+  let startedAt = null;
+  const session = activeBroadcastSession.value;
+
+  if (session) {
+    startedAt = session.started_at ?? session.startedAt ?? null;
+  } else {
+    const sequence = activeJsvvSequence.value;
+    if (!sequence) {
+      return 0;
+    }
+    startedAt = sequence.triggered_at
+      ?? sequence.triggeredAt
+      ?? sequence.started_at
+      ?? sequence.startedAt
+      ?? null;
+  }
+
+  if (!startedAt) {
+    return 0;
+  }
+  const startMs = Date.parse(startedAt);
+  if (!Number.isFinite(startMs)) {
+    return 0;
+  }
+  const diffSeconds = Math.floor((statusNow.value - startMs) / 1000);
+  return diffSeconds > 0 ? diffSeconds : 0;
+});
+
+const jswvElapsedLabel = computed(() => {
+  if (!isJsvvActive.value) {
+    return '–';
+  }
+  return durationToTime(jswvElapsedSeconds.value);
+});
+
+const jswvPlannedDurationSeconds = computed(() => {
+  const session = activeBroadcastSession.value;
+  if (session) {
+    const options = session.options ?? {};
+    const planned = options.plannedDuration ?? options.planned_duration ?? null;
+    const numeric = Number(planned);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      return null;
+    }
+    return numeric;
+  }
+
+  const sequence = activeJsvvSequence.value;
+  if (!sequence) {
+    return null;
+  }
+
+  const options = sequence.options ?? {};
+  const planned = sequence.estimated_duration_seconds
+    ?? sequence.estimatedDurationSeconds
+    ?? options.plannedDuration
+    ?? options.planned_duration
+    ?? null;
+
+  const numeric = Number(planned);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return null;
+  }
+  return numeric;
+});
+
+const jswvPlannedLabel = computed(() => {
+  if (!isJsvvActive.value) {
+    return '–';
+  }
+  const planned = jswvPlannedDurationSeconds.value;
+  if (planned == null) {
+    const session = activeBroadcastSession.value;
+    if (session) {
+      return 'Nelze určit (mikrofon nebo neznámá sekvence)';
+    }
+    return 'Nelze určit (sekvence neuvádí délku)';
+  }
+  return durationToTime(Math.round(planned));
+});
+
+const jswvRemainingLabel = computed(() => {
+  if (!isJsvvActive.value) {
+    return '–';
+  }
+  const planned = jswvPlannedDurationSeconds.value;
+  if (planned == null) {
+    return 'Nelze určit';
+  }
+  const remaining = Math.max(0, Math.round(planned - jswvElapsedSeconds.value));
+  return durationToTime(remaining);
+});
+
+const loadBroadcastStatus = async ({silent = false} = {}) => {
+  if (!silent) {
+    broadcastStatusLoading.value = true;
+  }
+  try {
+    const response = await LiveBroadcastService.getStatus();
+    broadcastStatus.value = response ?? {};
+  } catch (error) {
+    console.error(error);
+    if (!silent) {
+      toast.error('Nepodařilo se načíst stav poplachu.');
+    }
+  } finally {
+    if (!silent) {
+      broadcastStatusLoading.value = false;
+    }
+  }
+};
+
+const scheduleStatusPolling = () => {
+  if (statusPollTimerHandle) {
+    clearInterval(statusPollTimerHandle);
+  }
+  statusPollTimerHandle = setInterval(() => {
+    loadBroadcastStatus({silent: true}).catch(() => {});
+  }, 5000);
+};
+
+const stopStatusPolling = () => {
+  if (statusPollTimerHandle) {
+    clearInterval(statusPollTimerHandle);
+    statusPollTimerHandle = null;
+  }
+};
+
 function openCustomBuilder() {
   showCustomBuilder.value = true;
 }
@@ -490,6 +688,7 @@ async function stopJsvvPlayback() {
     toast.error(message);
   } finally {
     stopInProgress.value = false;
+    await loadBroadcastStatus({silent: true});
   }
 }
 
@@ -655,6 +854,7 @@ async function startFmPreview() {
     });
     fmPreviewActive.value = true;
     toast.success('FM stream byl spuštěn.');
+    await loadBroadcastStatus({silent: true});
   } catch (error) {
     console.error(error);
     const message = error?.response?.data?.message ?? 'Nepodařilo se spustit FM stream.';
@@ -672,6 +872,7 @@ async function stopFmPreview() {
   try {
     await LiveBroadcastService.stopBroadcast('fm_preview_stop');
     toast.info('FM stream byl zastaven.');
+    await loadBroadcastStatus({silent: true});
   } catch (error) {
     console.error(error);
     const message = error?.response?.data?.message ?? 'Nepodařilo se zastavit FM stream.';
@@ -716,6 +917,7 @@ async function triggerQuickAlarm(definition) {
           },
         });
         notifySequenceTrigger(commandResult);
+        await loadBroadcastStatus({silent: true});
     } catch (error) {
       console.error(error);
       toast.error(error?.message ?? 'Nepodařilo se odeslat alarm');
@@ -791,6 +993,7 @@ async function sendCustomSequence() {
     });
     notifySequenceTrigger(commandResult);
     customSequence.value = [];
+    await loadBroadcastStatus({silent: true});
   } catch (error) {
     console.error(error);
     toast.error(error?.message ?? 'Nepodařilo se odeslat vlastní poplach');
@@ -802,6 +1005,23 @@ async function sendCustomSequence() {
 function openProtocol() {
   router.push({name: 'Log'});
 }
+
+watch(isJsvvActive, (active) => {
+  if (active) {
+    scheduleStatusPolling();
+  } else {
+    stopStatusPolling();
+  }
+});
+
+watch(activeBroadcastSession, (session, previous) => {
+  if (session && !previous) {
+    scheduleStatusPolling();
+  }
+  if (!session && previous) {
+    stopStatusPolling();
+  }
+});
 </script>
 
 <template>
@@ -833,6 +1053,21 @@ function openProtocol() {
           Ukončit JSVV
         </Button>
       </div>
+
+      <Box label="Aktivní poplach">
+        <div v-if="broadcastStatusLoading" class="text-sm text-gray-500">
+          Načítám informace o probíhajícím poplachu…
+        </div>
+        <div v-else-if="isJsvvActive" class="grid gap-2 text-sm text-gray-700 md:grid-cols-2">
+          <div><strong>Začátek:</strong> {{ jswvStartedAtLabel }}</div>
+          <div><strong>Délka od startu:</strong> {{ jswvElapsedLabel }}</div>
+          <div><strong>Plánovaná délka:</strong> {{ jswvPlannedLabel }}</div>
+          <div><strong>Zbývající čas:</strong> {{ jswvRemainingLabel }}</div>
+        </div>
+        <div v-else class="text-sm text-gray-500">
+          Žádný poplach není aktivní.
+        </div>
+      </Box>
 
       <Box label="Nastavení přehrávání">
         <div class="space-y-4">

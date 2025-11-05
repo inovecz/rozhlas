@@ -29,6 +29,13 @@ export default {
         return http.post('live-broadcast/stop', reason ? {reason} : {}).then(response => response.data);
     },
 
+    updateRuntimeInput(payload = {}) {
+        return http.post('live-broadcast/runtime', {
+            source: payload.source,
+            volume: payload.volume,
+        }).then(response => response.data);
+    },
+
     getStatus() {
         return http.get('live-broadcast/status').then(response => response.data);
     },

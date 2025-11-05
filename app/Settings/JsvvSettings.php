@@ -17,6 +17,7 @@ class JsvvSettings extends Settings
     public array $emailContacts;
     public ?string $emailSubject;
     public ?string $emailMessage;
+    public array $controlTabButtons = [];
 
     public static function group(): string
     {

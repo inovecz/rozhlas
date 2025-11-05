@@ -1,25 +1,11 @@
 <?php
 
+declare(strict_types=1);
+
 return [
-    'port' => env('MODBUS_PORT', '/dev/tty.usbserial-AV0K3CPZ'),
-    'method' => env('MODBUS_METHOD', 'rtu'),
-    'baudrate' => (int) env('MODBUS_BAUDRATE', 57600),
-    'parity' => env('MODBUS_PARITY', 'N'),
-    'stopbits' => (int) env('MODBUS_STOPBITS', 1),
-    'bytesize' => (int) env('MODBUS_BYTESIZE', 8),
-    'timeout' => (float) env('MODBUS_TIMEOUT', 1.0),
-    'unit_id' => (int) env('MODBUS_UNIT_ID', 1),
-    'rs485_gpio_enable' => env('MODBUS_RS485_GPIO_ENABLE'),
-    'rs485_gpio_chip' => env('MODBUS_RS485_GPIO_CHIP'),
-    'rs485_gpio_line' => env('MODBUS_RS485_GPIO_LINE'),
-    'rs485_gpio_active_high' => env('MODBUS_RS485_GPIO_ACTIVE_HIGH'),
-    'rs485_gpio_lead' => env('MODBUS_RS485_GPIO_LEAD_SECONDS'),
-    'rs485_gpio_tail' => env('MODBUS_RS485_GPIO_TAIL_SECONDS'),
-    'rs485_gpio_debug' => env('MODBUS_RS485_GPIO_DEBUG'),
-    'rs485_gpio_pythonpath' => env('MODBUS_RS485_GPIO_PYTHONPATH'),
-    'rs485_driver_enable' => env('MODBUS_RS485_DRIVER_ENABLE'),
-    'rs485_driver_rts_tx_high' => env('MODBUS_RS485_DRIVER_RTS_TX_HIGH'),
-    'rs485_driver_rts_rx_high' => env('MODBUS_RS485_DRIVER_RTS_RX_HIGH'),
-    'rs485_driver_lead' => env('MODBUS_RS485_DRIVER_LEAD_SECONDS'),
-    'rs485_driver_tail' => env('MODBUS_RS485_DRIVER_TAIL_SECONDS'),
+    'python' => env('MODBUS_PYTHON', env('PYTHON_BINARY', 'python3')),
+    'script' => env('MODBUS_SCRIPT', base_path('python-client/modbus_control.py')),
+    'port' => env('MODBUS_PORT', '/dev/ttyUSB0'),
+    'unit_id' => (int) env('MODBUS_UNIT_ID', 55),
+    'timeout' => env('MODBUS_TIMEOUT'),
 ];

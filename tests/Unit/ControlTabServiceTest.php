@@ -11,6 +11,7 @@ use App\Jobs\RunJsvvSequence;
 use App\Models\BroadcastSession;
 use App\Models\JsvvAlarm;
 use App\Models\JsvvAudio;
+use App\Models\LocationGroup;
 use App\Services\ControlTabService;
 use App\Services\JsvvSequenceService;
 use App\Services\StreamOrchestrator;
@@ -43,12 +44,21 @@ class ControlTabServiceTest extends TestCase
             'control_tab.buttons' => [
                 1 => ['action' => 'start_stream', 'source' => 'microphone'],
             ],
+            'control_tab.general_zone' => 123,
         ]);
 
         /** @var MockInterface $orchestrator */
         $orchestrator = Mockery::mock(StreamOrchestrator::class);
         $orchestrator->shouldReceive('start')
             ->once()
+            ->withArgs(function (array $payload) {
+                $this->assertSame('microphone', $payload['source']);
+                $this->assertSame('Control Tab', $payload['options']['note'] ?? null);
+                $this->assertSame('control_tab', $payload['options']['origin'] ?? null);
+                $this->assertSame(123, $payload['options']['_control_tab_force_zone'] ?? null);
+
+                return true;
+            })
             ->andReturn(['status' => 'running', 'source' => 'microphone']);
 
         $service = new ControlTabService($orchestrator, Mockery::mock(JsvvSequenceService::class));
@@ -57,6 +67,50 @@ class ControlTabServiceTest extends TestCase
 
         $this->assertSame('ok', $response['status']);
         $this->assertSame('Vysílání bylo spuštěno přes Control Tab.', $response['message']);
+    }
+
+    public function test_start_stream_uses_selected_localities_from_context(): void
+    {
+        config([
+            'control_tab.defaults' => [
+                'route' => [],
+                'locations' => [],
+                'nests' => [],
+                'options' => [],
+            ],
+            'control_tab.buttons' => [
+                9 => ['action' => 'start_stream', 'source' => 'microphone'],
+            ],
+            'control_tab.general_zone' => 0,
+            'control_tab.modbus_unit_id' => 0,
+        ]);
+
+        $groupA = LocationGroup::query()->create(['name' => 'Město']);
+        $groupB = LocationGroup::query()->create(['name' => 'Obec']);
+
+        /** @var MockInterface $orchestrator */
+        $orchestrator = Mockery::mock(StreamOrchestrator::class);
+        $orchestrator->shouldReceive('start')
+            ->once()
+            ->withArgs(function (array $payload) use ($groupA, $groupB) {
+                $this->assertSame('microphone', $payload['source']);
+                $this->assertSame([$groupA->id, $groupB->id], $payload['locations']);
+                $this->assertSame(['origin' => 'control_tab', '_control_tab_selected_localities' => ['Město', 'Obec']], $payload['options']);
+
+                return true;
+            })
+            ->andReturn(['status' => 'running']);
+
+        $service = new ControlTabService($orchestrator, Mockery::mock(JsvvSequenceService::class));
+
+        $response = $service->handleButtonPress(9, [
+            'selections' => [
+                'localities' => ['Město', 'Obec'],
+                'jingle' => null,
+            ],
+        ]);
+
+        $this->assertSame('ok', $response['status']);
     }
 
     public function test_start_stream_blocked_by_jsvv(): void
@@ -70,6 +124,7 @@ class ControlTabServiceTest extends TestCase
             'control_tab.buttons' => [
                 1 => ['action' => 'start_stream', 'source' => 'microphone'],
             ],
+            'control_tab.general_zone' => 0,
         ]);
 
         /** @var MockInterface $orchestrator */
@@ -91,6 +146,7 @@ class ControlTabServiceTest extends TestCase
             'control_tab.buttons' => [
                 13 => ['action' => 'trigger_jsvv_alarm', 'button' => 2],
             ],
+            'control_tab.general_zone' => 0,
         ]);
 
         JsvvAudio::create([
@@ -145,6 +201,7 @@ class ControlTabServiceTest extends TestCase
             'control_tab.buttons' => [
                 3 => ['action' => 'select_jsvv_alarm', 'button' => 5, 'label' => 'Chemická havárie'],
             ],
+            'control_tab.general_zone' => 0,
         ]);
 
         $service = new ControlTabService(Mockery::mock(StreamOrchestrator::class), Mockery::mock(JsvvSequenceService::class));
@@ -165,6 +222,7 @@ class ControlTabServiceTest extends TestCase
             'control_tab.buttons' => [
                 13 => ['action' => 'trigger_selected_jsvv_alarm', 'fallback_button' => 2],
             ],
+            'control_tab.general_zone' => 0,
         ]);
 
         JsvvAudio::create([
@@ -228,6 +286,7 @@ class ControlTabServiceTest extends TestCase
                     'success_message' => 'Přímé hlášení bylo spuštěno.',
                 ],
             ],
+            'control_tab.general_zone' => 0,
         ]);
 
         JsvvAudio::create([
@@ -302,6 +361,7 @@ class ControlTabServiceTest extends TestCase
                     'success_message' => 'Přímé hlášení bylo spuštěno.',
                 ],
             ],
+            'control_tab.general_zone' => 0,
         ]);
 
         /** @var MockInterface $orchestrator */
@@ -329,6 +389,7 @@ class ControlTabServiceTest extends TestCase
             'control_tab.text_fields' => [
                 1 => 'status_summary',
             ],
+            'control_tab.general_zone' => 0,
         ]);
 
         BroadcastSession::query()->delete();

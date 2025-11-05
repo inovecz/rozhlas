@@ -102,8 +102,6 @@ class ModbusManager:
 
     async def resume(self, reason: str | None = None) -> tuple[bool, dict[str, Any], str]:
         async with self._state_lock:
-            if self._state == STATE_STOPPED:
-                return False, {"error": "Cannot resume from STOPPED state"}, self._state
             if self._state == STATE_TRANSMITTING:
                 return True, {"note": "Already transmitting"}, self._state
             previous = self._state

@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
-use App\Exceptions\BroadcastLockedException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\VolumeLevelRequest;
+use App\Models\BroadcastSession;
 use App\Services\Audio\AlsamixerService;
+use App\Services\ModbusControlService;
 use App\Services\StreamOrchestrator;
 use App\Services\VolumeManager;
 use App\Services\Mixer\AudioDeviceService;
@@ -15,7 +16,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Validator;
-use InvalidArgumentException;
 use RuntimeException;
 
 class LiveBroadcastApiController extends Controller
@@ -24,23 +24,15 @@ class LiveBroadcastApiController extends Controller
     {
     }
 
-    public function start(Request $request, AlsamixerService $alsamixer): JsonResponse
+    public function start(Request $request, AlsamixerService $alsamixer, ModbusControlService $modbus): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'source' => ['required', 'string'],
             'route' => ['sometimes', 'array'],
             'route.*' => ['integer'],
-            'locations' => ['sometimes', 'array'],
-            'locations.*' => ['integer'],
             'zones' => ['sometimes', 'array'],
             'zones.*' => ['integer'],
-            'nests' => ['sometimes', 'array'],
-            'nests.*' => ['integer'],
-            'options' => ['sometimes', 'array'],
-            'mixer' => ['nullable', 'array'],
-            'mixer.identifier' => ['nullable', 'string'],
-            'mixer.source' => ['nullable', 'string'],
-            'mixer.volume' => ['nullable', 'numeric', 'between:0,100'],
+            'volume' => ['sometimes', 'numeric', 'between:0,100'],
         ]);
 
         if ($validator->fails()) {
@@ -48,121 +40,101 @@ class LiveBroadcastApiController extends Controller
         }
 
         $payload = $validator->validated();
-        $mixerPayload = Arr::get($payload, 'mixer');
-        if (is_array($mixerPayload) && $mixerPayload !== []) {
-            if (!Arr::has($mixerPayload, 'source') && Arr::has($payload, 'source')) {
-                $mixerPayload['source'] = $payload['source'];
-            }
-            $mixerResult = $this->applyMixerSelection($alsamixer, $mixerPayload);
-            if ($mixerResult instanceof JsonResponse) {
-                return $mixerResult;
-            }
-        }
-        unset($payload['mixer']);
-        $locations = Arr::get($payload, 'locations', Arr::get($payload, 'zones', []));
-        $nests = Arr::get($payload, 'nests', []);
-        $payload['locations'] = $locations;
-        $payload['zones'] = $locations;
-        $payload['nests'] = $nests;
-        try {
-            $session = $this->orchestrator->start($payload);
-        } catch (BroadcastLockedException $exception) {
-            return response()->json([
-                'status' => 'jsvv_active',
-                'message' => 'Nelze spustit vysílání: probíhá poplach JSVV.',
-            ], 409);
-        } catch (InvalidArgumentException $exception) {
-            return response()->json([
-                'status' => 'invalid_request',
-                'message' => $exception->getMessage(),
-            ], 422);
-        } catch (RuntimeException $exception) {
-            return response()->json([
-                'status' => 'control_channel_error',
-                'message' => $exception->getMessage(),
-            ], 503);
-        }
-
-        return response()->json(['session' => $session]);
-    }
-
-    private function applyMixerSelection(AlsamixerService $alsamixer, array $payload): ?JsonResponse
-    {
-        if (!$alsamixer->isEnabled()) {
-            return response()->json([
-                'status' => 'unavailable',
-                'message' => 'ALSA mixer helper není dostupný.',
-            ], 503);
-        }
-
-        $identifier = Arr::get($payload, 'identifier');
-        $source = Arr::get($payload, 'source');
-        if (!is_string($identifier) || trim($identifier) === '') {
-            if (!is_string($source) || trim($source) === '') {
-                return response()->json([
-                    'status' => 'invalid_identifier',
-                    'message' => 'Musíte zadat identifikátor vstupu.',
-                ], 422);
-            }
-            $identifier = $source;
-        }
-
-        $resolved = strtolower(trim((string) $identifier));
-        if ($resolved === '') {
-            return response()->json([
-                'status' => 'invalid_identifier',
-                'message' => 'Neplatný vstup.',
-            ], 422);
-        }
-
         $volume = Arr::get($payload, 'volume');
-        $normalizedVolume = null;
-        if ($volume !== null && $volume !== '') {
-            $normalizedVolume = max(0.0, min(100.0, (float) $volume));
-        }
+        $clampedVolume = $this->normalizeVolume($volume);
 
-        try {
-            $applied = $alsamixer->selectInput($resolved, $normalizedVolume);
-        } catch (InvalidArgumentException $exception) {
-            return response()->json([
-                'status' => 'invalid_identifier',
-                'message' => $exception->getMessage(),
-            ], 422);
-        } catch (RuntimeException $exception) {
+        if (!$alsamixer->selectInput((string) $payload['source'], $clampedVolume)) {
             return response()->json([
                 'status' => 'mixer_error',
-                'message' => $exception->getMessage(),
-            ], 503);
-        }
-
-        if (!$applied) {
-            return response()->json([
-                'status' => 'mixer_error',
-                'message' => 'Nepodařilo se použít zadaný vstup.',
+                'message' => 'Nepodařilo se nastavit požadovaný audio vstup.',
             ], 500);
         }
 
-        return null;
-    }
+        $route = Arr::get($payload, 'route', []);
+        $zones = Arr::get($payload, 'zones', []);
 
-    public function stop(Request $request): JsonResponse
-    {
-        $reason = $request->string('reason')->toString() ?: null;
         try {
-            $session = $this->orchestrator->stop($reason);
+            $commandResult = $modbus->startStream($zones, $route);
         } catch (RuntimeException $exception) {
             return response()->json([
-                'status' => 'control_channel_error',
+                'status' => 'modbus_error',
                 'message' => $exception->getMessage(),
-            ], 503);
+            ], 500);
         }
 
-        return response()->json(['session' => $session]);
+        $session = $this->storeSession([
+            'source' => (string) $payload['source'],
+            'route' => $this->normalizeArray((array) $route),
+            'zones' => $this->normalizeArray((array) $zones),
+            'options' => [
+                'volume' => $clampedVolume,
+            ],
+            'python_response' => $commandResult,
+        ]);
+
+        return response()->json([
+            'status' => 'ok',
+            'modbus' => $commandResult,
+            'session' => $session,
+        ]);
+    }
+
+    public function stop(Request $request, ModbusControlService $modbus): JsonResponse
+    {
+        try {
+            $result = $modbus->stopStream();
+        } catch (RuntimeException $exception) {
+            return response()->json([
+                'status' => 'modbus_error',
+                'message' => $exception->getMessage(),
+            ], 500);
+        }
+
+        $session = $this->closeSession();
+
+        return response()->json([
+            'status' => 'ok',
+            'modbus' => $result,
+            'session' => $session,
+        ]);
+    }
+
+    public function runtimeInput(Request $request, AlsamixerService $alsamixer): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'source' => ['required', 'string'],
+            'volume' => ['sometimes', 'numeric', 'between:0,100'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $payload = $validator->validated();
+        $volume = Arr::get($payload, 'volume');
+
+        if (!$alsamixer->selectInput($payload['source'], $volume !== null ? (float) $volume : null)) {
+            return response()->json([
+                'status' => 'mixer_error',
+                'message' => 'Nepodařilo se nastavit audio vstup.',
+            ], 500);
+        }
+
+        return response()->json([
+            'status' => 'ok',
+        ]);
     }
 
     public function status(): JsonResponse
     {
-        return response()->json($this->orchestrator->getStatusDetails());
+        $session = BroadcastSession::query()
+            ->where('status', 'running')
+            ->latest('started_at')
+            ->first();
+
+        return response()->json([
+            'session' => $session?->toArray(),
+        ]);
     }
 
     public function playlist(Request $request): JsonResponse
@@ -253,5 +225,81 @@ class LiveBroadcastApiController extends Controller
         return response()->json([
             'devices' => $devices,
         ]);
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function storeSession(array $data): array
+    {
+        $running = BroadcastSession::query()
+            ->where('status', 'running')
+            ->latest('started_at')
+            ->first();
+
+        if ($running !== null) {
+            $running->update(array_merge($data, [
+                'status' => 'running',
+            ]));
+
+            return $running->fresh()->toArray();
+        }
+
+        $session = BroadcastSession::create(array_merge($data, [
+            'status' => 'running',
+            'started_at' => now(),
+        ]));
+
+        return $session->toArray();
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function closeSession(): ?array
+    {
+        $running = BroadcastSession::query()
+            ->where('status', 'running')
+            ->latest('started_at')
+            ->first();
+
+        if ($running === null) {
+            return null;
+        }
+
+        $running->update([
+            'status' => 'stopped',
+            'stopped_at' => now(),
+            'stop_reason' => 'manual',
+        ]);
+
+        return $running->fresh()->toArray();
+    }
+
+    private function normalizeVolume(mixed $value): ?float
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $numeric = (float) $value;
+        if (!is_finite($numeric)) {
+            return null;
+        }
+
+        return max(0.0, min(100.0, $numeric));
+    }
+
+    /**
+     * @param array<int, mixed> $values
+     * @return array<int, int>
+     */
+    private function normalizeArray(array $values): array
+    {
+        return array_values(array_map(
+            static fn ($value) => (int) $value,
+            array_filter($values, static fn ($value) => $value !== null && $value !== '')
+        ));
     }
 }

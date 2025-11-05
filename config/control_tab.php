@@ -26,7 +26,15 @@ return [
     'retry_backoff_ms' => (int) env('CONTROL_TAB_RETRY_BACKOFF_MS', 250),
     'inter_message_delay_ms' => (int) env('CONTROL_TAB_INTER_MESSAGE_DELAY_MS', 5),
     'default_location_group_id' => (int) env('CONTROL_TAB_DEFAULT_LOCATION_GROUP_ID', 1),
+    'general_zone' => (int) env('CONTROL_TAB_GENERAL_ZONE', 0),
     'test_progress_field' => (int) env('CONTROL_TAB_TEST_PROGRESS_FIELD', 1),
+    'default_volume' => (float) env('CONTROL_TAB_DEFAULT_VOLUME', 70),
+    'mixer' => [
+        'enabled' => (bool) env('CONTROL_TAB_MIXER_ENABLED', true),
+        'input' => (string) env('CONTROL_TAB_MIXER_INPUT', 'mic'),
+        'output' => (string) env('CONTROL_TAB_MIXER_OUTPUT', 'lineout'),
+        'volume' => (float) env('CONTROL_TAB_MIXER_VOLUME', 70),
+    ],
     'default_screen' => (int) env('CONTROL_TAB_DEFAULT_SCREEN', 3),
     'default_panel' => (int) env('CONTROL_TAB_DEFAULT_PANEL', 1),
     'text_fields' => [
@@ -76,10 +84,13 @@ return [
             'success_message' => 'Poplach JSVV byl zastaven.',
         ],
         9 => [
-            'action' => 'start_or_trigger_selected_jsvv_alarm',
+            'action' => 'start_stream',
             'source' => 'microphone',
+            'volume' => 70,
             'options' => [
-                'origin' => 'prime_hlaseni',
+                'audioInputId' => (string) env('CONTROL_TAB_MIXER_INPUT', 'mic'),
+                'audioOutputId' => (string) env('CONTROL_TAB_MIXER_OUTPUT', 'lineout'),
+                'volume' => 70,
             ],
             'locations' => [(int) env('CONTROL_TAB_DEFAULT_LOCATION_GROUP_ID', 1)],
             'success_message' => 'Přímé hlášení bylo spuštěno.',

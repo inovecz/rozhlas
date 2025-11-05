@@ -112,6 +112,14 @@ return [
             'replace_placeholders' => true,
         ],
 
+        'control_tab' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/control-tab.log'),
+            'level' => env('LOG_LEVEL', 'debug'),
+            'days' => env('CONTROL_TAB_LOG_DAYS', 14),
+            'replace_placeholders' => true,
+        ],
+
         'syslog' => [
             'driver' => 'syslog',
             'level' => env('LOG_LEVEL', 'debug'),

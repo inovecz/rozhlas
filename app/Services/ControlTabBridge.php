@@ -23,7 +23,7 @@ class ControlTabBridge extends Service
         parent::__construct();
 
         $this->pythonBinary = $pythonBinary ?? (string) config('control_tab.cli.python', 'python3');
-        $this->scriptPath = $scriptPath ?? (string) config('control_tab.cli.script', base_path('python-client/ct_listener.py'));
+        $this->scriptPath = $this->normaliseScriptPath($scriptPath ?? (string) config('control_tab.cli.script', base_path('python-client/ct_listener.py')));
         $this->timeout = $timeout ?? (float) config('control_tab.cli.timeout', 5.0);
     }
 
@@ -120,5 +120,21 @@ class ControlTabBridge extends Service
 
         return $result;
     }
-}
 
+    private function normaliseScriptPath(string $path): string
+    {
+        $path = trim($path);
+        if ($path === '' || str_contains($path, '${')) {
+            return base_path('python-client/ct_listener.py');
+        }
+
+        if ($path[0] === '~') {
+            $home = rtrim(getenv('HOME') ?: '', '/');
+            if ($home !== '') {
+                return $home . '/' . ltrim(substr($path, 1), '/');
+            }
+        }
+
+        return $path;
+    }
+}

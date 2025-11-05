@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\DataTransferObjects\ControlTabEvent;
 use App\Http\Controllers\Controller;
 use App\Models\StreamTelemetryEntry;
 use App\Services\ControlTabService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Log;
 
 class ControlTabController extends Controller
 {
@@ -20,107 +21,184 @@ class ControlTabController extends Controller
     public function handle(Request $request): JsonResponse
     {
         $payload = $request->all();
-        $camelToSnake = [
-            'buttonId' => 'button_id',
-            'fieldId' => 'field_id',
-        ];
-        foreach ($camelToSnake as $camel => $snake) {
-            if (!array_key_exists($snake, $payload) && array_key_exists($camel, $payload)) {
-                $request->merge([$snake => $payload[$camel]]);
-            }
-        }
 
-        $validator = Validator::make($request->all(), [
-            'type' => ['required', 'string', 'in:panel_loaded,button_pressed,text_field_request'],
-            'screen' => ['sometimes', 'integer'],
-            'panel' => ['sometimes', 'integer'],
-            'button_id' => ['required_if:type,button_pressed', 'integer'],
-            'field_id' => ['required_if:type,text_field_request', 'integer'],
-        ]);
-
-        if ($validator->fails()) {
+        try {
+            $event = ControlTabEvent::fromPayload($payload);
+        } catch (\InvalidArgumentException $exception) {
             return response()->json([
                 'status' => 'validation_error',
-                'errors' => $validator->errors(),
+                'handled_as' => 'none',
+                'message' => $exception->getMessage(),
             ], 422);
         }
 
-        $data = $validator->validated();
-        $type = $data['type'];
-        $screen = (int) ($data['screen'] ?? 0);
-        $panel = (int) ($data['panel'] ?? 0);
-        $sessionId = $request->string('sessionId')->toString() ?: null;
+        Log::channel('control_tab')->info('Control Tab event received', [
+            'device_id' => $event->deviceId,
+            'type' => $event->type,
+            'control_id' => $event->controlId,
+            'screen_id' => $event->screenId,
+            'panel_id' => $event->panelId,
+            'payload' => $payload,
+        ]);
 
-        $result = match ($type) {
-            'panel_loaded' => $this->service->handlePanelLoaded($screen, $panel),
-            'button_pressed' => $this->service->handleButtonPress((int) $data['button_id'], $data),
-            'text_field_request' => $this->service->handleTextRequest((int) $data['field_id']),
-            default => ['status' => 'unsupported'],
-        };
-
+        $result = $this->dispatchEvent($event);
         $status = (string) ($result['status'] ?? 'ok');
-        $action = 'ack';
-        $responsePayload = [
+        $handledAs = (string) ($result['handled_as'] ?? $event->type);
+        $httpStatus = $this->httpStatusForResult($status);
+
+        $response = [
             'status' => $status,
-            'sessionId' => $sessionId,
+            'handled_as' => $handledAs,
+            'actions' => $result['actions'] ?? [],
+            'device_id' => $event->deviceId,
+            'timestamp' => $event->timestamp?->toIso8601String(),
             'action' => 'ack',
             'ack' => [
-                'screen' => $screen,
-                'panel' => $panel,
-                'eventType' => $this->mapEventType($type),
+                'screen' => $event->screenId ?? 0,
+                'panel' => $event->panelId ?? 0,
+                'eventType' => $this->mapEventType($event->type),
                 'status' => $this->ackStatus($status),
             ],
         ];
 
-        if ($type === 'text_field_request' && ($result['status'] ?? null) === 'ok') {
-            $responsePayload['action'] = $action = 'text';
-            $responsePayload['text'] = [
-                'fieldId' => (int) ($result['field_id'] ?? $data['field_id'] ?? 0),
-                'text' => (string) ($result['text'] ?? ''),
-            ];
-        }
-
         if (isset($result['message'])) {
-            $responsePayload['ack']['message'] = $result['message'];
+            $response['ack']['message'] = (string) $result['message'];
         }
 
         if (isset($result['control_tab']) && is_array($result['control_tab'])) {
-            $responsePayload['control'] = $result['control_tab'];
+            $response['control'] = $result['control_tab'];
         }
 
-        $this->recordTelemetry($type, $data, $result, $responsePayload);
+        if ($handledAs === 'text_field_request' && ($result['status'] ?? '') === 'ok') {
+            $fieldId = $result['field_id'] ?? null;
+            $text = $result['text'] ?? null;
+            if ($fieldId !== null) {
+                $response['action'] = 'text';
+                $response['text'] = [
+                    'fieldId' => (int) $fieldId,
+                    'text' => (string) ($text ?? ''),
+                ];
+            }
+        }
 
-        return response()->json($responsePayload, $status === 'unsupported' ? 400 : 200);
+        $this->recordTelemetry($event, $result + ['response' => $response]);
+
+        Log::channel('control_tab')->info('Control Tab response prepared', [
+            'status' => $status,
+            'response' => $response,
+        ]);
+
+        return response()->json($response, $httpStatus);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function dispatchEvent(ControlTabEvent $event): array
+    {
+        return match (strtolower($event->type)) {
+            'panel_loaded' => $this->service->handlePanelLoaded($event->screenId ?? 0, $event->panelId ?? 0) + [
+                'handled_as' => 'panel_loaded',
+                'actions' => ['PANEL_LOADED'],
+            ],
+            'text_field_request', 'textfield' => $this->service->handleTextRequest(
+                $this->normalizeControlId($event->controlId)
+            ) + [
+                'handled_as' => 'text_field_request',
+                'actions' => ['TEXT_FIELD_REQUEST'],
+            ],
+            'button', 'button_pressed' => $this->handleButton($event),
+            default => [
+                'status' => 'unsupported',
+                'handled_as' => $event->type,
+                'actions' => [],
+                'message' => sprintf('Event type "%s" is not supported.', $event->type),
+            ],
+        };
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function handleButton(ControlTabEvent $event): array
+    {
+        $buttonId = $this->normalizeControlId($event->controlId);
+        if ($buttonId === null) {
+            return [
+                'status' => 'validation_error',
+                'handled_as' => 'button',
+                'actions' => ['BUTTON'],
+                'message' => 'Control Tab button id is missing.',
+            ];
+        }
+
+        $result = $this->service->handleButtonPress($buttonId, $event->originalPayload + [
+            'device_id' => $event->deviceId,
+            'screen' => $event->screenId,
+            'panel' => $event->panelId,
+        ]);
+
+        return $result + [
+            'handled_as' => 'button',
+            'actions' => ['BUTTON'],
+        ];
+    }
+
+    private function recordTelemetry(ControlTabEvent $event, array $result): void
+    {
+        $payload = [
+            'event' => $event->originalPayload,
+            'resolved' => [
+                'type' => $event->type,
+                'device_id' => $event->deviceId,
+                'control_id' => $event->controlId,
+                'screen_id' => $event->screenId,
+                'panel_id' => $event->panelId,
+            ],
+            'result' => $result,
+        ];
+
+        StreamTelemetryEntry::create([
+            'type' => 'control_tab_event',
+            'payload' => $payload,
+            'recorded_at' => now(),
+        ]);
+    }
+
+    private function httpStatusForResult(string $status): int
+    {
+        return match ($status) {
+            'validation_error' => 422,
+            'error', 'failed' => 500,
+            default => 200,
+        };
     }
 
     private function ackStatus(string $status): int
     {
-        $failureStatuses = ['error', 'invalid_request', 'unsupported', 'validation_error', 'jsvv_active'];
-        return in_array($status, $failureStatuses, true) ? 0 : 1;
+        $failures = ['error', 'invalid_request', 'unsupported', 'validation_error', 'jsvv_active', 'failed'];
+        return in_array($status, $failures, true) ? 0 : 1;
     }
 
     private function mapEventType(string $type): int
     {
-        return match ($type) {
+        return match (strtolower($type)) {
             'panel_loaded' => 1,
-            'button_pressed' => 2,
-            'text_field_request' => 3,
-            default => 0,
+            'text_field_request', 'textfield' => 3,
+            default => 2,
         };
     }
 
-    private function recordTelemetry(string $type, array $requestData, array $serviceResult, array $response): void
+    private function normalizeControlId(int|string|null $controlId): ?int
     {
-        $payload = [
-            'request' => $requestData,
-            'result' => $serviceResult,
-            'response' => $response,
-        ];
+        if (is_int($controlId)) {
+            return $controlId;
+        }
 
-        StreamTelemetryEntry::create([
-            'type' => 'control_tab_' . $type,
-            'payload' => $payload,
-            'recorded_at' => now(),
-        ]);
+        if (is_string($controlId) && is_numeric($controlId)) {
+            return (int) $controlId;
+        }
+
+        return null;
     }
 }

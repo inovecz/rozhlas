@@ -35,7 +35,9 @@ class ControlTabEndpointsTest extends TestCase
             ->shouldReceive('sendFields')
             ->once()
             ->with(
-                ['2' => '00:00'],
+                Mockery::on(static function (array $fields): bool {
+                    return isset($fields[2]) && $fields[2] === '00:00';
+                }),
                 Mockery::on(static function (array $options): bool {
                     return ($options['screen'] ?? null) === 3
                         && ($options['panel'] ?? null) === 1
@@ -58,4 +60,3 @@ class ControlTabEndpointsTest extends TestCase
         $response->assertJson(["status" => 'ok', 'exit_code' => 0]);
     }
 }
-

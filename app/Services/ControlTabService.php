@@ -10,9 +10,13 @@ use App\Models\BroadcastSession;
 use App\Models\JsvvAlarm;
 use App\Models\JsvvAudio;
 use App\Models\LocationGroup;
+use App\Services\Audio\AlsamixerService;
+use App\Services\ControlTab\ButtonMappingRepository;
+use App\Services\VolumeManager;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class ControlTabService extends Service
 {
@@ -21,6 +25,7 @@ class ControlTabService extends Service
     public function __construct(
         private readonly StreamOrchestrator $orchestrator = new StreamOrchestrator(),
         private readonly JsvvSequenceService $jsvvSequenceService = new JsvvSequenceService(),
+        private readonly ButtonMappingRepository $buttonMappings = new ButtonMappingRepository(),
     ) {
         parent::__construct();
     }
@@ -28,22 +33,9 @@ class ControlTabService extends Service
     public function handleButtonPress(int $buttonId, array $context = []): array
     {
         $context['button_id'] = $buttonId;
-        $mapping = config("control_tab.buttons.{$buttonId}");
+        $mapping = $this->resolveButtonMapping($buttonId, $context);
 
-        $alarm = JsvvAlarm::query()->where('button', $buttonId)->first();
-        if ($alarm !== null) {
-            $context['jsvv_alarm'] = $alarm;
-            $currentAction = $mapping['action'] ?? null;
-            if ($mapping === null || $currentAction === 'trigger_jsvv_alarm') {
-                $mapping = array_merge($mapping ?? [], [
-                    'action' => 'trigger_jsvv_alarm',
-                    'button' => $alarm->getButton(),
-                    'label' => $mapping['label'] ?? $alarm->getName(),
-                ]);
-            }
-        }
-
-        if ($mapping === null && $alarm === null) {
+        if ($mapping === null) {
             return [
                 'status' => 'unsupported',
                 'message' => sprintf('Neznámé tlačítko (%d).', $buttonId),
@@ -52,7 +44,7 @@ class ControlTabService extends Service
 
         return match ($mapping['action'] ?? null) {
             'start_or_trigger_selected_jsvv_alarm' => $this->startOrTriggerSelectedJsvvAlarm($mapping, $context),
-            'start_stream' => $this->startStream($mapping),
+            'start_stream' => $this->startStream($mapping, $context),
             'stop_stream' => $this->stopStream($mapping),
             'trigger_jsvv_alarm' => $this->triggerJsvvAlarm($mapping, $context),
             'trigger_selected_jsvv_alarm' => $this->triggerSelectedJsvvAlarm($mapping, $context),
@@ -67,6 +59,28 @@ class ControlTabService extends Service
                 'message' => sprintf('Akce %s zatím není implementována.', $mapping['action'] ?? 'neznámá'),
             ],
         };
+    }
+
+    private function resolveButtonMapping(int $buttonId, array &$context): ?array
+    {
+        $alarm = JsvvAlarm::query()->where('button', $buttonId)->first();
+        if ($alarm !== null) {
+            $context['jsvv_alarm'] = $alarm;
+
+            return [
+                'action' => 'trigger_jsvv_alarm',
+                'button' => $alarm->getButton(),
+                'label' => $alarm->getName(),
+            ];
+        }
+
+        $mapping = $this->buttonMappings->find($buttonId);
+
+        if ($mapping === null) {
+            return null;
+        }
+
+        return $mapping;
     }
 
     public function handlePanelLoaded(int $screen, int $panel): array
@@ -97,13 +111,32 @@ class ControlTabService extends Service
         ];
     }
 
-    private function startStream(array $config): array
+    private function startStream(array $config, array $context = []): array
     {
         $defaults = config('control_tab.defaults', []);
+        $selections = $context['selections'] ?? [];
+        $selectedLocalities = is_array($selections) ? ($selections['localities'] ?? []) : [];
+        $selectedJingle = is_array($selections) ? ($selections['jingle'] ?? null) : null;
+
+        $selectedGroupIds = [];
+        if (is_array($selectedLocalities) && $selectedLocalities !== []) {
+            $groups = LocationGroup::query()
+                ->whereIn('name', $selectedLocalities)
+                ->get(['id', 'name'])
+                ->keyBy('name');
+
+            foreach ($selectedLocalities as $name) {
+                $group = $groups->get($name);
+                if ($group !== null) {
+                    $selectedGroupIds[] = (int) $group->id;
+                }
+            }
+        }
+
         $payload = [
             'source' => $config['source'] ?? 'microphone',
             'route' => $config['route'] ?? Arr::get($defaults, 'route', []),
-            'locations' => $config['locations'] ?? Arr::get($defaults, 'locations', []),
+            'locations' => $selectedGroupIds !== [] ? $selectedGroupIds : ($config['locations'] ?? Arr::get($defaults, 'locations', [])),
             'nests' => $config['nests'] ?? Arr::get($defaults, 'nests', []),
             'options' => array_merge(
                 Arr::get($defaults, 'options', []),
@@ -111,6 +144,37 @@ class ControlTabService extends Service
                 ['origin' => 'control_tab']
             ),
         ];
+
+        $payload['options'] = $this->augmentStreamOptions($payload['options'], $config, $payload['source']);
+        $volume = $this->resolveVolumeLevel($config, $payload['options']);
+        if ($volume !== null) {
+            $payload['options']['volume'] = $volume;
+        }
+
+        $this->prepareAudioInput($payload['source'], $config, $volume, $payload['options']);
+
+        $audioInputId = $payload['options']['audioInputId'] ?? null;
+        if (is_string($audioInputId) && $audioInputId !== '') {
+            $payload['mixer'] = [
+                'identifier' => $audioInputId,
+                'source' => $payload['source'],
+            ];
+            if ($volume !== null) {
+                $payload['mixer']['volume'] = $volume;
+            }
+        }
+
+        if ($selectedLocalities !== []) {
+            $payload['options']['_control_tab_selected_localities'] = $selectedLocalities;
+        }
+        if (is_string($selectedJingle) && $selectedJingle !== '') {
+            $payload['options']['_control_tab_selected_jingle'] = $selectedJingle;
+        }
+
+        $generalZone = (int) config('control_tab.general_zone', 0);
+        if ($generalZone > 0 && !isset($payload['options']['_control_tab_force_zone'])) {
+            $payload['options']['_control_tab_force_zone'] = $generalZone;
+        }
         $modbusUnitId = (int) config('control_tab.modbus_unit_id');
         if ($modbusUnitId > 0) {
             $payload['options']['modbusUnitId'] = $modbusUnitId;
@@ -135,6 +199,157 @@ class ControlTabService extends Service
             'message' => Arr::get($config, 'success_message', 'Vysílání bylo spuštěno přes Control Tab.'),
             'session' => $session,
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @param array<string, mixed> $config
+     */
+    private function augmentStreamOptions(array $options, array $config, string $source): array
+    {
+        $inputOverride = Arr::get($config, 'audio_input')
+            ?? Arr::get($config, 'mixer_input')
+            ?? Arr::get($options, 'audio_input_id')
+            ?? Arr::get($options, 'audioInputId')
+            ?? config('control_tab.mixer.input');
+
+        if (is_string($inputOverride) && trim($inputOverride) !== '') {
+            $options['audioInputId'] = $inputOverride;
+        } elseif (!isset($options['audioInputId'])) {
+            $options['audioInputId'] = $source;
+        }
+
+        $outputOverride = Arr::get($config, 'audio_output')
+            ?? Arr::get($options, 'audio_output_id')
+            ?? Arr::get($options, 'audioOutputId')
+            ?? config('control_tab.mixer.output');
+
+        if (is_string($outputOverride) && trim($outputOverride) !== '') {
+            $options['audioOutputId'] = $outputOverride;
+        }
+
+        return $options;
+    }
+
+    /**
+     * @param array<string, mixed> $config
+     * @param array<string, mixed> $options
+     */
+    private function resolveVolumeLevel(array $config, array $options): ?float
+    {
+        $candidates = [
+            Arr::get($config, 'volume'),
+            Arr::get($config, 'options.volume'),
+            Arr::get($options, 'volume'),
+            config('control_tab.mixer.volume'),
+            config('control_tab.default_volume'),
+        ];
+
+        foreach ($candidates as $candidate) {
+            $normalized = $this->normalizeVolumeLevel($candidate);
+            if ($normalized !== null) {
+                return $normalized;
+            }
+        }
+
+        return null;
+    }
+
+    private function normalizeVolumeLevel(mixed $value): ?float
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_int($value) || is_float($value)) {
+            $numeric = (float) $value;
+        } elseif (is_string($value)) {
+            $trimmed = trim($value);
+            if ($trimmed === '' || !is_numeric($trimmed)) {
+                return null;
+            }
+            $numeric = (float) $trimmed;
+        } else {
+            return null;
+        }
+
+        if (!is_finite($numeric)) {
+            return null;
+        }
+
+        if ($numeric < 0.0) {
+            $numeric = 0.0;
+        } elseif ($numeric > 100.0) {
+            $numeric = 100.0;
+        }
+
+        return $numeric;
+    }
+
+    /**
+     * @param array<string, mixed> $config
+     * @param array<string, mixed> $options
+     */
+    private function prepareAudioInput(string $source, array $config, ?float $volume, array $options): void
+    {
+        if (!(bool) config('control_tab.mixer.enabled', false)) {
+            return;
+        }
+
+        try {
+            /** @var AlsamixerService $alsamixer */
+            $alsamixer = app(AlsamixerService::class);
+        } catch (\Throwable $exception) {
+            Log::debug('Control Tab: ALSA mixer service unavailable.', [
+                'error' => $exception->getMessage(),
+            ]);
+            return;
+        }
+
+        if (!$alsamixer->isEnabled()) {
+            return;
+        }
+
+        $inputId = Arr::get($options, 'audioInputId');
+        if (!is_string($inputId) || trim($inputId) === '') {
+            $inputId = $source;
+        }
+
+        $targetVolume = $volume ?? $this->resolveVolumeLevel($config, $options);
+        Log::info('Control Tab: selecting ALSA input', [
+            'input' => $inputId,
+            'source' => $source,
+            'volume' => $targetVolume,
+        ]);
+        $selected = $alsamixer->selectInput($inputId, $targetVolume);
+        if (!$selected && $inputId !== $source) {
+            $alsamixer->selectInput($source, $targetVolume);
+        }
+
+        if ($targetVolume === null) {
+            return;
+        }
+
+        $channel = $alsamixer->volumeChannelForInput($inputId);
+        if ($channel === null) {
+            $channel = $alsamixer->volumeChannelForInput($source);
+        }
+        if ($channel === null) {
+            return;
+        }
+
+        try {
+            /** @var VolumeManager $volumeManager */
+            $volumeManager = app(VolumeManager::class);
+            $volumeManager->applyRuntimeLevel($channel['group'], $channel['channel'], $targetVolume);
+        } catch (\Throwable $exception) {
+            Log::debug('Control Tab: runtime volume update failed.', [
+                'input' => $inputId,
+                'channel_group' => $channel['group'] ?? null,
+                'channel_id' => $channel['channel'] ?? null,
+                'error' => $exception->getMessage(),
+            ]);
+        }
     }
 
     private function startOrTriggerSelectedJsvvAlarm(array $config, array $context = []): array
@@ -168,7 +383,7 @@ class ControlTabService extends Service
             return $result;
         }
 
-        return $this->startStream($config);
+        return $this->startStream($config, $context);
     }
 
     private function stopStream(array $config = []): array

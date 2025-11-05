@@ -88,6 +88,11 @@ return [
      */
     'timeout' => (float) env('AUDIO_PROCESS_TIMEOUT', 5),
 
+    /*
+     * Identifier applied to ALSA mixer input whenever live playback stops.
+     */
+    'default_reset_input' => (string) env('AUDIO_RESET_DEFAULT_INPUT', 'system'),
+
     'alsamixer' => [
         'enabled' => true,
         'python' => (string) $alsamixerPython,

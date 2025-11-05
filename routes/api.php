@@ -72,6 +72,7 @@ Route::group(['middleware' => ['api']], static function () {
 
         Route::post('/start', [LiveBroadcastApiController::class, 'start']);
         Route::post('/stop', [LiveBroadcastApiController::class, 'stop']);
+        Route::post('/runtime', [LiveBroadcastApiController::class, 'runtimeInput']);
         Route::get('/status', [LiveBroadcastApiController::class, 'status']);
         Route::post('/playlist', [LiveBroadcastApiController::class, 'playlist']);
         Route::post('/playlist/{playlistId}/cancel', [LiveBroadcastApiController::class, 'cancelPlaylist']);

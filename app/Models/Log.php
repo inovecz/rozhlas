@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use App\Casts\LongIP;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Log extends Model
@@ -15,19 +15,16 @@ class Log extends Model
     protected function casts(): array
     {
         return [
-            'ip' => LongIP::class,
             'data' => 'array',
         ];
     }
+
     // </editor-fold desc="Region: STATE DEFINITION">
 
     // <editor-fold desc="Region: BOOT">
     protected static function boot()
     {
         parent::boot();
-        static::creating(static function ($model) {
-            $model->setAttribute('ip', request()?->ip());
-        });
     }
     // </editor-fold desc="Region: BOOT">
 
@@ -54,7 +51,7 @@ class Log extends Model
         return $this->description;
     }
 
-    public function getIp(): ?int
+    public function getIp(): ?string
     {
         return $this->ip;
     }
