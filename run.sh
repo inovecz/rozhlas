@@ -4,12 +4,551 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$ROOT_DIR/.env"
+
+trim_whitespace() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+find_card_in_output() {
+  local output="$1"
+  shift
+  local -a keywords=("$@")
+  local regex='^card[[:space:]]+([0-9]+):[[:space:]]*([^[]+)'
+
+  while IFS= read -r line; do
+    if [[ $line =~ $regex ]]; then
+      local card="${BASH_REMATCH[1]}"
+      local raw_name="${BASH_REMATCH[2]}"
+      local name
+      name="$(trim_whitespace "$raw_name")"
+      local name_lower="${name,,}"
+
+      for keyword in "${keywords[@]}"; do
+        local trimmed_keyword
+        trimmed_keyword="$(trim_whitespace "$keyword")"
+        if [[ -z "$trimmed_keyword" ]]; then
+          continue
+        fi
+        local keyword_lower="${trimmed_keyword,,}"
+        if [[ "$name_lower" == *"$keyword_lower"* ]]; then
+          echo "$card"
+          return 0
+        fi
+      done
+    fi
+  done <<<"$output"
+
+  return 1
+}
+
+detect_audio_card() {
+  local -a keywords=("$@")
+  if [[ ${#keywords[@]} -eq 0 ]]; then
+    keywords=("aic3x" "aic3107" "tlv320" "soundcard")
+  fi
+
+  local output=""
+  local card_id=""
+  if command -v aplay >/dev/null 2>&1; then
+    if output=$(aplay -l 2>/dev/null); then
+      if card_id=$(find_card_in_output "$output" "${keywords[@]}"); then
+        echo "$card_id"
+        return 0
+      fi
+    fi
+  fi
+
+  if command -v arecord >/dev/null 2>&1; then
+    if output=$(arecord -l 2>/dev/null); then
+      if card_id=$(find_card_in_output "$output" "${keywords[@]}"); then
+        echo "$card_id"
+        return 0
+      fi
+    fi
+  fi
+
+  return 1
+}
+
+update_env_var() {
+  local key="$1"
+  local value="$2"
+  local file="$ENV_FILE"
+
+  if [[ ! -f "$file" ]]; then
+    printf '%s=%s\n' "$key" "$value" >>"$file"
+    return
+  fi
+
+  local current=""
+  current=$(awk -F '=' -v k="$key" '$1 == k {print substr($0, index($0, "=") + 1); exit}' "$file")
+
+  if [[ "$current" == "$value" ]]; then
+    return
+  fi
+
+  local tmp
+  tmp=$(mktemp)
+  awk -v k="$key" -v v="$value" '
+    BEGIN { updated = 0 }
+    $0 ~ "^"k"=" {
+      if (updated == 0) {
+        print k "=" v
+        updated = 1
+      }
+      next
+    }
+    { print }
+    END {
+      if (updated == 0) {
+        print k "=" v
+      }
+    }
+  ' "$file" >"$tmp"
+  chmod --reference="$file" "$tmp" 2>/dev/null || true
+  mv "$tmp" "$file"
+}
+
+serial_port_matches_keywords() {
+  local port="$1"
+  shift
+  local -a keywords=("$@")
+
+  if [[ ! -e "$port" ]]; then
+    return 1
+  fi
+
+  if [[ ${#keywords[@]} -eq 0 ]]; then
+    return 0
+  fi
+
+  if ! command -v udevadm >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local info
+  if ! info=$(udevadm info -q property -n "$port" 2>/dev/null); then
+    return 1
+  fi
+  local info_lower="${info,,}"
+
+  for keyword in "${keywords[@]}"; do
+    local trimmed
+    trimmed="$(trim_whitespace "$keyword")"
+    if [[ -z "$trimmed" ]]; then
+      continue
+    fi
+    local keyword_lower="${trimmed,,}"
+    if [[ "$info_lower" != *"$keyword_lower"* ]]; then
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+detect_serial_port_by_id() {
+  local -a keywords_input=("$@")
+  local -a keywords=()
+  for keyword in "${keywords_input[@]}"; do
+    local trimmed
+    trimmed="$(trim_whitespace "$keyword")"
+    if [[ -n "$trimmed" ]]; then
+      keywords+=("$trimmed")
+    fi
+  done
+  if [[ ${#keywords[@]} -eq 0 ]]; then
+    keywords=("1a86_USB_Serial")
+  fi
+
+  local dir="/dev/serial/by-id"
+
+  if [[ ! -d "$dir" ]]; then
+    return 1
+  fi
+
+  local fallback=""
+  for entry in "$dir"/*; do
+    [[ -e "$entry" ]] || continue
+    local resolved
+    resolved=$(readlink -f "$entry")
+    if [[ -z "$resolved" || ! -e "$resolved" ]]; then
+      continue
+    fi
+
+    if serial_port_matches_keywords "$resolved" "${keywords[@]}"; then
+      echo "$resolved"
+      return 0
+    fi
+
+    local name
+    name="$(basename "$entry")"
+    local name_lower="${name,,}"
+    for keyword in "${keywords[@]}"; do
+      local keyword_lower="${keyword,,}"
+      if [[ "$name_lower" == *"$keyword_lower"* ]]; then
+        echo "$resolved"
+        return 0
+      fi
+    done
+
+    if [[ -z "$fallback" ]]; then
+      fallback="$resolved"
+    fi
+  done
+
+  if [[ -n "$fallback" ]]; then
+    echo "$fallback"
+    return 0
+  fi
+
+  return 1
+}
+
+auto_configure_mixer_card() {
+  local auto_detect="${AUTO_DETECT_MIXER_CARD:-true}"
+  local normalized="${auto_detect,,}"
+  case "$normalized" in
+    ''|'1'|'true'|'yes'|'on')
+      ;;
+    *)
+      return
+      ;;
+  esac
+
+  local keywords_raw="${AUDIO_MIXER_CARD_KEYWORDS:-${MIXER_CARD_KEYWORDS:-}}"
+  local -a keywords=()
+  if [[ -n "$keywords_raw" ]]; then
+    local IFS=','
+    read -r -a keywords <<<"$keywords_raw"
+  fi
+
+  local -a filtered_keywords=()
+  for keyword in "${keywords[@]}"; do
+    local trimmed
+    trimmed="$(trim_whitespace "$keyword")"
+    if [[ -n "$trimmed" ]]; then
+      filtered_keywords+=("$trimmed")
+    fi
+  done
+  if [[ ${#filtered_keywords[@]} -eq 0 ]]; then
+    filtered_keywords=("aic3x" "aic3107" "tlv320" "soundcard")
+  fi
+
+  local detected_card=""
+  if ! detected_card=$(detect_audio_card "${filtered_keywords[@]}"); then
+    echo "Warning: Unable to determine mixer card index automatically; leaving AUDIO_MIXER_CARD=${AUDIO_MIXER_CARD:-unset}." >&2
+    return
+  fi
+
+  if [[ -z "$detected_card" ]]; then
+    echo "Warning: Automatic mixer card detection returned an empty result; leaving existing configuration." >&2
+    return
+  fi
+
+  local -a updated_keys=()
+  if [[ "${AUDIO_MIXER_CARD:-}" != "$detected_card" ]]; then
+    update_env_var "AUDIO_MIXER_CARD" "$detected_card"
+    export AUDIO_MIXER_CARD="$detected_card"
+    updated_keys+=("AUDIO_MIXER_CARD")
+  fi
+
+  if [[ "${BROADCAST_MIXER_CARD:-}" != "$detected_card" ]]; then
+    update_env_var "BROADCAST_MIXER_CARD" "$detected_card"
+    export BROADCAST_MIXER_CARD="$detected_card"
+    updated_keys+=("BROADCAST_MIXER_CARD")
+  fi
+
+  if [[ ${#updated_keys[@]} -gt 0 ]]; then
+    echo "Detected mixer card index ${detected_card}; updated ${updated_keys[*]}."
+  else
+    echo "Detected mixer card index ${detected_card}; existing configuration already matches."
+  fi
+}
+
+auto_configure_control_tab_serial() {
+  local auto_detect="${AUTO_DETECT_CONTROL_TAB_SERIAL:-true}"
+  local normalized="${auto_detect,,}"
+  case "$normalized" in
+    ''|'1'|'true'|'yes'|'on')
+      ;;
+    *)
+      echo "Skipping Control Tab serial detection (AUTO_DETECT_CONTROL_TAB_SERIAL=${auto_detect})."
+      return
+      ;;
+  esac
+
+  local current_port="${CONTROL_TAB_SERIAL_PORT:-}"
+  if [[ -n "$current_port" && ! -e "$current_port" ]]; then
+    echo "Warning: CONTROL_TAB_SERIAL_PORT='${current_port}' not found; attempting auto-detection." >&2
+  fi
+  echo "Detecting Control Tab serial port..."
+
+  local hints_raw="${CONTROL_TAB_SERIAL_HINTS:-}"
+  local -a hints=()
+  if [[ -n "$hints_raw" ]]; then
+    local IFS=','
+    read -r -a hints <<<"$hints_raw"
+  fi
+
+  local -a trimmed_hints=()
+  for hint in "${hints[@]}"; do
+    local trimmed
+    trimmed="$(trim_whitespace "$hint")"
+    if [[ -n "$trimmed" ]]; then
+      trimmed_hints+=("$trimmed")
+    fi
+  done
+
+  local id_keywords_raw="${CONTROL_TAB_SERIAL_ID_KEYWORDS:-1a86_USB_Serial}"
+  local -a id_keywords=()
+  if [[ -n "$id_keywords_raw" ]]; then
+    local IFS=','
+    read -r -a id_keywords <<<"$id_keywords_raw"
+  fi
+  local -a trimmed_id_keywords=()
+  for keyword in "${id_keywords[@]}"; do
+    local trimmed
+    trimmed="$(trim_whitespace "$keyword")"
+    if [[ -n "$trimmed" ]]; then
+      trimmed_id_keywords+=("$trimmed")
+    fi
+  done
+  if [[ ${#trimmed_id_keywords[@]} -eq 0 ]]; then
+    trimmed_id_keywords=("1a86_USB_Serial")
+  fi
+
+  local -a default_hints=("/dev/ttyUSB0" "/dev/ttyUSB1" "/dev/ttyACM0")
+  local -a candidates=()
+  if [[ -n "$current_port" ]]; then
+    candidates+=("$current_port")
+  fi
+  candidates+=("${trimmed_hints[@]}")
+  candidates+=("${default_hints[@]}")
+
+  local detected_port=""
+  local fallback=""
+  for candidate in "${candidates[@]}"; do
+    local resolved="$candidate"
+    if [[ -z "$resolved" ]]; then
+      continue
+    fi
+    if [[ "$resolved" == /dev/serial/by-id/* || -L "$resolved" ]]; then
+      local canonical
+      canonical=$(readlink -f "$resolved" 2>/dev/null)
+      if [[ -n "$canonical" ]]; then
+        resolved="$canonical"
+      fi
+    fi
+    if [[ -z "$resolved" || ! -e "$resolved" ]]; then
+      continue
+    fi
+
+    if serial_port_matches_keywords "$resolved" "${trimmed_id_keywords[@]}"; then
+      detected_port="$resolved"
+      break
+    fi
+
+    if [[ -z "$fallback" ]]; then
+      fallback="$resolved"
+    fi
+  done
+
+  if [[ -z "$detected_port" ]]; then
+    if [[ -n "$fallback" ]]; then
+      detected_port="$fallback"
+    fi
+  fi
+
+  if [[ -z "$detected_port" ]]; then
+    local id_keywords_raw="${CONTROL_TAB_SERIAL_ID_KEYWORDS:-}"
+    local -a extra_id_keywords=()
+    if [[ -n "$id_keywords_raw" ]]; then
+      local IFS=','
+      read -r -a extra_id_keywords <<<"$id_keywords_raw"
+    fi
+    local -a trimmed_extra_keywords=()
+    for keyword in "${extra_id_keywords[@]}"; do
+      local trimmed
+      trimmed="$(trim_whitespace "$keyword")"
+      if [[ -n "$trimmed" ]]; then
+        trimmed_extra_keywords+=("$trimmed")
+      fi
+    done
+    if [[ ${#trimmed_extra_keywords[@]} -eq 0 ]]; then
+      trimmed_extra_keywords=("${trimmed_id_keywords[@]}")
+    fi
+    if ! detected_port=$(detect_serial_port_by_id "${trimmed_extra_keywords[@]}"); then
+      echo "Warning: Unable to determine Control Tab serial port automatically; leaving CONTROL_TAB_SERIAL_PORT=${CONTROL_TAB_SERIAL_PORT:-unset}." >&2
+      return
+    fi
+  fi
+
+  if [[ -z "$detected_port" ]]; then
+    echo "Warning: Control Tab serial port detection returned an empty result; leaving existing configuration." >&2
+    return
+  fi
+
+  if [[ "${CONTROL_TAB_SERIAL_PORT:-}" != "$detected_port" ]]; then
+    update_env_var "CONTROL_TAB_SERIAL_PORT" "$detected_port"
+    export CONTROL_TAB_SERIAL_PORT="$detected_port"
+    echo "Detected Control Tab serial port ${detected_port}; updated CONTROL_TAB_SERIAL_PORT."
+  else
+    echo "Detected Control Tab serial port ${detected_port}; existing configuration already matches."
+  fi
+}
+
+auto_configure_gsm_serial() {
+  local auto_detect="${AUTO_DETECT_GSM_SERIAL:-true}"
+  local normalized="${auto_detect,,}"
+  case "$normalized" in
+    ''|'1'|'true'|'yes'|'on')
+      ;;
+    *)
+      echo "Skipping GSM serial detection (AUTO_DETECT_GSM_SERIAL=${auto_detect})."
+      return
+      ;;
+  esac
+
+  local current_port="${GSM_SERIAL_PORT:-}"
+  if [[ -n "$current_port" && ! -e "$current_port" ]]; then
+    echo "Warning: GSM_SERIAL_PORT='${current_port}' not found; attempting auto-detection." >&2
+  fi
+  echo "Detecting GSM serial port..."
+
+  local hints_raw="${GSM_SERIAL_HINTS:-}"
+  local -a hints=()
+  if [[ -n "$hints_raw" ]]; then
+    local IFS=','
+    read -r -a hints <<<"$hints_raw"
+  fi
+
+  local -a trimmed_hints=()
+  for hint in "${hints[@]}"; do
+    local trimmed
+    trimmed="$(trim_whitespace "$hint")"
+    if [[ -n "$trimmed" ]]; then
+      trimmed_hints+=("$trimmed")
+    fi
+  done
+
+  local id_keywords_raw="${GSM_SERIAL_ID_KEYWORDS:-id_vendor_id=1e0e,id_model_id=9001}"
+  local -a id_keywords=()
+  if [[ -n "$id_keywords_raw" ]]; then
+    local IFS=','
+    read -r -a id_keywords <<<"$id_keywords_raw"
+  fi
+  local -a trimmed_id_keywords=()
+  for keyword in "${id_keywords[@]}"; do
+    local trimmed
+    trimmed="$(trim_whitespace "$keyword")"
+    if [[ -n "$trimmed" ]]; then
+      trimmed_id_keywords+=("$trimmed")
+    fi
+  done
+  if [[ ${#trimmed_id_keywords[@]} -eq 0 ]]; then
+    trimmed_id_keywords=("id_vendor_id=1e0e" "id_model_id=9001")
+  fi
+
+  local -a default_hints=("/dev/ttyUSB3" "/dev/ttyUSB2" "/dev/ttyUSB4" "/dev/ttyUSB1" "/dev/ttyUSB0" "/dev/ttyACM1" "/dev/ttyACM0")
+  local -a candidates=()
+  if [[ -n "$current_port" ]]; then
+    candidates+=("$current_port")
+  fi
+  candidates+=("${trimmed_hints[@]}")
+  candidates+=("${default_hints[@]}")
+
+  local detected_port=""
+  local fallback=""
+  for candidate in "${candidates[@]}"; do
+    local resolved="$candidate"
+    if [[ -z "$resolved" ]]; then
+      continue
+    fi
+    if [[ "$resolved" == /dev/serial/by-id/* || -L "$resolved" ]]; then
+      local canonical
+      canonical=$(readlink -f "$resolved" 2>/dev/null)
+      if [[ -n "$canonical" ]]; then
+        resolved="$canonical"
+      fi
+    fi
+    if [[ -z "$resolved" || ! -e "$resolved" ]]; then
+      continue
+    fi
+
+    if serial_port_matches_keywords "$resolved" "${trimmed_id_keywords[@]}"; then
+      detected_port="$resolved"
+      break
+    fi
+
+    if [[ -z "$fallback" ]]; then
+      fallback="$resolved"
+    fi
+  done
+
+  if [[ -z "$detected_port" ]]; then
+    if [[ -n "$fallback" ]]; then
+      detected_port="$fallback"
+    fi
+  fi
+
+  if [[ -z "$detected_port" ]]; then
+    local id_keywords_raw="${GSM_SERIAL_ID_KEYWORDS:-}"
+    local -a extra_id_keywords=()
+    if [[ -n "$id_keywords_raw" ]]; then
+      local IFS=','
+      read -r -a extra_id_keywords <<<"$id_keywords_raw"
+    fi
+    local -a trimmed_extra_keywords=()
+    for keyword in "${extra_id_keywords[@]}"; do
+      local trimmed
+      trimmed="$(trim_whitespace "$keyword")"
+      if [[ -n "$trimmed" ]]; then
+        trimmed_extra_keywords+=("$trimmed")
+      fi
+    done
+    if [[ ${#trimmed_extra_keywords[@]} -eq 0 ]]; then
+      trimmed_extra_keywords=("${trimmed_id_keywords[@]}")
+    fi
+    if ! detected_port=$(detect_serial_port_by_id "${trimmed_extra_keywords[@]}"); then
+      echo "Warning: Unable to determine GSM serial port automatically; leaving GSM_SERIAL_PORT=${GSM_SERIAL_PORT:-unset}." >&2
+      return
+    fi
+  fi
+
+  if [[ -z "$detected_port" ]]; then
+    echo "Warning: GSM serial port detection returned an empty result; leaving existing configuration." >&2
+    return
+  fi
+
+  if [[ "${GSM_SERIAL_PORT:-}" != "$detected_port" ]]; then
+    update_env_var "GSM_SERIAL_PORT" "$detected_port"
+    export GSM_SERIAL_PORT="$detected_port"
+    echo "Detected GSM serial port ${detected_port}; updated GSM_SERIAL_PORT."
+  else
+    echo "Detected GSM serial port ${detected_port}; existing configuration already matches."
+  fi
+}
+
 if [[ -f "$ENV_FILE" ]]; then
   set -a
   # shellcheck disable=SC1090
   source "$ENV_FILE"
   set +a
 fi
+
+auto_configure_mixer_card
+auto_configure_control_tab_serial
+auto_configure_gsm_serial
+
+echo "Caching Laravel configuration (php artisan config:cache)..."
+(
+  cd "$ROOT_DIR"
+  php artisan config:cache >/dev/null
+)
 
 LOG_DIR="${LOG_DIR:-$ROOT_DIR/storage/logs/run}"
 mkdir -p "$LOG_DIR"

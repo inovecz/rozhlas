@@ -176,11 +176,14 @@ class GpiogetButtonReader(ButtonReader):
 class DebouncedEdgeDetector:
     """Detect a rising edge that remains active for the configured debounce window."""
 
-    def __init__(self, active_value: int, debounce_seconds: float) -> None:
+    def __init__(self, active_value: int, debounce_seconds: float, initial_value: Optional[int] = None) -> None:
         self._active_value = 1 if active_value else 0
         self._debounce_seconds = max(0.0, debounce_seconds)
         self._press_started_at: float | None = None
         self._armed = True
+        if initial_value == self._active_value:
+            # Prevent immediately treating a steady active level as a new press
+            self._armed = False
 
     def update(self, value: int, now: Optional[float] = None) -> bool:
         now = now if now is not None else time.monotonic()
@@ -509,7 +512,23 @@ def run_loop(config: ButtonConfig, reader: ButtonReader, logger: logging.Logger)
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, _handle_signal)
 
-    detector = DebouncedEdgeDetector(config.active_value, config.debounce_seconds)
+    try:
+        initial_value = reader.read()
+    except ButtonReaderError as exc:
+        logger.warning("Unable to read initial GPIO state: %s (assuming inactive)", exc)
+        initial_value = 1 - config.active_value
+
+    detector = DebouncedEdgeDetector(config.active_value, config.debounce_seconds, initial_value)
+    if initial_value == config.active_value:
+        logger.info(
+            "GPIO button initialised in active state (%d); waiting for release before enabling triggers.",
+            config.active_value,
+        )
+    else:
+        logger.debug(
+            "GPIO button initialised in inactive state (%d).",
+            1 - config.active_value,
+        )
     poll_seconds = config.poll_interval
     command = build_jsvv_command(config)
 
@@ -537,14 +556,8 @@ def run_loop(config: ButtonConfig, reader: ButtonReader, logger: logging.Logger)
         targets_desc,
     )
 
+    value = initial_value
     while not stop_event.is_set():
-        try:
-            value = reader.read()
-        except ButtonReaderError as exc:
-            logger.error("Stopping due to GPIO error: %s", exc)
-            stop_event.set()
-            break
-
         if detector.update(value):
             logger.info(
                 "Detected button press on %s:%d. Dispatching JSVV sequence %s",
@@ -560,6 +573,13 @@ def run_loop(config: ButtonConfig, reader: ButtonReader, logger: logging.Logger)
             wait_for_release(reader, detector, config, stop_event, logger)
 
         if stop_event.wait(poll_seconds):
+            break
+
+        try:
+            value = reader.read()
+        except ButtonReaderError as exc:
+            logger.error("Stopping due to GPIO error: %s", exc)
+            stop_event.set()
             break
 
     reader.close()
