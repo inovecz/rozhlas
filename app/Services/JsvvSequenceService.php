@@ -448,8 +448,24 @@ class JsvvSequenceService extends Service
             Arr::get($options, 'repeatDelay', Arr::get($options, 'repeat_delay'))
         );
 
+        $tokens = $this->tokenizeSequenceString($sequenceString);
+        [$playbackSymbols, $sourceSymbols] = $this->classifyImmediateSequenceSymbols($tokens);
+
+        if ($playbackSymbols === [] && $sourceSymbols !== []) {
+            return $this->startImmediateSourceStream(
+                $sourceSymbols,
+                $priority,
+                $targets,
+                $remote,
+                $repeat,
+                $repeatDelay
+            );
+        }
+
+        $playbackSequence = implode('', $playbackSymbols) !== '' ? implode('', $playbackSymbols) : $sequenceString;
+
         $response = $this->client->sendJsvvSequenceCommand(
-            $sequenceString,
+            $playbackSequence,
             $priority,
             $remote,
             $targets,
@@ -461,6 +477,23 @@ class JsvvSequenceService extends Service
             throw new RuntimeException($response['json']['message'] ?? 'JSVV sekvenci se nepodařilo odeslat.');
         }
 
+        $sourceActivation = null;
+        if ($sourceSymbols !== []) {
+            $delaySeconds = $this->estimateImmediatePlaybackDuration($playbackSymbols);
+            if ($delaySeconds > 0) {
+                $this->delayImmediatePlaybackCompletion($delaySeconds);
+            }
+
+            $sourceActivation = $this->startImmediateSourceStream(
+                $sourceSymbols,
+                $priority,
+                $targets,
+                $remote,
+                $repeat,
+                $repeatDelay
+            );
+        }
+
         return [
             'status' => 'running',
             'sequence' => $sequenceString,
@@ -470,6 +503,214 @@ class JsvvSequenceService extends Service
             'repeat' => $repeat,
             'repeat_delay' => $repeatDelay,
             'response' => $response['json'] ?? null,
+            'source' => $sourceActivation['source'] ?? null,
+        ];
+    }
+
+    /**
+     * @param array<int, string> $tokens
+     * @return array{0: array<int, string>, 1: array<int, string>}
+     */
+    private function classifyImmediateSequenceSymbols(array $tokens): array
+    {
+        $playback = [];
+        $sources = [];
+
+        foreach ($tokens as $symbol) {
+            $audio = $this->getAudioBySymbol($symbol);
+            if ($audio !== null && $audio->getType()?->value === 'SOURCE') {
+                $sources[] = $symbol;
+            } else {
+                $playback[] = $symbol;
+            }
+        }
+
+        return [$playback, $sources];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function tokenizeSequenceString(string $sequenceString): array
+    {
+        $normalized = $this->normalizeSequenceInput($sequenceString);
+        if ($normalized === '') {
+            return [];
+        }
+
+        if (str_contains($normalized, ',')) {
+            $parts = array_filter(array_map('trim', explode(',', $normalized)), static fn(string $token): bool => $token !== '');
+            return array_values(array_map('strtoupper', $parts));
+        }
+
+        return array_map('strval', str_split($normalized));
+    }
+
+    /**
+     * @param array<int, string> $sourceSymbols
+     */
+    private function estimateImmediatePlaybackDuration(array $symbols): float
+    {
+        $total = 0.0;
+        foreach ($symbols as $symbol) {
+            $total += $this->estimateSymbolDuration($symbol);
+        }
+
+        return $total;
+    }
+
+    private function estimateSymbolDuration(string $symbol): float
+    {
+        $audio = $this->getAudioBySymbol($symbol);
+        $defaults = config('jsvv.sequence.default_durations', []);
+        $fallback = (float) ($defaults['fallback'] ?? 10.0);
+
+        if ($audio === null) {
+            return $fallback;
+        }
+
+        if ($audio->getType()?->value === 'SOURCE') {
+            return 0.0;
+        }
+
+        $category = match ($audio->getGroup()?->value) {
+            'SIREN' => 'siren',
+            default => 'verbal',
+        };
+
+        $metadata = [];
+        $file = $audio->file;
+        if ($file !== null) {
+            $fileMetadata = $file->getMetadata();
+            if (is_array($fileMetadata)) {
+                $metadata = $fileMetadata;
+            }
+            $metadata['path'] = storage_path('app/' . $file->getStoragePath());
+        }
+
+        return $this->detectItemDurationSeconds($category, $metadata ?? []) ?? $fallback;
+    }
+
+    private function delayImmediatePlaybackCompletion(float $seconds): void
+    {
+        $delay = max(0.0, min($seconds, 30.0));
+        if ($delay <= 0.0) {
+            return;
+        }
+
+        usleep((int) round($delay * 1_000_000));
+    }
+
+    private function startImmediateSourceStream(
+        array $sourceSymbols,
+        ?int $priority,
+        ?array $targets,
+        ?int $remote,
+        ?int $repeat,
+        ?float $repeatDelay
+    ): array {
+        $symbol = $sourceSymbols[0];
+        $audio = $this->getAudioBySymbol($symbol);
+
+        if ($audio === null) {
+            throw new RuntimeException(sprintf('Symbol %s nelze převést na živý zdroj.', $symbol));
+        }
+
+        $jsvvSource = $audio->getSource()?->value ?? $symbol;
+        $orchestratorSource = $this->mapJsvvAudioSourceToOrchestrator($jsvvSource);
+        if ($orchestratorSource === null) {
+            throw new RuntimeException(sprintf('Zdroj %s není podporován pro živé vysílání.', $jsvvSource));
+        }
+
+        $defaults = config('control_tab.defaults', []);
+        $defaultRoute = Arr::get($defaults, 'route', []);
+        $defaultLocations = Arr::get($defaults, 'locations', []);
+        $defaultNests = Arr::get($defaults, 'nests', []);
+
+        $route = is_array($defaultRoute) ? $defaultRoute : [];
+        $locations = is_array($defaultLocations) ? $defaultLocations : [];
+        $nests = is_array($defaultNests) ? $defaultNests : [];
+
+        $options = [
+            'origin' => 'jsvv_immediate',
+            'jsvv_source' => $jsvvSource,
+            'jsvv_source_symbol' => $symbol,
+            'jsvv_source_category' => $orchestratorSource,
+            'autoTimeoutOverride' => true,
+        ];
+
+        if ($priority !== null) {
+            $options['priority'] = $priority;
+        }
+
+        if ($targets !== null) {
+            $options['targets'] = $targets;
+        }
+
+        $zones = $targets ?? [];
+        if ($zones === []) {
+            $generalZone = (int) config('control_tab.general_zone', 0);
+            if ($generalZone > 0) {
+                $zones = [$generalZone];
+            }
+        }
+
+        $attempts = 0;
+        $lastException = null;
+        $retryDelays = [0.0, 2.0, 4.0];
+        $result = null;
+
+        foreach ($retryDelays as $delay) {
+            $attempts++;
+            if ($delay > 0.0) {
+                usleep((int) round($delay * 1_000_000));
+            }
+
+            try {
+                $result = $this->orchestrator->start([
+                    'source' => $orchestratorSource,
+                    'route' => $route,
+                    'zones' => $zones,
+                    'locations' => $locations,
+                    'nests' => $nests,
+                    'options' => $options,
+                ]);
+                $lastException = null;
+                break;
+            } catch (Throwable $exception) {
+                $lastException = $exception;
+                Log::warning('Immediate JSVV source activation attempt failed', [
+                    'attempt' => $attempts,
+                    'symbol' => $symbol,
+                    'jsvv_source' => $jsvvSource,
+                    'orchestrator_source' => $orchestratorSource,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+        }
+
+        if ($lastException !== null) {
+            throw new RuntimeException(
+                'Nepodařilo se aktivovat živé vysílání po JSVV sekvenci.',
+                0,
+                $lastException
+            );
+        }
+
+        return [
+            'status' => 'running',
+            'sequence' => $symbol,
+            'priority' => $priority,
+            'targets' => $targets,
+            'remote' => $remote,
+            'repeat' => $repeat,
+            'repeat_delay' => $repeatDelay,
+            'source' => [
+                'symbol' => $symbol,
+                'jsvv_source' => $jsvvSource,
+                'orchestrator_source' => $orchestratorSource,
+                'result' => $result,
+            ],
         ];
     }
 

@@ -558,7 +558,26 @@ class ControlTabService extends Service
             ->latest('started_at')
             ->first();
 
-        if ($session === null || $session->source !== 'jsvv') {
+        if ($session === null) {
+            return [
+                'status' => 'idle',
+                'message' => Arr::get($config, 'idle_message', 'Poplach JSVV není aktivní.'),
+            ];
+        }
+
+        $options = is_array($session->options) ? $session->options : [];
+        $origin = Arr::get($options, 'origin');
+        $sequenceId = Arr::get($options, 'jsvv_sequence_id');
+        $jsvvSource = Arr::get($options, 'jsvv_source');
+        $jsvvSourceSymbol = Arr::get($options, 'jsvv_source_symbol');
+
+        $isJsvvSession = $session->source === 'jsvv'
+            || $origin === 'jsvv_sequence'
+            || $sequenceId !== null
+            || $jsvvSource !== null
+            || $jsvvSourceSymbol !== null;
+
+        if (!$isJsvvSession) {
             return [
                 'status' => 'idle',
                 'message' => Arr::get($config, 'idle_message', 'Poplach JSVV není aktivní.'),

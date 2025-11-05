@@ -99,10 +99,18 @@ class JsvvCommandController extends Controller
                 'errors' => ['payload.steps' => [$exception->getMessage()]],
             ], 422);
         } catch (\RuntimeException $exception) {
+            Log::warning('JSVV sequence command failed.', [
+                'message' => $exception->getMessage(),
+                'payload' => $payload,
+            ]);
+
             return response()->json([
                 'status' => 'failed',
                 'message' => $exception->getMessage(),
-            ], 500);
+                'sequence' => [
+                    'status' => 'failed',
+                ],
+            ], 409);
         }
 
         return response()->json([
