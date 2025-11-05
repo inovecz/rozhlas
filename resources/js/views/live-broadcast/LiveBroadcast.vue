@@ -38,6 +38,7 @@ const status = ref({session: null, status: null, device: null});
 const loading = ref(false);
 const statusLoading = ref(false);
 const syncingForm = ref(false);
+const stoppingBroadcast = ref(false);
 
 const locationGroups = ref([]);
 const nests = ref([]);
@@ -126,11 +127,6 @@ watch(() => form.input, async (newValue, oldValue) => {
   try {
     const revertInput = typeof oldValue === "string" && INPUT_DEFINITIONS[oldValue] ? oldValue : null;
     await applySourceUpdate({silent: true, revertInput, revertVolume: previousVolume});
-    if (isStreaming.value) {
-      toast.success("Vstup živého vysílání byl přepnut.");
-    } else {
-      toast.success("Vstup ústředny byl nastaven.");
-    }
   } catch (error) {
     console.error(error);
     toast.error("Nepodařilo se přepnout vstup.");
@@ -323,7 +319,7 @@ const applySourceUpdate = async ({silent = false, revertInput = null, revertVolu
     throw new Error("Pro zvolený vstup není nakonfigurován ALSA profil.");
   }
 
-  if (!isStreaming.value) {
+  if (stoppingBroadcast.value || !isStreaming.value) {
     return;
   }
 
@@ -335,9 +331,6 @@ const applySourceUpdate = async ({silent = false, revertInput = null, revertVolu
 
   try {
     await LiveBroadcastService.selectLiveSource(payload);
-    if (!silent) {
-      toast.success(isStreaming.value ? "Vstup a hlasitost byly aktualizovány." : "Vstup a hlasitost byly nastaveny.");
-    }
   } catch (error) {
     if (revertInput && INPUT_DEFINITIONS[revertInput]) {
       syncingForm.value = true;
@@ -367,9 +360,6 @@ const scheduleVolumeUpdate = (previousVolume) => {
   volumeUpdateHandle = setTimeout(async () => {
     try {
       await applySourceUpdate({silent: true});
-      if (isStreaming.value) {
-        toast.success("Hlasitost byla aktualizována.");
-      }
     } catch (error) {
       console.error(error);
       toast.error("Nepodařilo se nastavit hlasitost.");
@@ -448,6 +438,7 @@ const startStream = async () => {
 };
 
 const stopStream = async () => {
+  stoppingBroadcast.value = true;
   loading.value = true;
   try {
     await LiveBroadcastService.stopBroadcast("frontend_stop");
@@ -457,6 +448,7 @@ const stopStream = async () => {
     console.error(error);
     toast.error("Nepodařilo se zastavit vysílání.");
   } finally {
+    stoppingBroadcast.value = false;
     loading.value = false;
   }
 };

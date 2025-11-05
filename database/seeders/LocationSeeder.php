@@ -20,7 +20,7 @@ class LocationSeeder extends Seeder
         DB::table('location_groups')->insert([
             [
                 'name' => 'General',
-                'modbus_group_address' => null,
+                'modbus_group_address' => '100',
                 'is_hidden' => false,
                 'subtone_type' => 'A16',
                 'subtone_data' => '{"listen":[2160],"record":[2161]}',
@@ -31,7 +31,7 @@ class LocationSeeder extends Seeder
         ]);
         DB::table('locations')->insert([
             [
-                'name' => 'Ústředna',
+                'name' => 'Ustredna',
                 'location_group_id' => 1, // General
                 'type' => LocationTypeEnum::CENTRAL,
                 'modbus_address' => null,
@@ -42,10 +42,10 @@ class LocationSeeder extends Seeder
                 'updated_at' => now(),
             ],
             [
-                'name' => 'Hnízdo 1',
+                'name' => 'Hnizdo 1',
                 'location_group_id' => 1, // General
                 'type' => LocationTypeEnum::NEST,
-                'modbus_address' => 21,
+                'modbus_address' => 101,
                 'latitude' => 49.453821671151,
                 'longitude' => 17.977629303932,
                 'is_active' => true,
@@ -53,10 +53,10 @@ class LocationSeeder extends Seeder
                 'updated_at' => now(),
             ],
             [
-                'name' => 'Hnízdo 2',
+                'name' => 'Hnizdo 2',
                 'location_group_id' => 1, // General
                 'type' => LocationTypeEnum::NEST,
-                'modbus_address' => 22,
+                'modbus_address' => 102,
                 'latitude' => 49.453518284045,
                 'longitude' => 17.97831594944,
                 'is_active' => true,

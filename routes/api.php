@@ -14,6 +14,8 @@ use App\Http\Controllers\JsvvAlarmController;
 use App\Http\Controllers\LiveBroadcastController;
 use App\Http\Controllers\Api\FmController;
 use App\Http\Controllers\Api\ControlTabController;
+use App\Http\Controllers\Api\ControlTabDataController;
+use App\Http\Controllers\Api\ControlTabPushController;
 use App\Http\Controllers\Api\GsmController;
 use App\Http\Controllers\Api\JsvvEventController;
 use App\Http\Controllers\Api\JsvvSequenceController;
@@ -102,6 +104,12 @@ Route::group(['middleware' => ['api']], static function () {
         Route::get('/assets', [JsvvSequenceController::class, 'assets']);
         Route::post('/events', JsvvEventController::class);
         Route::post('/command', JsvvCommandController::class);
+    });
+
+    Route::group(['prefix' => 'ct'], static function () {
+        Route::get('/localities', [ControlTabDataController::class, 'localities']);
+        Route::get('/jingles', [ControlTabDataController::class, 'jingles']);
+        Route::post('/push-fields', [ControlTabPushController::class, 'pushFields']);
     });
 
     Route::group(['prefix' => 'gsm'], static function () {

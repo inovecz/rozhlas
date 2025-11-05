@@ -9,6 +9,7 @@ use App\Models\BroadcastPlaylist;
 use App\Models\BroadcastSession;
 use App\Models\JsvvAlarm;
 use App\Models\JsvvAudio;
+use App\Models\LocationGroup;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
@@ -634,13 +635,29 @@ class ControlTabService extends Service
             ->where('status', 'running')
             ->latest('started_at')
             ->first();
-        $locations = Arr::get($session?->options ?? [], '_labels.locations', []);
+
+        if ($session === null) {
+            $names = LocationGroup::query()
+                ->where(function ($query): void {
+                    $query
+                        ->whereNull('is_hidden')
+                        ->orWhere('is_hidden', false);
+                })
+                ->orderBy('name')
+                ->pluck('name')
+                ->map(static fn ($name) => (string) $name)
+                ->implode("\n");
+
+            return $names !== '' ? $names : 'Bez omezení.';
+        }
+
+        $locations = Arr::get($session->options ?? [], '_labels.locations', []);
 
         if (empty($locations)) {
             return 'Bez omezení.';
         }
 
-        return implode(', ', array_map(
+        return implode("\n", array_map(
             static fn(array $item) => $item['name'] ?? ('ID ' . ($item['id'] ?? '?')),
             $locations
         ));
@@ -655,7 +672,7 @@ class ControlTabService extends Service
 
         $playlist = Arr::get($session?->options ?? [], 'playlist.items.0.title');
         if ($playlist === null) {
-            return 'Žádná znělka není vybrána.';
+            return '';
         }
 
         return (string) $playlist;

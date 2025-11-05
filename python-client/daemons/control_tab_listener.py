@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import queue
 import signal
@@ -20,10 +21,11 @@ import subprocess
 import threading
 import time
 import uuid
+from contextlib import nullcontext
 from dataclasses import dataclass, asdict
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Optional
-from contextlib import nullcontext
 
 import requests
 
@@ -50,12 +52,13 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 
 DEBUG = _env_flag("CONTROL_TAB_DEBUG", False)
+LOGGER = logging.getLogger("control_tab_listener")
 
 
 def _debug_log(payload: dict[str, Any]) -> None:
     if not DEBUG:
         return
-    print(json.dumps({"debug": payload}, ensure_ascii=False), flush=True)
+    LOGGER.debug("%s", json.dumps({"debug": payload}, ensure_ascii=False))
 
 
 @dataclass(slots=True)
@@ -108,6 +111,19 @@ def xor_crc(data: str) -> str:
     return f"{crc:02X}"
 
 
+def build_ack_frame(screen: int, panel: int, event_type: int, status: int) -> str:
+    body = f"{screen}:{panel}:{event_type}={status}"
+    crc = xor_crc(body)
+    return f"\n>>>:{screen}:{panel}:{event_type}={status}>>{crc}<<<\n"
+
+
+def build_text_frame(field_id: int, text: str) -> str:
+    safe_text = text.replace('"', "'")
+    body = f'TEXT:{field_id}:"{safe_text}"'
+    crc = xor_crc(body)
+    return f'\n>>>TEXT:{field_id}:"{safe_text}">>{crc}<<<\n'
+
+
 class BackendSink:
     def __init__(
         self,
@@ -118,6 +134,7 @@ class BackendSink:
         artisan_path: str = "artisan",
         artisan_command: str = "ctab:test-send",
         project_root: Optional[Path] = None,
+        logger: Optional[logging.Logger] = None,
     ) -> None:
         self._webhook_url = webhook_url
         self._token = token
@@ -126,8 +143,13 @@ class BackendSink:
         self._artisan_path = artisan_path
         self._artisan_command = artisan_command
         self._project_root = project_root or Path(__file__).resolve().parents[2]
+        self._logger = logger or LOGGER
 
     def send(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self._logger.debug(
+            "Sending payload to backend via %s",
+            "artisan" if not self._webhook_url and self._artisan_bin else "HTTP" if self._webhook_url else "stdout",
+        )
         if not self._webhook_url and self._artisan_bin:
             try:
                 completed = subprocess.run(
@@ -140,6 +162,7 @@ class BackendSink:
                     cwd=str(self._project_root),
                 )
             except (OSError, subprocess.TimeoutExpired) as exc:
+                self._logger.error("Artisan command failed: %s", exc)
                 return {"action": "error", "message": str(exc)}
 
             if completed.stdout:
@@ -151,6 +174,7 @@ class BackendSink:
             return {"action": "ack", "ack": {"status": 1, "exit_code": completed.returncode}}
 
         if not self._webhook_url:
+            self._logger.info("No backend configured; printing payload to stdout.")
             print(json.dumps(payload, ensure_ascii=False), flush=True)
             return {"action": "ack", "ack": {"status": 1}}
 
@@ -168,6 +192,7 @@ class BackendSink:
         try:
             return response.json()
         except ValueError:  # pragma: no cover - backend always returns JSON
+            self._logger.warning("Backend response was not JSON; returning generic ACK.")
             return {"action": "ack", "ack": {"status": 1}}
 
 
@@ -228,6 +253,40 @@ class ControlTabSerial:
         self._serial.flush()
 
 
+def configure_logging(log_file: Optional[str], debug: bool) -> logging.Logger:
+    logger = logging.getLogger("control_tab_listener")
+    level = logging.DEBUG if debug else logging.INFO
+    logger.setLevel(level)
+
+    if log_file:
+        log_path = Path(log_file).expanduser()
+    else:
+        log_path = Path(__file__).resolve().parents[2] / "storage" / "logs" / "control_tab_listener.log"
+
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # Fallback to current working directory if storage/logs is not writable
+        fallback = Path.cwd() / "control_tab_listener.log"
+        fallback.parent.mkdir(parents=True, exist_ok=True)
+        log_path = fallback
+
+    handler = RotatingFileHandler(log_path, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+
+    logger.handlers.clear()
+    logger.addHandler(handler)
+
+    if debug:
+        stream_handler = logging.StreamHandler()
+        stream_handler.setLevel(logging.DEBUG)
+        stream_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        logger.addHandler(stream_handler)
+
+    logger.debug("Control Tab listener logging initialised at %s", log_path)
+    return logger
+
+
 class ControlTabListener:
     def __init__(
         self,
@@ -237,6 +296,7 @@ class ControlTabListener:
         graceful_timeout: float,
         retry_backoff: float,
         once: bool = False,
+        logger: Optional[logging.Logger] = None,
     ) -> None:
         self._sink = sink
         self._transport = transport
@@ -244,6 +304,7 @@ class ControlTabListener:
         self._graceful_timeout = graceful_timeout
         self._retry_backoff = max(0.05, retry_backoff / 1000)
         self._once = once
+        self._logger = logger or LOGGER
 
         self._queue: queue.Queue[tuple[ControlTabFrame, dict[str, Any]]] = queue.Queue()
         self._stop_event = threading.Event()
@@ -252,9 +313,11 @@ class ControlTabListener:
         self._buffer = ""
 
     def start(self) -> None:
+        self._logger.info("Control Tab listener starting (simulation=%s)", self._simulation)
         self._dispatcher.start()
 
         if self._simulation:
+            self._logger.warning("Control Tab listener running in simulation mode; no serial port configured.")
             self._simulate_events()
             self.stop()
             return
@@ -263,6 +326,7 @@ class ControlTabListener:
         try:
             self._transport.open()
         except Exception as exc:
+            self._logger.error("Failed to open Control Tab serial port: %s", exc)
             print(json.dumps({"error": f"Failed to open Control Tab serial port: {exc}"}), flush=True)
             self._simulate_events()
             return
@@ -279,6 +343,7 @@ class ControlTabListener:
             self.stop()
 
     def stop(self) -> None:
+        self._logger.info("Control Tab listener stopping")
         self._stop_event.set()
         if self._dispatcher.is_alive():
             self._dispatcher.join(timeout=self._graceful_timeout)
@@ -290,9 +355,19 @@ class ControlTabListener:
             except queue.Empty:
                 continue
 
+            self._logger.debug(
+                "Dispatching event to backend: type=%s screen=%s panel=%s button=%s field=%s",
+                payload.get("type"),
+                payload.get("screen"),
+                payload.get("panel"),
+                payload.get("buttonId"),
+                payload.get("fieldId"),
+            )
+
             try:
                 response = self._sink.send(payload)
             except Exception as exc:  # pragma: no cover - protects runtime
+                self._logger.error("Backend dispatch failed: %s", exc)
                 print(json.dumps({"error": str(exc), "payload": payload}), flush=True)
                 time.sleep(self._retry_backoff)
                 continue
@@ -339,9 +414,44 @@ class ControlTabListener:
             frame = self._parse_frame(frame_str)
             if frame is None:
                 _debug_log({"dropped": frame_str})
+                self._logger.debug("Dropped unparsable frame: %s", frame_str)
                 continue
+
+            self._logger.info(
+                "RX frame screen=%d panel=%d event=%d payload=%s crc=%s",
+                frame.screen,
+                frame.panel,
+                frame.event_type,
+                frame.payload,
+                "ok" if frame.crc_valid else "invalid",
+            )
+
+            if not frame.crc_valid:
+                self._logger.warning(
+                    "CRC mismatch (provided=%s calculated=%s) for frame: %s",
+                    frame.crc_provided,
+                    frame.crc_calculated,
+                    frame.raw,
+                )
+                nack = self._build_ack(frame, 0)
+                self._write(nack)
+                continue
+
+            if frame.event_type == EVENT_TYPE_BUTTON and ControlTabFrame._parse_int(frame.payload) is None:
+                self._logger.warning("Invalid button payload '%s' – sending NACK", frame.payload)
+                nack = self._build_ack(frame, 0)
+                self._write(nack)
+                continue
+
+            if frame.event_type == EVENT_TYPE_TEXT and ControlTabFrame._parse_int(frame.payload.strip("?")) is None:
+                self._logger.warning("Invalid text field payload '%s' – sending NACK", frame.payload)
+                nack = self._build_ack(frame, 0)
+                self._write(nack)
+                continue
+
             payload = self._build_event_payload(frame)
             _debug_log({"parsed": payload})
+            self._logger.debug("Event payload: %s", json.dumps(payload, ensure_ascii=False))
             self._queue.put((frame, payload))
             if self._once:
                 self.stop()
@@ -349,6 +459,7 @@ class ControlTabListener:
 
     def _handle_response(self, frame: ControlTabFrame, response: dict[str, Any]) -> None:
         action = response.get("action", "ack")
+        self._logger.debug("Backend response (%s): %s", action, json.dumps(response, ensure_ascii=False))
         if action == "ack":
             ack = response.get("ack", {})
             status = int(bool(ack.get("status", True)))
@@ -371,10 +482,13 @@ class ControlTabListener:
             self._handle_control_data(control_data)
 
     def _write(self, message: str) -> None:
+        clean = message.strip()
         if self._simulation or self._transport is None:
-            print(json.dumps({"outgoing": message.strip()}), flush=True)
+            self._logger.info("TX (simulation): %s", clean)
+            print(json.dumps({"outgoing": clean}), flush=True)
             return
         self._transport.write(message)
+        self._logger.info("TX frame: %s", clean)
 
     def _handle_control_data(self, control: dict[str, Any]) -> None:
         animations = control.get("animations")
@@ -485,17 +599,13 @@ class ControlTabListener:
         return payload
 
     def _build_ack(self, frame: ControlTabFrame, status: int) -> str:
-        body = f"{frame.screen}:{frame.panel}:{frame.event_type}={status}"
-        crc = xor_crc(body)
-        return f"\n>>>:{frame.screen}:{frame.panel}:{frame.event_type}={status}>>{crc}<<<\n"
+        return build_ack_frame(frame.screen, frame.panel, frame.event_type, status)
 
     def _build_text(self, field_id: int, text: str) -> str:
-        safe_text = text.replace('"', "'")
-        body = f'TEXT:{field_id}:"{safe_text}"'
-        crc = xor_crc(body)
-        return f'\n>>>TEXT:{field_id}:"{safe_text}">>{crc}<<<\n'
+        return build_text_frame(field_id, text)
 
     def _simulate_events(self) -> None:
+        self._logger.info("Simulation mode active – emitting demo frames.")
         frames = [
             ControlTabFrame(
                 raw='<<<:1:1:2=1>>00<<<',
@@ -520,6 +630,7 @@ class ControlTabListener:
         ]
         for frame in frames:
             payload = self._build_event_payload(frame)
+            self._logger.debug("Simulation enqueue: %s", json.dumps(payload, ensure_ascii=False))
             self._queue.put((frame, payload))
             time.sleep(1.0)
             if self._once:
@@ -547,6 +658,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--artisan-path", default=os.getenv("ARTISAN_PATH", "artisan"))
     parser.add_argument("--artisan-command", default=os.getenv("CTAB_ARTISAN_COMMAND", "ctab:test-send"))
     parser.add_argument("--project-root", default=str(Path(__file__).resolve().parents[2]))
+    parser.add_argument("--log-file", default=os.getenv("CONTROL_TAB_LOG_FILE"))
     parser.add_argument("--once", action="store_true", help="Zpracuj první událost a ukonči se")
     return parser
 
@@ -555,10 +667,21 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
+    logger = configure_logging(args.log_file, DEBUG)
+    global LOGGER  # noqa: PLW0603
+    LOGGER = logger
+
     if getattr(args, "timeout_ms", None) is not None:
         args.timeout_serial = max(0.01, args.timeout_ms / 1000.0)
 
     project_root = Path(args.project_root).expanduser()
+
+    logger.info(
+        "Initialising Control Tab listener (port=%s, simulate=%s, webhook=%s)",
+        args.port,
+        args.simulate,
+        args.webhook,
+    )
 
     sink = BackendSink(
         args.webhook,
@@ -568,6 +691,7 @@ def main() -> None:
         artisan_path=args.artisan_path,
         artisan_command=args.artisan_command,
         project_root=project_root,
+        logger=logger,
     )
 
     transport: Optional[ControlTabSerial]
@@ -591,9 +715,11 @@ def main() -> None:
         graceful_timeout=args.graceful,
         retry_backoff=float(args.retry_backoff),
         once=bool(args.once),
+        logger=logger,
     )
 
     def handle_signal(signum, _frame):  # noqa: ANN001
+        logger.info("Received signal %s – shutting down Control Tab listener", signum)
         print(json.dumps({"signal": signum, "note": "Shutting down"}), flush=True)
         listener.stop()
 

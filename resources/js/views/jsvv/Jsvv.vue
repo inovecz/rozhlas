@@ -212,6 +212,9 @@ function resolveSlotForSymbol(symbol, audio) {
   if (!normalized) {
     return null;
   }
+  if (audio?.type === 'SOURCE') {
+    return normalized;
+  }
   if (/^\d+$/.test(normalized)) {
     return Number.parseInt(normalized, 10);
   }
@@ -237,7 +240,14 @@ function resolveSlotForSymbol(symbol, audio) {
 
 function normaliseCategory(category, audio) {
   const source = category ?? audio?.group ?? 'VERBAL';
-  return String(source).trim().toLowerCase() === 'siren' ? 'siren' : 'verbal';
+  const normalized = String(source).trim().toLowerCase();
+  if (normalized === 'siren') {
+    return 'siren';
+  }
+  if (normalized === 'audio' || normalized === 'source') {
+    return 'source';
+  }
+  return 'verbal';
 }
 
 function normaliseRepeat(value) {
@@ -255,11 +265,15 @@ function buildRequestItem(raw) {
     throw new Error('Sekvence obsahuje prázdný symbol.');
   }
   const audio = resolveAudioForSymbol(normalizedSymbol);
-  const slot = resolveSlotForSymbol(normalizedSymbol, audio);
-  if (slot == null) {
-    throw new Error(`Symbol ${normalizedSymbol} není přiřazen k žádnému slotu JSVV.`);
-  }
   const category = normaliseCategory(raw?.category, audio);
+  let slot = resolveSlotForSymbol(normalizedSymbol, audio);
+  if (slot == null) {
+    if (category === 'source') {
+      slot = normalizedSymbol;
+    } else {
+      throw new Error(`Symbol ${normalizedSymbol} není přiřazen k žádnému slotu JSVV.`);
+    }
+  }
   const repeat = normaliseRepeat(raw?.repeat);
   const item = {
     slot,
@@ -268,7 +282,7 @@ function buildRequestItem(raw) {
     symbol: normalizedSymbol,
   };
   const voice = raw?.voice ?? audio?.voice ?? audio?.default_voice;
-  if (voice && category !== 'siren') {
+  if (voice && category !== 'siren' && category !== 'source') {
     item.voice = voice;
   }
   return item;

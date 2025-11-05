@@ -149,6 +149,8 @@ class JsvvSequenceService extends Service
         ],
     ];
     private array $symbolSlotCache = [];
+    /** @var array<string, JsvvAudio|null> */
+    private array $audioCache = [];
 
     public function __construct(
         private readonly PythonClient $client = new PythonClient(),
@@ -187,10 +189,15 @@ class JsvvSequenceService extends Service
             ]);
 
             $totalEstimatedDuration = 0.0;
+            $resolvedPointer = 0;
 
             foreach ($normalizedItems as $index => $item) {
-                $cleanItem = $this->stripInternalKeys($item);
-                $resolved = $resolvedSequence[$index] ?? null;
+                $category = $item['category'] ?? 'verbal';
+                $resolved = null;
+                if ($category !== 'source') {
+                    $resolved = $resolvedSequence[$resolvedPointer] ?? null;
+                    $resolvedPointer++;
+                }
                 if ($resolved === null) {
                     Log::warning('JSVV sequence planning resolved metadata missing', [
                         'sequence_id' => $sequence->id,
@@ -198,11 +205,12 @@ class JsvvSequenceService extends Service
                         'item' => $item,
                     ]);
                 }
-                $originalRequest = $item['__source'] ?? ($items[$index] ?? $cleanItem);
+                $originalRequest = $item['__source'] ?? ($items[$index] ?? $item);
                 if (!is_array($originalRequest)) {
                     $originalRequest = (array) $originalRequest;
                 }
-                $metadata = $this->buildSequenceItemMetadata($cleanItem, $resolved, $originalRequest);
+                $metadata = $this->buildSequenceItemMetadata($item, $resolved, $originalRequest);
+                $cleanItem = $this->stripInternalKeys($item);
                 $repeat = (int) max(1, $cleanItem['repeat'] ?? 1);
                 $perItemDuration = $this->detectItemDurationSeconds($cleanItem['category'] ?? 'verbal', $metadata);
                 if ($perItemDuration !== null) {
@@ -555,6 +563,7 @@ class JsvvSequenceService extends Service
             $this->preemptActiveSession();
 
             $items = $sequence->sequenceItems()->orderBy('position')->get();
+            $sourceItems = $items->filter(static fn(JsvvSequenceItem $item): bool => $item->category === 'source')->values();
 
             if ($useLocalStream) {
                 $session = $this->orchestrator->start([
@@ -620,8 +629,21 @@ class JsvvSequenceService extends Service
             $actualDuration = 0.0;
 
             if ($useLocalStream) {
+                $sourceActivations = [];
                 foreach ($items as $item) {
                     $this->refreshActiveSequenceLock($sequence->id);
+                    if ($item->category === 'source') {
+                        $this->activateSourceSequenceItem(
+                            $item,
+                            $sequence,
+                            $options,
+                            $route,
+                            $zones,
+                            $locations,
+                            $sourceActivations
+                        );
+                        continue;
+                    }
                     $actualDuration += $this->playLocalSequenceItem($item);
                 }
 
@@ -647,6 +669,22 @@ class JsvvSequenceService extends Service
                     ]);
                 }
                 $remoteStreamStarted = false;
+
+                if ($sourceItems->isNotEmpty()) {
+                    $sourceActivations = [];
+                    foreach ($sourceItems as $sourceItem) {
+                        $this->refreshActiveSequenceLock($sequence->id);
+                        $this->activateSourceSequenceItem(
+                            $sourceItem,
+                            $sequence,
+                            $options,
+                            $route,
+                            $zones,
+                            $locations,
+                            $sourceActivations
+                        );
+                    }
+                }
             }
 
             $sequence->update([
@@ -891,6 +929,13 @@ class JsvvSequenceService extends Service
                 ? strtoupper(trim((string) $rawItem['symbol']))
                 : $symbolString;
 
+            $audio = $this->getAudioBySymbol($normalizedSymbol);
+            $audioType = $audio?->getType()?->value;
+            $audioSource = $audio?->getSource()?->value;
+            if ($audioType === 'SOURCE') {
+                $category = 'source';
+            }
+
             $item = [
                 'slot' => $slot,
                 'category' => $category,
@@ -898,6 +943,13 @@ class JsvvSequenceService extends Service
                 'symbol' => $normalizedSymbol,
                 '__source' => $rawItem,
             ];
+
+            if ($audioType !== null) {
+                $item['__jsvv_audio_type'] = $audioType;
+            }
+            if ($audioSource !== null) {
+                $item['__jsvv_audio_source'] = $audioSource;
+            }
 
             $originalSymbol = $this->resolveOriginalSymbol($item, $rawItem);
             if ($originalSymbol !== null) {
@@ -1031,6 +1083,10 @@ class JsvvSequenceService extends Service
 
         foreach ($items as $item) {
             if (!$item instanceof JsvvSequenceItem) {
+                continue;
+            }
+
+            if ($item->category === 'source') {
                 continue;
             }
 
@@ -1326,6 +1382,13 @@ class JsvvSequenceService extends Service
         return null;
     }
 
+    private function assignVirtualSlot(string $symbol): int
+    {
+        $base = 10_000;
+        $hash = (int) (abs(crc32($symbol)) % 8_000);
+        return $base + $hash + 1;
+    }
+
     private function normalizeOptionalFloat(mixed $value): ?float
     {
         if ($value === null || $value === '') {
@@ -1482,7 +1545,18 @@ class JsvvSequenceService extends Service
         $response = null;
 
         while (true) {
-            $plannerItems = $this->stripInternalKeysFromItems($items);
+            $planCandidates = array_values(array_filter(
+                $items,
+                static function (array $item): bool {
+                    $category = strtolower((string) ($item['category'] ?? ''));
+                    return $category !== 'source';
+                }
+            ));
+            $plannerItems = $this->stripInternalKeysFromItems($planCandidates);
+            if ($plannerItems === []) {
+                $response = ['json' => ['data' => ['sequence' => []]]];
+                break;
+            }
             $response = $this->client->planJsvvSequence($plannerItems, $options);
             $data = $response['json']['data'] ?? $response['json'] ?? [];
             if (($data['status'] ?? null) !== 'error') {
@@ -1548,7 +1622,7 @@ class JsvvSequenceService extends Service
 
     private function stripInternalKeys(array $item): array
     {
-        unset($item['__source']);
+        unset($item['__source'], $item['__jsvv_audio_type'], $item['__jsvv_audio_source']);
         return $item;
     }
 
@@ -1591,9 +1665,12 @@ class JsvvSequenceService extends Service
             return $this->symbolSlotCache[$symbol];
         }
 
-        /** @var JsvvAudio|null $audio */
-        $audio = JsvvAudio::query()->with('file')->find($symbol);
+        $audio = $this->getAudioBySymbol($symbol);
         $slotValue = $audio === null ? null : $this->extractSlotFromAudio($audio);
+
+        if (($slotValue === null || $slotValue <= 0) && $audio !== null && $audio->getType()?->value === 'SOURCE') {
+            $slotValue = $this->assignVirtualSlot($symbol);
+        }
 
         if ($slotValue === null || $slotValue <= 0) {
             throw new InvalidArgumentException(sprintf('Symbol %s nelze převést na číselný slot (položka #%d).', $symbol, $index + 1));
@@ -1628,10 +1705,32 @@ class JsvvSequenceService extends Service
         return null;
     }
 
+    private function getAudioBySymbol(string $symbol): ?JsvvAudio
+    {
+        $normalized = strtoupper(trim($symbol));
+        if ($normalized === '') {
+            return null;
+        }
+
+        if (array_key_exists($normalized, $this->audioCache)) {
+            return $this->audioCache[$normalized];
+        }
+
+        return $this->audioCache[$normalized] = JsvvAudio::query()
+            ->with('file')
+            ->find($normalized);
+    }
+
     private function normalizeCategory(mixed $category): string
     {
         $value = is_string($category) ? strtolower($category) : '';
-        return $value === 'siren' ? 'siren' : 'verbal';
+        if ($value === 'siren') {
+            return 'siren';
+        }
+        if (in_array($value, ['source', 'audio'], true)) {
+            return 'source';
+        }
+        return 'verbal';
     }
 
     /**
@@ -1696,7 +1795,7 @@ class JsvvSequenceService extends Service
 
     private function normalizeVoice(mixed $voice, string $category): ?string
     {
-        if ($category === 'siren') {
+        if (in_array($category, ['siren', 'source'], true)) {
             return null;
         }
 
@@ -1796,6 +1895,129 @@ class JsvvSequenceService extends Service
         return $totalDuration;
     }
 
+    /**
+     * @param array<string, mixed> $options
+     * @param array<string, mixed> $route
+     * @param array<int, int> $zones
+     * @param array<int, int> $locations
+     * @param array<string, mixed> $activations
+     */
+    private function activateSourceSequenceItem(
+        JsvvSequenceItem $item,
+        JsvvSequence $sequence,
+        array $options,
+        array $route,
+        array $zones,
+        array $locations,
+        array &$activations
+    ): void {
+        $metadata = $item->metadata ?? [];
+        $sourceId = strtoupper((string) Arr::get($metadata, 'source', ''));
+        if ($sourceId === '') {
+            Log::warning('JSVV source item skipped due to missing source metadata', [
+                'sequence_id' => $sequence->id,
+                'sequence_item_id' => $item->id,
+                'metadata' => $metadata,
+            ]);
+            return;
+        }
+
+        if (isset($activations[$sourceId])) {
+            Log::info('JSVV source item already activated – skipping duplicate trigger', [
+                'sequence_id' => $sequence->id,
+                'sequence_item_id' => $item->id,
+                'source' => $sourceId,
+            ]);
+            return;
+        }
+
+        $orchestratorSource = $this->mapJsvvAudioSourceToOrchestrator($sourceId);
+        if ($orchestratorSource === null) {
+            Log::warning('JSVV source item references unsupported source', [
+                'sequence_id' => $sequence->id,
+                'sequence_item_id' => $item->id,
+                'source' => $sourceId,
+            ]);
+            return;
+        }
+
+        $payloadOptions = $this->buildSourceActivationOptions($sequence, $options, $metadata, $orchestratorSource, $sourceId);
+
+        try {
+            $result = $this->orchestrator->start([
+                'source' => $orchestratorSource,
+                'route' => $route,
+                'zones' => $zones,
+                'locations' => $locations,
+                'options' => $payloadOptions,
+            ]);
+            $activations[$sourceId] = [
+                'result' => $result,
+                'started_at' => now()->toIso8601String(),
+                'sequence_item_id' => $item->id,
+            ];
+
+            $this->logSequenceEvent($sequence, 'source_activated', [
+                'source' => $orchestratorSource,
+                'jsvv_source' => $sourceId,
+                'sequence_item_id' => $item->id,
+            ]);
+        } catch (Throwable $exception) {
+            Log::error('JSVV live source activation failed', [
+                'sequence_id' => $sequence->id,
+                'sequence_item_id' => $item->id,
+                'source' => $sourceId,
+                'error' => $exception->getMessage(),
+            ]);
+            throw new RuntimeException(
+                'Nepodařilo se aktivovat živé vysílání pro zdroj ' . $sourceId . '.',
+                0,
+                $exception
+            );
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $baseOptions
+     * @param array<string, mixed> $metadata
+     */
+    private function buildSourceActivationOptions(
+        JsvvSequence $sequence,
+        array $baseOptions,
+        array $metadata,
+        string $orchestratorSource,
+        string $jsvvSource
+    ): array {
+        $options = Arr::except($baseOptions, ['plannedDuration']);
+        $options['jsvv_sequence_id'] = $sequence->id;
+        $options['origin'] = $options['origin'] ?? 'jsvv_sequence';
+        $options['jsvv_source'] = $jsvvSource;
+        $options['jsvv_source_symbol'] = Arr::get($metadata, 'symbol', $jsvvSource);
+        $options['jsvv_source_category'] = $orchestratorSource;
+        $options['autoTimeoutOverride'] = $options['autoTimeoutOverride'] ?? true;
+
+        return $options;
+    }
+
+    private function mapJsvvAudioSourceToOrchestrator(string $source): ?string
+    {
+        $normalized = strtoupper($source);
+
+        return match ($normalized) {
+            'MIC' => 'microphone',
+            'FM' => 'fm_radio',
+            'INPUT_1' => 'input_1',
+            'INPUT_2' => 'input_2',
+            'INPUT_3' => 'input_3',
+            'INPUT_4' => 'input_4',
+            'INPUT_5' => 'input_5',
+            'INPUT_6' => 'input_6',
+            'INPUT_7' => 'input_7',
+            'INPUT_8' => 'input_8',
+            default => null,
+        };
+    }
+
     private function applyLocalGapDelay(JsvvSequence $sequence): float
     {
         $options = $sequence->options ?? [];
@@ -1842,6 +2064,17 @@ class JsvvSequenceService extends Service
         }
 
         $metadata['request'] = $requestPayload;
+
+        $normalizedCategory = strtolower((string) ($normalizedItem['category'] ?? ''));
+        if ($normalizedCategory === 'source') {
+            $metadata['category'] = 'source';
+            $metadata['type'] = 'source';
+            $sourceId = $normalizedItem['__jsvv_audio_source'] ?? ($metadata['source'] ?? Arr::get($originalRequest, 'source'));
+            if (is_string($sourceId) && $sourceId !== '') {
+                $metadata['source'] = strtoupper($sourceId);
+            }
+            return $metadata;
+        }
 
         $symbolForMapping = $metadata['symbol'] ?? ($normalizedItem['symbol'] ?? null);
         $dtrxMapping = $this->resolveDtrxMapping($symbolForMapping);
@@ -1927,12 +2160,11 @@ class JsvvSequenceService extends Service
 
         $lookupSymbol = $symbol;
 
-        /** @var JsvvAudio|null $audio */
-        $audio = JsvvAudio::query()->with('file')->find($lookupSymbol);
+        $audio = $this->getAudioBySymbol($lookupSymbol);
         if ($audio === null && !ctype_digit($lookupSymbol)) {
             try {
                 $numeric = $this->resolveSlotValue($lookupSymbol, 0, $lookupSymbol);
-                $audio = JsvvAudio::query()->with('file')->find((string) $numeric);
+                $audio = $this->getAudioBySymbol((string) $numeric);
             } catch (\Throwable) {
                 $audio = null;
             }
@@ -2029,7 +2261,12 @@ class JsvvSequenceService extends Service
         $defaults = config('jsvv.sequence.default_durations', []);
         $fallback = (float) ($defaults['fallback'] ?? 10.0);
 
-        return match (strtolower($category)) {
+        $normalizedCategory = strtolower($category);
+        if ($normalizedCategory === 'source') {
+            return null;
+        }
+
+        return match ($normalizedCategory) {
             'siren' => (float) ($defaults['siren'] ?? $fallback),
             'verbal' => (float) ($defaults['verbal'] ?? $fallback),
             default => $fallback,
@@ -2064,6 +2301,10 @@ class JsvvSequenceService extends Service
 
     private function ensureItemDuration(JsvvSequenceItem $item): float
     {
+        if ($item->category === 'source') {
+            return 0.0;
+        }
+
         $metadata = $item->metadata ?? [];
         $duration = Arr::get($metadata, 'duration_seconds');
         if (!is_numeric($duration) || (float) $duration <= 0) {
@@ -2159,6 +2400,7 @@ class JsvvSequenceService extends Service
             'started' => 'JSVV sekvence spuštěna',
             'completed' => 'JSVV sekvence dokončena',
             'failed' => 'JSVV sekvence selhala',
+            'source_activated' => 'JSVV zdroj aktivován',
             default => 'JSVV sekvence ' . $event,
         } . ' #' . $sequence->id;
     }
@@ -2170,6 +2412,7 @@ class JsvvSequenceService extends Service
             'started' => sprintf('Sekvence (priorita %s) byla spuštěna. Režim přehrávání: %s.', $priority, $playbackMode),
             'completed' => sprintf('Sekvence (priorita %s) doběhla do konce. Režim přehrávání: %s.', $priority, $playbackMode),
             'failed' => sprintf('Sekvence (priorita %s) byla přerušena nebo selhala. Režim přehrávání: %s.', $priority, $playbackMode),
+            'source_activated' => sprintf('Sekvence (priorita %s) aktivovala živý zdroj. Režim přehrávání: %s.', $priority, $playbackMode),
             default => sprintf('Sekvence (priorita %s) změnila stav na %s. Režim: %s.', $priority, $event, $playbackMode),
         };
     }
