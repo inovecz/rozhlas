@@ -21,6 +21,17 @@ use Illuminate\Support\Facades\Log;
 class ControlTabService extends Service
 {
     private const SELECTED_ALARM_CACHE_KEY = 'control_tab:selected_jsvv_alarm';
+    private const CONTROL_TO_JSVV_BUTTON_MAP = [
+        2 => 1,
+        3 => 5,
+        4 => 2,
+        5 => 3,
+        6 => 4,
+        7 => 8,
+        8 => 7,
+        17 => 6,
+    ];
+    private const LAST_TRIGGERED_JSVV_CACHE_KEY = 'control_tab:last_jsvv_alarm';
 
     public function __construct(
         private readonly StreamOrchestrator $orchestrator = new StreamOrchestrator(),
@@ -33,6 +44,26 @@ class ControlTabService extends Service
     public function handleButtonPress(int $buttonId, array $context = []): array
     {
         $context['button_id'] = $buttonId;
+
+        if ($buttonId === 18) {
+            return $this->cancelSelectedJsvvAlarm();
+        }
+
+        if ($buttonId === 9) {
+            return $this->confirmSelectedJsvvAlarm();
+        }
+
+        if (in_array($buttonId, [10, 15], true)) {
+            $stopResult = $this->stopCachedJsvvAlarm();
+            if ($stopResult !== null) {
+                return $stopResult;
+            }
+        }
+
+        if (array_key_exists($buttonId, self::CONTROL_TO_JSVV_BUTTON_MAP)) {
+            return $this->selectConfiguredJsvvAlarm(self::CONTROL_TO_JSVV_BUTTON_MAP[$buttonId], $buttonId);
+        }
+
         $mapping = $this->resolveButtonMapping($buttonId, $context);
 
         if ($mapping === null) {
@@ -63,6 +94,31 @@ class ControlTabService extends Service
 
     private function resolveButtonMapping(int $buttonId, array &$context): ?array
     {
+        $mappedJsvvButton = $this->translateJsvvButton($buttonId);
+        $isMappedButton = array_key_exists($buttonId, self::CONTROL_TO_JSVV_BUTTON_MAP);
+
+        $mapping = $this->buttonMappings->find($buttonId);
+        if ($mapping === null && $isMappedButton) {
+            $mapping = $this->buttonMappings->find($mappedJsvvButton);
+        }
+
+        if ($mapping !== null) {
+            return $this->applyJsvvButtonMapping($mapping);
+        }
+
+        if ($isMappedButton) {
+            $mappedAlarm = JsvvAlarm::query()->where('button', $mappedJsvvButton)->first();
+            if ($mappedAlarm !== null) {
+                $context['jsvv_alarm'] = $mappedAlarm;
+
+                return [
+                    'action' => 'select_jsvv_alarm',
+                    'button' => $mappedAlarm->getButton(),
+                    'label' => $mappedAlarm->getName(),
+                ];
+            }
+        }
+
         $alarm = JsvvAlarm::query()->where('button', $buttonId)->first();
         if ($alarm !== null) {
             $context['jsvv_alarm'] = $alarm;
@@ -74,13 +130,7 @@ class ControlTabService extends Service
             ];
         }
 
-        $mapping = $this->buttonMappings->find($buttonId);
-
-        if ($mapping === null) {
-            return null;
-        }
-
-        return $mapping;
+        return null;
     }
 
     public function handlePanelLoaded(int $screen, int $panel): array
@@ -794,6 +844,215 @@ class ControlTabService extends Service
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $mapping
+     * @return array<string, mixed>
+     */
+    private function applyJsvvButtonMapping(array $mapping): array
+    {
+        $action = strtolower((string) ($mapping['action'] ?? ''));
+
+        if (!in_array($action, ['trigger_jsvv_alarm', 'select_jsvv_alarm', 'trigger_selected_jsvv_alarm'], true)) {
+            return $mapping;
+        }
+
+        foreach (['button', 'fallback_button'] as $key) {
+            if (!array_key_exists($key, $mapping)) {
+                continue;
+            }
+            $mapped = $this->translateJsvvButton((int) $mapping[$key]);
+            if ($mapped > 0) {
+                $mapping[$key] = $mapped;
+            }
+        }
+
+        return $mapping;
+    }
+
+    private function selectConfiguredJsvvAlarm(int $button, int $sourceButton): array
+    {
+        $alarm = JsvvAlarm::query()->where('button', $button)->first();
+        if ($alarm === null) {
+            return [
+                'status' => 'error',
+                'message' => sprintf('Poplach pro tlačítko %d není nakonfigurován.', $button),
+            ];
+        }
+
+        $label = $alarm->getName() ?? sprintf('JSVV poplach %d', $button);
+
+        Cache::put(
+            self::SELECTED_ALARM_CACHE_KEY,
+            [
+                'button' => $button,
+                'label' => $label,
+                'source_button' => $sourceButton,
+            ],
+            now()->addMinutes(10)
+        );
+
+        Log::info('Control Tab: selected JSVV alarm', [
+            'source_button' => $sourceButton,
+            'button' => $button,
+            'label' => $label,
+        ]);
+
+        return [
+            'status' => 'ok',
+            'message' => sprintf('Poplach "%s" byl vybrán. Stiskněte "Spustit poplach".', $label),
+            'selected_button' => $button,
+        ];
+    }
+
+    private function confirmSelectedJsvvAlarm(): array
+    {
+        $selected = $this->resolveSelectedAlarm();
+        if ($selected === null) {
+            return [
+                'status' => 'idle',
+                'message' => 'Nejprve vyberte poplach.',
+            ];
+        }
+
+        $button = (int) ($selected['button'] ?? 0);
+        if ($button <= 0) {
+            Cache::forget(self::SELECTED_ALARM_CACHE_KEY);
+            return [
+                'status' => 'error',
+                'message' => 'Vybraný poplach je neplatný.',
+            ];
+        }
+
+        $sourceButton = isset($selected['source_button']) ? (int) $selected['source_button'] : null;
+        $result = $this->triggerConfiguredJsvvAlarm($button, $sourceButton);
+
+        if (($result['status'] ?? null) !== 'error') {
+            Cache::forget(self::SELECTED_ALARM_CACHE_KEY);
+        }
+
+        return $result;
+    }
+
+    private function cancelSelectedJsvvAlarm(): array
+    {
+        Cache::forget(self::SELECTED_ALARM_CACHE_KEY);
+
+        Log::info('Control Tab: JSVV selection cancelled');
+
+        return [
+            'status' => 'ok',
+            'message' => 'Výběr poplachu byl zrušen.',
+        ];
+    }
+
+    private function triggerConfiguredJsvvAlarm(int $button, ?int $sourceButton = null): array
+    {
+        $alarm = JsvvAlarm::query()->where('button', $button)->first();
+        if ($alarm === null) {
+            return [
+                'status' => 'error',
+                'message' => sprintf('Poplach pro tlačítko %d není nakonfigurován.', $button),
+            ];
+        }
+
+        $sequence = (string) $alarm->getSequence();
+        if (trim($sequence) === '') {
+            return [
+                'status' => 'error',
+                'message' => 'Poplach nemá definovanou sekvenci.',
+            ];
+        }
+
+        $label = $alarm->getName() ?? sprintf('JSVV poplach %d', $button);
+
+        $options = [];
+        if (isset($alarm->priority) && $alarm->priority !== null && $alarm->priority !== '') {
+            $options['priority'] = $alarm->priority;
+        } else {
+            $options['priority'] = 'P2';
+        }
+        if (isset($alarm->zones) && is_array($alarm->zones) && $alarm->zones !== []) {
+            $options['zones'] = $alarm->zones;
+        }
+
+        try {
+        Log::info('Control Tab: triggering configured JSVV alarm', [
+            'source_button' => $sourceButton,
+            'button' => $button,
+            'label' => $label,
+            'sequence' => $sequence,
+            'options' => $options,
+        ]);
+
+        $result = $this->jsvvSequenceService->dispatchImmediateSequenceString($sequence, $options);
+
+        Cache::put(
+            self::LAST_TRIGGERED_JSVV_CACHE_KEY,
+            [
+                'button' => $button,
+                'label' => $label,
+                'sequence' => $sequence,
+                'options' => $options,
+                'source_button' => $sourceButton,
+                'started_at' => now()->toIso8601String(),
+            ],
+            now()->addMinutes(10)
+        );
+
+        return [
+            'status' => $result['status'] ?? 'running',
+            'message' => sprintf('Poplach "%s" byl spuštěn.', $label),
+            'sequence' => $result,
+            ];
+        } catch (\Throwable $exception) {
+            Log::error('Control Tab: failed to trigger configured JSVV alarm', [
+                'source_button' => $sourceButton,
+                'button' => $button,
+                'label' => $label,
+                'sequence' => $sequence,
+                'error' => $exception->getMessage(),
+            ]);
+
+            return [
+                'status' => 'error',
+                'message' => sprintf('Poplach "%s" se nepodařilo spustit.', $label),
+            ];
+        }
+    }
+
+    private function translateJsvvButton(int $controlButton): int
+    {
+        return self::CONTROL_TO_JSVV_BUTTON_MAP[$controlButton] ?? $controlButton;
+    }
+
+    private function stopCachedJsvvAlarm(): ?array
+    {
+        $active = Cache::get(self::LAST_TRIGGERED_JSVV_CACHE_KEY);
+        if (!is_array($active) || ($active['sequence'] ?? '') === '') {
+            return null;
+        }
+
+        try {
+            Log::info('Control Tab: stopping configured JSVV alarm', $active);
+            $stopResult = $this->jsvvSequenceService->sendImmediateStop();
+
+            Cache::forget(self::LAST_TRIGGERED_JSVV_CACHE_KEY);
+
+            return [
+                'status' => 'stopped',
+                'message' => 'Poplach JSVV byl zastaven.',
+                'result' => $stopResult,
+            ];
+        } catch (\Throwable $exception) {
+            Log::error('Control Tab: failed to stop configured JSVV alarm', [
+                'active' => $active,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+
+        return $this->stopStream();
     }
 
     private function renderStatusSummary(): string

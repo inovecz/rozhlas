@@ -2504,8 +2504,17 @@ class JsvvSequenceService extends Service
             static fn($value) => $value !== null
         );
 
-        $settings = app(JsvvSettings::class);
-        $locationGroupId = $settings->locationGroupId;
+        try {
+            /** @var JsvvSettings $settings */
+            $settings = app(JsvvSettings::class);
+            $locationGroupId = $settings->locationGroupId;
+        } catch (\Throwable $exception) {
+            Log::warning('JSVV settings missing; using default location fallback.', [
+                'error' => $exception->getMessage(),
+            ]);
+            $locationGroupId = null;
+        }
+
         if ($locationGroupId !== null) {
             $locations[] = (int) $locationGroupId;
         } elseif ($locations === []) {

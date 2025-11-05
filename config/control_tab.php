@@ -56,9 +56,8 @@ return [
             'label' => 'Zkouška sirén',
         ],
         3 => [
-            'action' => 'select_jsvv_alarm',
-            'button' => 3,
-            'label' => 'Chemická havárie',
+            'action' => 'ack_message',
+            'message' => 'Vyberte „Spustit přímé hlášení“ v dalším kroku.',
         ],
         4 => [
             'action' => 'select_jsvv_alarm',
@@ -84,16 +83,8 @@ return [
             'success_message' => 'Poplach JSVV byl zastaven.',
         ],
         9 => [
-            'action' => 'start_stream',
-            'source' => 'microphone',
-            'volume' => 70,
-            'options' => [
-                'audioInputId' => (string) env('CONTROL_TAB_MIXER_INPUT', 'mic'),
-                'audioOutputId' => (string) env('CONTROL_TAB_MIXER_OUTPUT', 'lineout'),
-                'volume' => 70,
-            ],
-            'locations' => [(int) env('CONTROL_TAB_DEFAULT_LOCATION_GROUP_ID', 1)],
-            'success_message' => 'Přímé hlášení bylo spuštěno.',
+            'action' => 'ack_message',
+            'message' => 'Zvolte „Spustit přímé hlášení“ na další obrazovce.',
         ],
         10 => [
             'action' => 'stop_stream',
@@ -101,11 +92,15 @@ return [
             'idle_message' => 'Žádné vysílání neběží.',
         ],
         11 => [
-            'action' => 'start_or_trigger_selected_jsvv_alarm',
+            'action' => 'start_stream',
             'source' => 'microphone',
             'options' => [
+                'audioInputId' => (string) env('CONTROL_TAB_MIXER_INPUT', 'mic'),
+                'audioOutputId' => (string) env('CONTROL_TAB_MIXER_OUTPUT', 'lineout'),
+                'volume' => (float) env('CONTROL_TAB_MIXER_VOLUME', 70),
                 'origin' => 'prime_hlaseni',
             ],
+            'volume' => (float) env('CONTROL_TAB_MIXER_VOLUME', 70),
             'locations' => [(int) env('CONTROL_TAB_DEFAULT_LOCATION_GROUP_ID', 1)],
             'success_message' => 'Přímé hlášení bylo spuštěno.',
         ],
@@ -115,9 +110,8 @@ return [
             'idle_message' => 'Žádné vysílání neběží.',
         ],
         13 => [
-            'action' => 'trigger_selected_jsvv_alarm',
-            'fallback_button' => 2,
-            'label' => 'Poplach JSVV',
+            'action' => 'ack_message',
+            'message' => 'Funkce „Ostatní“ není v této verzi dostupná.',
         ],
         14 => [
             'action' => 'ack_message',
@@ -138,9 +132,8 @@ return [
             'label' => 'Radiační poplach',
         ],
         18 => [
-            'action' => 'cancel_selection_stop_stream',
-            'success_message' => 'Výběr poplachu byl zrušen a přímé hlášení bylo ukončeno.',
-            'idle_message' => 'Výběr poplachu byl zrušen. Žádné vysílání neběží.',
+            'action' => 'cancel_selection',
+            'success_message' => 'Výběr poplachu byl zrušen.',
         ],
         19 => [
             'action' => 'ack_message',
